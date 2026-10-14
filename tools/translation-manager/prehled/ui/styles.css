@@ -20,6 +20,10 @@
   --warn-bg: rgba(227, 178, 79, 0.14);
   --bad: #ef6f77;
   --bad-bg: rgba(239, 111, 119, 0.15);
+  --proof: #b99cff;
+  --proof-bg: rgba(185, 156, 255, 0.16);
+  --choice: #ff9d6c;
+  --choice-bg: rgba(255, 157, 108, 0.15);
   --radius: 8px;
   --mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
   --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -39,7 +43,8 @@ button { cursor: pointer; }
 /* ---------- shell */
 #app { height: 100%; display: grid; grid-template-rows: auto auto 1fr auto; }
 .topbar { display: flex; align-items: center; gap: 10px; padding: 8px 14px; background: var(--panel); border-bottom: 1px solid var(--line); }
-.brand { font-weight: 650; letter-spacing: .01em; margin-right: 4px; white-space: nowrap; }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 650; letter-spacing: .01em; margin-right: 4px; white-space: nowrap; }
+.brand img { height: 30px; width: auto; }
 .project-chip { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 4px 6px 4px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel-2); max-width: 46vw; }
 .project-chip span { overflow-wrap: anywhere; font-size: 12.5px; color: var(--muted); max-height: 2.9em; overflow: hidden; }
 .spacer { flex: 1; }
@@ -81,7 +86,8 @@ input[type=checkbox] { accent-color: var(--accent); width: 15px; height: 15px; }
 .chip.translated, .chip.done { background: var(--good-bg); color: var(--good); }
 .chip.approved, .chip.tr { background: var(--info-bg); color: var(--info); }
 .chip.todo, .chip.wip { background: var(--warn-bg); color: var(--warn); }
-.chip.rev { background: var(--accent-bg); color: var(--accent); }
+.chip.rev, .chip.proof { background: var(--proof-bg); color: var(--proof); }
+.chip.choice { background: var(--choice-bg); color: var(--choice); }
 .chip.none, .chip.planned { border-color: var(--line-2); color: var(--muted); }
 .chip.error { background: var(--bad-bg); color: var(--bad); }
 .chip.warning { background: var(--warn-bg); color: var(--warn); }
@@ -102,7 +108,7 @@ input[type=checkbox] { accent-color: var(--accent); width: 15px; height: 15px; }
 .stat .sub { color: var(--muted); font-size: 12.5px; margin-top: 6px; }
 .bar { height: 7px; border-radius: 99px; background: var(--raise); overflow: hidden; min-width: 40px; }
 .bar > i { display: block; height: 100%; background: var(--good); border-radius: 99px; }
-.bar.alt > i { background: var(--accent); }
+.bar.alt > i { background: var(--proof); }
 .bar.warn > i { background: var(--warn); }
 .empty { padding: 28px 16px; text-align: center; color: var(--muted); }
 .empty b { display: block; color: var(--text); margin-bottom: 4px; }
@@ -231,3 +237,30 @@ td .reason { color: var(--muted); font-size: 12.5px; }
   .split.rows { grid-template-rows: minmax(0, 1fr) minmax(120px, 40vh); }
   .search { width: 180px; }
 }
+
+/* proofreading */
+.proofbox { margin: 10px 0; padding: 10px 12px; border: 1px solid var(--line-2); border-radius: var(--radius); background: var(--panel-2); }
+.proofbox .row { margin-bottom: 6px; }
+.proofbox textarea { background: var(--bg); resize: vertical; }
+.stat a { color: var(--accent); }
+
+/* links in the top bar */
+.links { display: flex; gap: 4px; }
+.iconlink { display: inline-flex; align-items: center; gap: 6px; padding: 4px 9px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel-2); color: var(--muted); font-size: 12.5px; }
+.iconlink svg { width: 15px; height: 15px; }
+.iconlink:hover { color: var(--text); border-color: var(--accent); }
+.iconlink[data-link="kofi"]:hover { color: #ff7a7a; border-color: #ff7a7a; }
+@media (max-width: 1100px) { .iconlink span { display: none; } }
+
+/* season blocks: translation + proofreading */
+.season-stats { display: flex; gap: 22px; align-items: center; }
+.season-stats .st { text-align: right; min-width: 108px; }
+.season-stats .st .lbl { display: block; color: var(--muted); font-size: 11.5px; letter-spacing: .06em; text-transform: uppercase; }
+.season-stats .st b { font-size: 16px; font-variant-numeric: tabular-nums; }
+.season-stats .st.pr b { color: var(--proof); }
+.ep-row .bars { display: grid; gap: 4px; }
+.ep-row .pcts { display: grid; gap: 1px; font-variant-numeric: tabular-nums; font-size: 12.5px; }
+.ep-row .pcts .pr { color: var(--proof); }
+.ep-row { grid-template-columns: 86px minmax(120px, 1fr) 150px 190px 130px; }
+.ep-row .bars .bar { height: 6px; }
+.seasonbars { padding: 10px 14px 4px; display: grid; gap: 6px; }

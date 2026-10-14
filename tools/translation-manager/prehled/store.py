@@ -4,6 +4,7 @@
   prirazeni.csv  soubor;zarazeni                        file -> 'Obecné' | 'Epizoda N'
   schvaleno.csv  soubor;blok;original                   manually approved pending lines
   epizody.csv    epizoda;stav                           hand-set episode status
+  korektura_radky.csv  soubor;blok;original;stav;hash;poznamka;datum   per-line proofreading marks
   historie.csv   see history.py
 
 Formats are unchanged, so existing data keeps working and can still be edited in Excel.
@@ -11,16 +12,23 @@ Every write is atomic and backed up (<data dir>/backups). Mutations go through `
 which keeps an undo stack of the most recent changes.
 """
 import copy
+import hashlib
+from datetime import date
 from pathlib import Path
 
 from .seasons import ACTIVE_EPISODES
 from .util import WriteFailed, fold, norm_ws, read_rows, write_csv
 
-EP_STATES = [("none", "Nezačato"), ("wip", "Rozpracováno"), ("tr", "Přeloženo"), ("done", "Hotovo")]
+EP_STATES = [("none", "Nezačato"), ("wip", "Rozpracováno"), ("tr", "Přeloženo"), ("proof", "V korekci"), ("done", "Hotovo")]
 YES_WORDS = {"ano", "a", "x", "hotovo", "ok", "yes", "y", "1x"}
 UNDO_LIMIT = 30
 
-KINDS = ("corr", "assign", "approved", "episodes")
+KINDS = ("corr", "assign", "approved", "episodes", "proof")
+
+
+def text_hash(text):
+    """Short fingerprint of a translation; a proofread mark is only valid while it still matches."""
+    return hashlib.sha1((text or "").encode("utf-8")).hexdigest()[:12]
 
 
 def parse_value(value, total):
@@ -84,6 +92,7 @@ class Store:
         self.assign = {}     # name -> '' | 'gen' | 'ep:N'
         self.approved = {}   # name -> {(block, normalized source)}
         self.episodes = {}   # episode number -> state key
+        self.proof = {}      # name -> {(block, normalized source): {"s": "ok"|"fix", "h": hash, "n": note, "d": date}}
         self.undo_stack = []
         self.unsaved = set()  # kinds whose last save failed
         self.warnings = []
@@ -91,7 +100,8 @@ class Store:
     # ------------------------------------------------------------ paths
     def path(self, kind):
         return self.dir / {"corr": "korekce.csv", "assign": "prirazeni.csv",
-                           "approved": "schvaleno.csv", "episodes": "epizody.csv"}[kind]
+                           "approved": "schvaleno.csv", "episodes": "epizody.csv",
+                           "proof": "korektura_radky.csv"}[kind]
 
     # ------------------------------------------------------------ load
     def load(self):
@@ -123,6 +133,13 @@ class Store:
         for r in read_rows(self.path("approved"))[1:]:
             if len(r) >= 3 and r[0]:
                 self.approved.setdefault(r[0], set()).add((r[1], norm_ws(r[2])))
+
+    def _load_proof(self):
+        self.proof = {}
+        for r in read_rows(self.path("proof"))[1:]:
+            if len(r) >= 5 and r[0] and r[3] in ("ok", "fix"):
+                self.proof.setdefault(r[0], {})[(r[1], norm_ws(r[2]))] = {
+                    "s": r[3], "h": r[4], "n": r[5] if len(r) > 5 else "", "d": r[6] if len(r) > 6 else ""}
 
     def _load_episodes(self):
         names = {}
@@ -162,6 +179,13 @@ class Store:
         data = sorted((f, b, o) for f, keys in self.approved.items() for b, o in keys)
         write_csv(self.path("approved"), [["soubor", "blok", "original"]] + [list(r) for r in data],
                   self.backups)
+
+    def _save_proof(self):
+        rows = [["soubor", "blok", "original", "stav", "hash", "poznamka", "datum"]]
+        for f in sorted(self.proof, key=str.lower):
+            for (b, o), m in sorted(self.proof[f].items()):
+                rows.append([f, b, o, m["s"], m.get("h", ""), m.get("n", ""), m.get("d", "")])
+        write_csv(self.path("proof"), rows, self.backups)
 
     def _save_episodes(self):
         labels = dict(EP_STATES)

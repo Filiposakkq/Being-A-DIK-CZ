@@ -1,8 +1,33 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 290" role="img" aria-label="Crest">
-<path d="M20 20H220V142C220 212 164 252 120 272C76 252 20 212 20 142Z" fill="#16264a" stroke="#e2b04a" stroke-width="9" stroke-linejoin="round"/>
-<path d="M34 34H206V140C206 200 160 236 120 254C80 236 34 200 34 140Z" fill="none" stroke="#f5ecd6" stroke-opacity=".35" stroke-width="2"/>
-<path d="M34 34H206V86H34Z" fill="#c8283d"/>
-<g transform="translate(30.4,112)"><polygon points="22.94,0 45.88,74 0,74" fill="none" stroke="#e2b04a" stroke-width="11.84" stroke-linejoin="miter"/><rect x="93.98" y="0" width="11.84" height="74" fill="#e2b04a"/><rect x="130.98000000000002" y="0" width="11.84" height="74" fill="#e2b04a"/><polygon points="142.82000000000002,38.480000000000004 176.86,0 179.228,13.024000000000001 154.66000000000003,41.440000000000005" fill="#e2b04a"/><polygon points="147.556,34.04 179.228,60.976 176.86,74 142.82000000000002,42.919999999999995" fill="#e2b04a"/></g>
-<rect x="58" y="206" width="124" height="3" fill="#e2b04a"/>
-<text x="120" y="68" text-anchor="middle" font-family="Georgia,'Times New Roman',serif" font-weight="700" font-size="26" letter-spacing="7" fill="#f5ecd6">CZ</text>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 290" role="img" aria-label="BaDIK CZ crest">
+<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f7d98a"/><stop offset=".5" stop-color="#e2b04a"/><stop offset="1" stop-color="#b8862a"/></linearGradient><linearGradient id="n" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#22397a"/><stop offset="1" stop-color="#0d1731"/></linearGradient><linearGradient id="r" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#e23b50"/><stop offset="1" stop-color="#9c1a2c"/></linearGradient></defs>
+<path d="M26 30H226V150C226 220 170 260 126 280C82 260 26 220 26 150Z" fill="#000" opacity=".28"/>
+<path d="M20 20H220V142C220 212 164 252 120 272C76 252 20 212 20 142Z" fill="url(#n)" stroke="url(#g)" stroke-width="10" stroke-linejoin="round"/>
+<clipPath id="in"><path d="M34 34H206V140C206 200 160 236 120 254C80 236 34 200 34 140Z"/></clipPath>
+<g clip-path="url(#in)">
+<path d="M34 34H206V92H34Z" fill="url(#r)"/>
+<path d="M34 92H206" stroke="#e2b04a" stroke-width="3"/>
+<path d="M-70 92 l60 160" stroke="#f5ecd6" stroke-opacity=".05" stroke-width="10"/>
+<path d="M-44 92 l60 160" stroke="#f5ecd6" stroke-opacity=".05" stroke-width="10"/>
+<path d="M-18 92 l60 160" stroke="#f5ecd6" stroke-opacity=".05" stroke-width="10"/>
+<path d="M8 92 l60 160" stroke="#f5ecd6" stroke-opacity=".05" stroke-width="10"/>
+<path d="M34 92 l60 160" stroke="#f5ecd6" stroke-opacity=".05" stroke-width="10"/>
+<path d="M60 92 l60 160" stroke="#f5ecd6" stroke-opacity=".05" stroke-width="10"/>
+<path d="M86 92 l60 160" stroke="#f5ecd6" stroke-opacity=".05" stroke-width="10"/>
+<path d="M112 92 l60 160" stroke="#f5ecd6" stroke-opacity=".05" stroke-width="10"/>
+<path d="M138 92 l60 160" stroke="#f5ecd6" stroke-opacity=".05" stroke-width="10"/>
+<path d="M164 92 l60 160" stroke="#f5ecd6" stroke-opacity=".05" stroke-width="10"/>
+<path d="M190 92 l60 160" stroke="#f5ecd6" stroke-opacity=".05" stroke-width="10"/>
+<path d="M216 92 l60 160" stroke="#f5ecd6" stroke-opacity=".05" stroke-width="10"/>
+<path d="M242 92 l60 160" stroke="#f5ecd6" stroke-opacity=".05" stroke-width="10"/>
+<path d="M268 92 l60 160" stroke="#f5ecd6" stroke-opacity=".05" stroke-width="10"/>
+<path d="M294 92 l60 160" stroke="#f5ecd6" stroke-opacity=".05" stroke-width="10"/>
+<path d="M320 92 l60 160" stroke="#f5ecd6" stroke-opacity=".05" stroke-width="10"/>
+</g>
+<path d="M34 34H206V140C206 200 160 236 120 254C80 236 34 200 34 140Z" fill="none" stroke="#f5ecd6" stroke-opacity=".4" stroke-width="2"/>
+<polygon points="66.0,53.0 68.2,58.9 74.6,59.2 69.6,63.2 71.3,69.3 66.0,65.8 60.7,69.3 62.4,63.2 57.4,59.2 63.8,58.9" fill="#e2b04a"/><polygon points="174.0,53.0 176.2,58.9 182.6,59.2 177.6,63.2 179.3,69.3 174.0,65.8 168.7,69.3 170.4,63.2 165.4,59.2 171.8,58.9" fill="#e2b04a"/>
+<text x="120" y="75" text-anchor="middle" font-family="Georgia,'Times New Roman',serif" font-weight="700" font-size="32" letter-spacing="8" fill="#f5ecd6">CZ</text>
+<g transform="translate(46.5,126)" opacity=".45"><g fill="#050912" stroke="#050912"><polygon points="19.84,0 39.68,64 0,64" fill="none" stroke="#050912" stroke-width="10.24" stroke-linejoin="miter"/><rect x="81.28" y="0" width="10.24" height="64" fill="#050912"/><rect x="113.28" y="0" width="10.24" height="64" fill="#050912"/><polygon points="123.52,33.28 152.96,0 155.008,11.264000000000001 133.76,35.84" fill="#050912"/><polygon points="127.616,29.44 155.008,52.736 152.96,64 123.52,37.12" fill="#050912"/></g></g>
+<g transform="translate(42.5,122)"><polygon points="19.84,0 39.68,64 0,64" fill="none" stroke="url(#g)" stroke-width="10.24" stroke-linejoin="miter"/><rect x="81.28" y="0" width="10.24" height="64" fill="url(#g)"/><rect x="113.28" y="0" width="10.24" height="64" fill="url(#g)"/><polygon points="123.52,33.28 152.96,0 155.008,11.264000000000001 133.76,35.84" fill="url(#g)"/><polygon points="127.616,29.44 155.008,52.736 152.96,64 123.52,37.12" fill="url(#g)"/></g>
+<path d="M44 200 L196 200 L187 216 L196 232 L44 232 L53 216 Z" fill="url(#r)" stroke="#e2b04a" stroke-width="2.5" stroke-linejoin="round"/>
+<text x="120" y="222" text-anchor="middle" font-family="Georgia,'Times New Roman',serif" font-weight="700" font-size="15" letter-spacing="5" fill="#f5ecd6">ČESKY</text>
 </svg>

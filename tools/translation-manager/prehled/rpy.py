@@ -17,6 +17,7 @@ from .util import norm_ws
 OLD_RE = re.compile(r'^\s*old\s+"(.*)"\s*$')
 NEW_RE = re.compile(r'^\s*new\s+"(.*)"\s*$')
 TRANSLATE_RE = re.compile(r"^translate\s+(\w+)\s+(\w+)\s*:\s*$")
+GAME_REF_RE = re.compile(r"^(game/\S+?:\d+)\s*$")
 STR_RE = re.compile(r'"((?:[^"\\]|\\.)*)"')
 TAG_RE = re.compile(r"\{[^}]*\}|\[[^\]]*\]")
 WORD_RE = re.compile(r"[^\W\d_]+(?:'[^\W\d_]+)?")
@@ -84,6 +85,7 @@ class Entry:
     src_who: str = ""
     src_suffix: str = ""
     category: str = ""   # K_* when pending, '' when translated
+    ref: str = ""        # original game script position Ren'Py recorded, e.g. 'game/script.rpy:2155'
 
     @property
     def pending(self):
@@ -124,6 +126,9 @@ def parse_text(text, digest=""):
     comment_list = []  # (normalized, text, line, who)
     code = []          # (line number, stripped line)
     block = ""
+    block_ref = ""     # '# game/script.rpy:123' of the current translate block
+    ref_pending = ""   # last such comment seen, waiting for its translate / old line
+    old_ref = ""
     old_text = None
     old_no = 0
 
@@ -134,7 +139,7 @@ def parse_text(text, digest=""):
             who, target, suffix, _ = _split_literal(c)
             if n in comments:
                 ctext, cno = comments[n]
-                entries.append(Entry(line=lineno, src_line=cno, block=block, unit="dialogue",
+                entries.append(Entry(line=lineno, src_line=cno, block=block, unit="dialogue", ref=block_ref,
                                      who=who, suffix=suffix, source=target, target=target,
                                      src_raw=ctext, cur_raw=c, src_who=who, src_suffix=suffix,
                                      category=classify(target)))
@@ -151,11 +156,11 @@ def parse_text(text, digest=""):
             if pick is not None:
                 used.add(pick[2])
                 swho, ssrc, ssuffix, _ = _split_literal(pick[1])
-                entries.append(Entry(line=lineno, src_line=pick[2], block=block, unit="dialogue",
+                entries.append(Entry(line=lineno, src_line=pick[2], block=block, unit="dialogue", ref=block_ref,
                                      who=who, suffix=suffix, source=ssrc, target=target,
                                      src_raw=pick[1], cur_raw=c, src_who=swho, src_suffix=ssuffix))
             else:
-                entries.append(Entry(line=lineno, src_line=0, block=block, unit="dialogue",
+                entries.append(Entry(line=lineno, src_line=0, block=block, unit="dialogue", ref=block_ref,
                                      who=who, suffix=suffix, source=None, target=target,
                                      cur_raw=c))
         comments.clear()
@@ -179,6 +184,7 @@ def parse_text(text, digest=""):
             flush()
             close_old(lineno)
             block = line.rstrip(":")
+            block_ref, ref_pending = ref_pending, ""
             m = TRANSLATE_RE.match(line)
             if m:
                 out.languages.add(m.group(1))
@@ -187,6 +193,9 @@ def parse_text(text, digest=""):
             continue
         if line.startswith("#"):
             ctext = line.lstrip("#").strip()
+            m_ref = GAME_REF_RE.match(ctext)
+            if m_ref:
+                ref_pending = m_ref.group(1)
             if '"' in ctext and not ctext.startswith("game/"):
                 comments[norm_ws(ctext)] = (ctext, lineno)
                 comment_list.append((norm_ws(ctext), ctext, lineno))
@@ -196,6 +205,7 @@ def parse_text(text, digest=""):
             close_old(lineno)
             old_text = m_old.group(1)
             old_no = lineno
+            old_ref, ref_pending = ref_pending, ""
             continue
         m_new = NEW_RE.match(raw)
         if m_new:
@@ -204,7 +214,7 @@ def parse_text(text, digest=""):
                 out.structure.append((lineno, "new-without-old", 'Řádek "new" nemá před sebou "old".'))
             cat = classify(new_text) if (new_text == "" or new_text == old_text) else ""
             entries.append(Entry(line=lineno, src_line=old_no if old_text is not None else 0,
-                                 block="strings", unit="string", who="", suffix="",
+                                 block="strings", unit="string", ref=old_ref, who="", suffix="",
                                  source=old_text, target=new_text,
                                  src_raw=f'old "{old_text}"' if old_text is not None else "",
                                  cur_raw=f'new "{new_text}"', category=cat))

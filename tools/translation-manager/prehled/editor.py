@@ -83,6 +83,11 @@ def _validate_target(path, root):
     return p
 
 
+def default_finder(kind):
+    """Path of the editor executable for 'vscode' / 'notepadpp', or None when not installed."""
+    return {"vscode": find_vscode, "notepadpp": find_notepadpp}[kind]()
+
+
 def system_open(path):
     """Open with the OS default program (cannot jump to a line)."""
     if sys.platform.startswith("win"):
@@ -101,7 +106,7 @@ def open_in_editor(path, line, editor_cfg=None, root=None, runner=None, finder=N
     cfg = {"preferred": "auto", "custom": ""}
     cfg.update(editor_cfg or {})
     runner = runner or (lambda argv: subprocess.Popen(argv, close_fds=True, **NOWIN))
-    finder = finder or {"vscode": find_vscode, "notepadpp": find_notepadpp}.get
+    finder = finder or default_finder
     opener = opener or system_open
     try:
         p = _validate_target(path, root)

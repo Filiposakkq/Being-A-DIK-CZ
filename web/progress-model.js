@@ -12,7 +12,7 @@
 
   const FALLBACK_SEASONS = { 1: [1, 2, 3, 4], 2: [5, 6, 7, 8], 3: [] };
   const PLANNED_SEASONS = [3];
-  const STATUSES = ["none", "wip", "tr", "done"];
+  const STATUSES = ["none", "wip", "tr", "proof", "done"];
   const STALE_DAYS = 45;
 
   const isNum = (v) => typeof v === "number" && Number.isFinite(v);

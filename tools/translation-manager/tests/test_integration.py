@@ -223,6 +223,20 @@ class EditorTests(TempCase):
         self.assertTrue(r["ok"])
         self.assertEqual(self.calls[0], [str(exe), "--line", "12", str(self.f.resolve())])
 
+    def test_default_finder_returns_a_path_or_none_never_a_function(self):
+        for kind in ("vscode", "notepadpp"):
+            found = editor.default_finder(kind)
+            self.assertTrue(found is None or isinstance(found, str), found)
+
+    def test_real_default_lookup_works_end_to_end(self):
+        """Regression: without an injected finder the editor path used to be a function object."""
+        fake = self.tmp / "Code.exe"
+        fake.write_text("")
+        with mock.patch.object(editor, "find_vscode", return_value=str(fake)):
+            r = editor.open_in_editor(self.f, 5, {"preferred": "vscode"}, root=self.root, runner=self.runner)
+        self.assertTrue(r["ok"], r)
+        self.assertEqual(self.calls[0][:2], [str(fake), "-g"])
+
     def test_line_is_clamped(self):
         editor.open_in_editor(self.f, -5, {"preferred": "vscode"}, root=self.root, runner=self.runner, finder=self.finder({"vscode": "C:/V/Code.exe"}))
         self.assertTrue(self.calls[0][2].endswith(":1"))
@@ -232,7 +246,8 @@ class EditorTests(TempCase):
         (self.tmp / "vs" / "bin" / "code.cmd").write_text("")
         (self.tmp / "vs" / "Code.exe").write_text("")
         found = editor.find_vscode(which=lambda n: str(self.tmp / "vs" / "bin" / "code.cmd") if n == "code" else None, env={})
-        self.assertEqual(Path(found), self.tmp / "vs" / "Code.exe")
+        # compare resolved paths: CI temp folders use 8.3 short names (RUNNER~1) that resolve() expands
+        self.assertEqual(Path(found).resolve(), (self.tmp / "vs" / "Code.exe").resolve())
 
 
 def git(cwd, *args):
@@ -510,6 +525,20 @@ class ServerTests(TempCase):
         self.assertEqual(Config().load().get("ui.files.colw.name"), 555)
         _, st, _ = self.call("GET", "/api/state")
         self.assertEqual(st["prefs"]["files"]["colw"]["name"], 555)
+
+    def test_many_parallel_requests_are_all_served(self):
+        """Regression: a small listen backlog reset ~1 in 15 large downloads when a browser fired many at once."""
+        from concurrent.futures import ThreadPoolExecutor
+
+        def fetch(_):
+            c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=20)
+            c.request("GET", "/app.js")
+            r = c.getresponse()
+            body = r.read()
+            return r.status == 200 and len(body) > 50000
+        with ThreadPoolExecutor(max_workers=48) as pool:
+            results = list(pool.map(fetch, range(400)))
+        self.assertTrue(all(results), f"{results.count(False)} of {len(results)} requests failed")
 
     def test_malformed_requests(self):
         c = http.client.HTTPConnection("127.0.0.1", self.port)

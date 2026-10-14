@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import rpy
-from .store import parse_corr, parse_value
+from .store import parse_corr, parse_value, text_hash
 
 DATA_DIR_NAME = "_progress_data"
 IGNORED_DIRS = {DATA_DIR_NAME, ".git", "__pycache__", "node_modules"}
@@ -14,6 +14,7 @@ IGNORED_DIRS = {DATA_DIR_NAME, ".git", "__pycache__", "node_modules"}
 # name, translated (incl. manual override), remaining, total, proofread, automatic translated count
 Row = namedtuple("Row", "name done todo total corr auto")
 
+EPISODE_STATUS_LABELS = {"none": "Nezačato", "wip": "Rozpracováno", "tr": "Přeloženo", "proof": "V korekci", "done": "Hotovo"}
 STATUS_LABELS = {"done": "Hotovo", "rev": "Korektura", "tr": "Přeloženo", "wip": "Rozpracováno", "none": "Nezačato"}
 STATUS_ORDER = {"none": 0, "wip": 1, "tr": 2, "rev": 3, "done": 4}
 
@@ -212,7 +213,7 @@ class Project:
         One undoable step. Returns the number of files whose metadata moved."""
         store = self.store
         moved = [(o, n) for o, n in renames
-                 if o in store.corr or o in store.assign or o in store.approved]
+                 if o in store.corr or o in store.assign or o in store.approved or o in store.proof]
         if not moved:
             return 0
 
@@ -224,7 +225,9 @@ class Project:
                     store.assign.setdefault(new, store.assign.pop(old))
                 if old in store.approved:
                     store.approved.setdefault(new, store.approved.pop(old))
-        store.change("Přejmenované soubory", ("corr", "assign", "approved"), go)
+                if old in store.proof:
+                    store.proof.setdefault(new, store.proof.pop(old))
+        store.change("Přejmenované soubory", ("corr", "assign", "approved", "proof"), go)
         store.clear_undo()   # older undo steps refer to the old names
         return len(moved)
 
@@ -234,7 +237,34 @@ class Project:
         fi = self.files[rel]
         return rpy.count(fi.parsed.entries, self.store.approved.get(rel, ()), self.symbols_as_done)
 
+    def is_translated(self, rel, e):
+        """Translated, or an untranslated-looking line the translator approved."""
+        return (not e.pending) or e.key in self.store.approved.get(rel, ())
+
+    def proof_state(self, rel, e):
+        """'' (not proofread) | 'ok' | 'fix' (flagged) | 'stale' (was ok, but the translation changed since)."""
+        m = self.store.proof.get(rel, {}).get(e.key)
+        if not m:
+            return ""
+        if m["s"] == "fix":
+            return "fix"
+        return "ok" if m.get("h") == text_hash(e.target) else "stale"
+
+    def proof_counts(self, rel):
+        """(lines marked proofread, lines flagged 'to fix') — only valid marks on translated lines."""
+        marks = self.store.proof.get(rel)
+        if not marks:
+            return 0, 0
+        ok = fix = 0
+        for e in self.files[rel].parsed.entries:
+            if e.key in marks and self.is_translated(rel, e):
+                st = self.proof_state(rel, e)
+                ok += st == "ok"
+                fix += st == "fix"
+        return ok, fix
+
     def rows(self):
+        """One Row per file. Proofread = the hand-typed baseline (korekce.csv) + lines marked one by one."""
         out = []
         for rel in sorted(self.files, key=lambda r: r.lower()):
             done, todo, _appr = self.counts(rel)
@@ -242,7 +272,8 @@ class Project:
             raw = self.store.corr.get(rel, {})
             ov = parse_value(raw.get("t", ""), total)
             shown = done if ov is None else ov
-            out.append(Row(rel, shown, total - shown, total, parse_corr(raw.get("c", ""), total), done))
+            corr = min(total, parse_corr(raw.get("c", ""), total) + self.proof_counts(rel)[0])
+            out.append(Row(rel, shown, total - shown, total, corr, done))
         return out
 
     def row(self, rel):

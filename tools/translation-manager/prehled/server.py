@@ -6,6 +6,7 @@ and every POST needs the per-run token that the page receives from the server.
 import json
 import mimetypes
 import secrets
+import socket
 import threading
 import time
 import traceback
@@ -13,6 +14,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
+from . import __version__
 from .app import AppError
 from .config import config_dir
 from .project import check_project_dir
@@ -51,6 +53,16 @@ def make_handler(sess):
 
     class Handler(BaseHTTPRequestHandler):
         server_version = "BaDIKTranslationManager"
+        # Large single send() calls stalled intermittently on Windows loopback (the client got exactly
+        # 65,280 bytes and then nothing), so bodies are written in small chunks.
+        CHUNK = 16 * 1024
+
+        def setup(self):
+            super().setup()
+            try:
+                self.request.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            except OSError:
+                pass
 
         def log_message(self, *args):
             pass
@@ -70,7 +82,8 @@ def make_handler(sess):
             self.send_header("Content-Security-Policy",
                              "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:")
             self.end_headers()
-            self.wfile.write(data)
+            for i in range(0, len(data), self.CHUNK):
+                self.wfile.write(data[i:i + self.CHUNK])
 
         def _json(self, payload, code=200):
             self._send(code, json.dumps(payload, ensure_ascii=False), "application/json; charset=utf-8")
@@ -113,7 +126,7 @@ def make_handler(sess):
             p = url.path
             if p in ("/", "/index.html"):
                 return self._static("index.html")
-            if p in ("/app.js", "/styles.css"):
+            if p in ("/app.js", "/styles.css", "/crest.svg", "/favicon.svg"):
                 return self._static(p[1:])
             if not p.startswith("/api/"):
                 return self._send(404, "not found", "text/plain")
@@ -123,7 +136,7 @@ def make_handler(sess):
             if r == "state":
                 return self._run(lambda: {
                     "ok": True, "ready": app.ready, "notices": list(app.notices),
-                    "config_error": app.config.load_error, "prefs": app.ui_prefs(),
+                    "config_error": app.config.load_error, "prefs": app.ui_prefs(), "version": __version__,
                     "project_dir": app.config.get("project_dir", "")})
             if not app.ready:
                 return self._json({"ok": False, "error": "Není otevřený žádný projekt."}, 400)
@@ -134,12 +147,13 @@ def make_handler(sess):
                     file=q1(q, "file"), status=q1(q, "status", "all"), kind=q1(q, "kind"), q=q1(q, "q"),
                     issues=q1(q, "issues"), sort=q1(q, "sort", "line"),
                     offset=max(0, int(q1(q, "offset", "0") or 0)), limit=int(q1(q, "limit", "200") or 200),
-                    around=int(q1(q, "around", "0") or 0))},
+                    around=int(q1(q, "around", "0") or 0), unit=q1(q, "unit"))},
                 "entry": lambda: {"ok": True, **app.entry_detail(q1(q, "file"), int(q1(q, "line", "0")))},
                 "validation": lambda: {"ok": True, **app.validation_list(
                     severity=q1(q, "severity"), category=q1(q, "category"), file=q1(q, "file"), q=q1(q, "q"),
                     offset=max(0, int(q1(q, "offset", "0") or 0)), limit=int(q1(q, "limit", "200") or 200))},
                 "settings": lambda: {"ok": True, **app.settings()},
+                "proof/next": lambda: {"ok": True, **app.proof_next(q1(q, "file"), int(q1(q, "after", "0") or 0))},
                 "export/preview": lambda: {"ok": True, **app.export_preview()},
             }
             fn = routes.get(r)
@@ -207,6 +221,11 @@ def make_handler(sess):
                 "approve/preview": lambda: {"ok": True, **app.approval_preview(
                     str(d["file"]), ints(d["line"]), str(d.get("scope", "project")), bool(d.get("same_speaker", True)))},
                 "approve/apply": lambda: app.approval_apply(list(d.get("selections") or []), bool(d.get("on", True))),
+                "proof/set": lambda: app.proof_set(list(d.get("items") or []), str(d.get("state", "ok")),
+                                                   d.get("note")),
+                "proof/upto": lambda: app.proof_upto(str(d["file"]), ints(d["line"])),
+                "proof/clear-file": lambda: app.proof_clear_file(str(d["file"])),
+                "open-url": lambda: app.open_link(str(d.get("id", ""))),
                 "undo": lambda: app.undo(),
                 "open-editor": lambda: app.open_editor(str(d["file"]), ints(d.get("line", 1))),
                 "settings": lambda: {"ok": True, **app.update_settings(d)},
@@ -217,7 +236,7 @@ def make_handler(sess):
             fn = routes.get(r)
             if fn is None:
                 return self._json({"ok": False, "error": "Neznámá adresa."}, 404)
-            if r not in ("project/set", "project/pick", "prefs", "settings"):
+            if r not in ("project/set", "project/pick", "prefs", "settings", "open-url"):
                 try:
                     need_project()
                 except AppError as e:
@@ -227,8 +246,15 @@ def make_handler(sess):
     return Handler
 
 
+class LocalServer(ThreadingHTTPServer):
+    """The default listen backlog (5) drops connections when a browser opens many in parallel
+    (page + script + style + API calls), which showed up as sporadic ERR_CONNECTION_RESET."""
+    request_queue_size = 128
+    daemon_threads = True
+
+
 def start_server(app, pick_folder=None):
     sess = Session(app, pick_folder)
-    server = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(sess))
+    server = LocalServer(("127.0.0.1", 0), make_handler(sess))
     threading.Thread(target=server.serve_forever, daemon=True).start()
     return server, sess, f"http://127.0.0.1:{server.server_address[1]}/"

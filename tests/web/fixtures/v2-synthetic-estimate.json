@@ -8,9 +8,9 @@
   "percent": 16.0
  },
  "proofreading": {
-  "done": 0,
+  "done": 1000,
   "total": 48111,
-  "percent": 0.0
+  "percent": 2.1
  },
  "files": {
   "none": 58,
@@ -55,9 +55,9 @@
     "percent": 39.0
    },
    "proofreading": {
-    "done": 0,
+    "done": 1000,
     "total": 19500,
-    "percent": 0.0
+    "percent": 5.1
    },
    "files": 28,
    "files_done": 6,
@@ -106,9 +106,9 @@
     "percent": 100.0
    },
    "proofreading": {
-    "done": 0,
+    "done": 1000,
     "total": 5000,
-    "percent": 0.0
+    "percent": 20.0
    },
    "files_done": 7,
    "files_total": 7,
@@ -136,7 +136,7 @@
   },
   {
    "n": 3,
-   "status": "wip",
+   "status": "proof",
    "percent": 2.5,
    "files": 5,
    "season": 1,

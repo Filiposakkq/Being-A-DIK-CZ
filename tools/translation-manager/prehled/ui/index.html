@@ -5,17 +5,23 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="token" content="__TOKEN__">
 <title>BaDIK Translation Manager</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
 <div id="app">
   <header class="topbar">
-    <div class="brand">BaDIK Translation Manager 1.0</div>
+    <div class="brand"><img src="/crest.svg" alt="" width="24" height="29"><span>BaDIK Translation Manager 1.0</span></div>
     <div class="project-chip" id="projectChip" title="Složka s překladem">
       <span id="projectPath">—</span>
       <button class="btn small" id="changeProject">Změnit…</button>
     </div>
     <div class="spacer"></div>
+    <nav class="links" aria-label="Odkazy">
+      <button class="iconlink" data-link="kofi" title="Podpořit na Ko-fi"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M3 7h14v7a4.5 4.5 0 0 1-4.5 4.5h-5A4.5 4.5 0 0 1 3 14V7z"/><path fill="none" stroke="currentColor" stroke-width="2" d="M17 9h1.5a2.5 2.5 0 0 1 0 5H17"/><path fill="#151a22" d="M10 15.8s-3-1.7-3-3.6a1.6 1.6 0 0 1 3-.8 1.6 1.6 0 0 1 3 .8c0 1.9-3 3.6-3 3.6z"/></svg><span>Ko-fi</span></button>
+      <button class="iconlink" data-link="github" title="GitHub – Filiposakkq"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 .5a12 12 0 0 0-3.800 23.400c.6.100.8-.300.800-.600v-2.100c-3.300.700-4-1.600-4-1.600-.5-1.400-1.300-1.800-1.300-1.800-1.100-.700.100-.700.100-.700 1.200.100 1.800 1.200 1.800 1.200 1.100 1.800 2.800 1.300 3.500 1 .1-.8.400-1.300.800-1.600-2.700-.3-5.500-1.300-5.500-5.900 0-1.300.5-2.400 1.200-3.200-.1-.3-.5-1.500.1-3.200 0 0 1-.3 3.300 1.200a11.500 11.500 0 0 1 6 0c2.300-1.500 3.300-1.200 3.300-1.200.7 1.700.2 2.900.1 3.200.8.800 1.200 1.900 1.200 3.200 0 4.600-2.800 5.600-5.500 5.900.4.400.8 1.100.8 2.200v3.300c0 .3.2.7.8.6A12 12 0 0 0 12 .5z"/></svg><span>GitHub</span></button>
+      <button class="iconlink" data-link="web" title="Web BaDIK CZ překladu"><svg viewBox="0 0 24 24" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/></g></svg><span>Web</span></button>
+    </nav>
     <button class="btn" id="undoBtn" title="Vrátit poslední změnu (Ctrl+Z)" disabled>↶ Zpět</button>
     <button class="btn" id="refreshBtn" title="Znovu načíst soubory .rpy (F5)">⟳ Obnovit soubory</button>
   </header>

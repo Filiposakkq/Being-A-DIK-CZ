@@ -31,6 +31,8 @@ def hero():
 <radialGradient id="moonglow"><stop offset="0" stop-color="#f5ecd6" stop-opacity=".55"/><stop offset="1" stop-color="#f5ecd6" stop-opacity="0"/></radialGradient>
 <radialGradient id="bulb"><stop offset="0" stop-color="#ffe9a8" stop-opacity=".95"/><stop offset="1" stop-color="#ffe9a8" stop-opacity="0"/></radialGradient>
 <linearGradient id="lawn" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#14264a"/><stop offset="1" stop-color="#0a1226"/></linearGradient>
+<linearGradient id="mist" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#8fa6d8" stop-opacity="0"/><stop offset=".5" stop-color="#8fa6d8" stop-opacity=".16"/><stop offset="1" stop-color="#8fa6d8" stop-opacity="0"/></linearGradient>
+<radialGradient id="vig" cx=".62" cy=".5" r=".85"><stop offset=".55" stop-color="#050912" stop-opacity="0"/><stop offset="1" stop-color="#050912" stop-opacity=".62"/></radialGradient>
 <linearGradient id="path" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f5ecd6" stop-opacity=".5"/><stop offset="1" stop-color="#f5ecd6" stop-opacity=".12"/></linearGradient>
 </defs>''')
     o.append(f'<rect width="{W}" height="{H}" fill="url(#sky)"/>')
@@ -100,26 +102,91 @@ def hero():
         (x1, y1), (x2, y2) = pts[i], pts[i + 1]
         mx, my = (x1 + x2) / 2, (y1 + y2) / 2 + 30
         o.append(f'<polygon points="{x1+4:.0f},{y1:.0f} {x2-4:.0f},{y2:.0f} {mx:.0f},{my:.0f}" fill="{CRIM if i%2==0 else GOLD}" opacity=".92"/>')
+    hero_extras(o, W, H, bx, by)
     o.append('</svg>')
     (OUT / "assets").mkdir(parents=True, exist_ok=True)
     (OUT / "assets" / "hero.svg").write_text("\n".join(o), encoding="utf-8")
 
 
+def hero_extras(o, W, H, bx, by):
+    """Depth and life for the hero: lamp posts, student silhouettes, fireflies, ground mist, vignette."""
+    random.seed(11)
+    # lamp posts along the path
+    for lx in (bx + 205, bx + 475):
+        o.append(f'<rect x="{lx-3}" y="{by-70}" width="6" height="190" fill="#070d1f"/>')
+        o.append(f'<rect x="{lx-11}" y="{by-84}" width="22" height="16" rx="3" fill="#070d1f"/>')
+        o.append(f'<circle cx="{lx}" cy="{by-76}" r="46" fill="url(#bulb)" opacity=".9"/>')
+        o.append(f'<rect x="{lx-7}" y="{by-81}" width="14" height="9" rx="2" fill="#ffe9a8"/>')
+
+    def person(x, base, s_, rim=True):
+        col = "#070d1f"
+        o.append(f'<circle cx="{x}" cy="{base-74*s_:.0f}" r="{9*s_:.1f}" fill="{col}"/>')
+        o.append(f'<path d="M{x-15*s_:.0f} {base-60*s_:.0f} Q{x:.0f} {base-70*s_:.0f} {x+15*s_:.0f} {base-60*s_:.0f} L{x+13*s_:.0f} {base-26*s_:.0f} L{x+8*s_:.0f} {base:.0f} L{x+1*s_:.0f} {base:.0f} L{x:.0f} {base-24*s_:.0f} L{x-1*s_:.0f} {base:.0f} L{x-8*s_:.0f} {base:.0f} L{x-13*s_:.0f} {base-26*s_:.0f} Z" fill="{col}"/>')
+        if rim:
+            o.append(f'<path d="M{x+15*s_:.0f} {base-60*s_:.0f} L{x+13*s_:.0f} {base-26*s_:.0f}" stroke="{CREAM}" stroke-opacity=".28" stroke-width="1.6" fill="none"/>')
+            o.append(f'<path d="M{x+4*s_:.0f} {base-82*s_:.0f} a{9*s_:.1f} {9*s_:.1f} 0 0 1 {7*s_:.1f} {6*s_:.1f}" stroke="{CREAM}" stroke-opacity=".3" stroke-width="1.5" fill="none"/>')
+    for x, base, sc in ((bx + 150, by + 78, 1.05), (bx + 182, by + 82, 1.0), (bx + 520, by + 70, 1.1),
+                        (bx + 548, by + 74, 1.0), (bx + 590, by + 96, 1.15), (bx + 70, by + 100, 1.2)):
+        person(x, base, sc)
+    # fireflies / dust in the lamp light
+    for _ in range(46):
+        x = random.uniform(0, W); y = random.uniform(by - 140, H - 30); r = random.choice([1.2, 1.6, 2.2])
+        o.append(f'<circle cx="{x:.0f}" cy="{y:.0f}" r="{r*3.4:.1f}" fill="#ffe9a8" opacity=".10"/>')
+        o.append(f'<circle cx="{x:.0f}" cy="{y:.0f}" r="{r}" fill="#ffe9a8" opacity="{random.uniform(.5,.95):.2f}"/>')
+    # ground mist + vignette
+    o.append(f'<rect y="{by-10}" width="{W}" height="120" fill="url(#mist)"/>')
+    o.append(f'<rect width="{W}" height="{H}" fill="url(#vig)"/>')
+
+
+def star(cx, cy, r, color):
+    pts = []
+    for i in range(10):
+        ang = -math.pi / 2 + i * math.pi / 5
+        rr = r if i % 2 == 0 else r * 0.42
+        pts.append(f"{cx + rr * math.cos(ang):.1f},{cy + rr * math.sin(ang):.1f}")
+    return f'<polygon points="{" ".join(pts)}" fill="{color}"/>'
+
+
+CREST_DEFS = (f'<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f7d98a"/><stop offset=".5" stop-color="{GOLD}"/><stop offset="1" stop-color="#b8862a"/></linearGradient>'
+              '<linearGradient id="n" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#22397a"/><stop offset="1" stop-color="#0d1731"/></linearGradient>'
+              f'<linearGradient id="r" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#e23b50"/><stop offset="1" stop-color="#9c1a2c"/></linearGradient></defs>')
+SHIELD = "M20 20H220V142C220 212 164 252 120 272C76 252 20 212 20 142Z"
+INNER = "M34 34H206V140C206 200 160 236 120 254C80 236 34 200 34 140Z"
+
+
 def crest():
-    c = ['<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 290" role="img" aria-label="Crest">']
-    c.append(f'<path d="M20 20H220V142C220 212 164 252 120 272C76 252 20 212 20 142Z" fill="#16264a" stroke="{GOLD}" stroke-width="9" stroke-linejoin="round"/>')
-    c.append(f'<path d="M34 34H206V140C206 200 160 236 120 254C80 236 34 200 34 140Z" fill="none" stroke="{CREAM}" stroke-opacity=".35" stroke-width="2"/>')
-    c.append(f'<path d="M34 34H206V86H34Z" fill="{CRIM}"/>')
-    lt, lw = letters(0, 0, 74, GOLD)
-    c.append(f'<g transform="translate({120-lw/2:.1f},112)">{lt}</g>')
-    c.append(f'<rect x="58" y="206" width="124" height="3" fill="{GOLD}"/>')
-    c.append(f'<text x="120" y="68" text-anchor="middle" font-family="Georgia,\'Times New Roman\',serif" font-weight="700" font-size="26" letter-spacing="7" fill="{CREAM}">CZ</text>')
+    """Shield crest: gold rim, crimson chief with CZ and stars, big golden Delta-Iota-Kappa, ribbon."""
+    c = ['<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 290" role="img" aria-label="BaDIK CZ crest">', CREST_DEFS,
+         '<path d="M26 30H226V150C226 220 170 260 126 280C82 260 26 220 26 150Z" fill="#000" opacity=".28"/>',
+         f'<path d="{SHIELD}" fill="url(#n)" stroke="url(#g)" stroke-width="10" stroke-linejoin="round"/>',
+         f'<clipPath id="in"><path d="{INNER}"/></clipPath>',
+         '<g clip-path="url(#in)">',
+         '<path d="M34 34H206V92H34Z" fill="url(#r)"/>',
+         f'<path d="M34 92H206" stroke="{GOLD}" stroke-width="3"/>',
+         ]
+    for k in range(-4, 12):                       # faint diagonal weave behind the letters
+        c.append(f'<path d="M{34 + k * 26} 92 l60 160" stroke="{CREAM}" stroke-opacity=".05" stroke-width="10"/>')
+    c.append('</g>')
+    c.append(f'<path d="{INNER}" fill="none" stroke="{CREAM}" stroke-opacity=".4" stroke-width="2"/>')
+    c.append(star(66, 62, 9, GOLD) + star(174, 62, 9, GOLD))
+    c.append(f'<text x="120" y="75" text-anchor="middle" font-family="Georgia,\'Times New Roman\',serif" font-weight="700" font-size="32" letter-spacing="8" fill="{CREAM}">CZ</text>')
+    lt, lw = letters(0, 0, 64, GOLD)
+    c.append(f'<g transform="translate({120 - lw / 2 + 4:.1f},126)" opacity=".45"><g fill="#050912" stroke="#050912">{lt.replace(GOLD, "#050912")}</g></g>')
+    c.append(f'<g transform="translate({120 - lw / 2:.1f},122)">{lt.replace(GOLD, "url(#g)")}</g>')
+    c.append(f'<path d="M44 200 L196 200 L187 216 L196 232 L44 232 L53 216 Z" fill="url(#r)" stroke="{GOLD}" stroke-width="2.5" stroke-linejoin="round"/>')
+    c.append(f'<text x="120" y="222" text-anchor="middle" font-family="Georgia,\'Times New Roman\',serif" font-weight="700" font-size="15" letter-spacing="5" fill="{CREAM}">ČESKY</text>')
     c.append('</svg>')
     (OUT / "assets" / "crest.svg").write_text("\n".join(c), encoding="utf-8")
-    lt, lw = letters(0, 0, 26, GOLD)
-    (OUT / "favicon.svg").write_text(
-        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 72"><path d="M5 5H59V37C59 55 44 65 32 70C20 65 5 55 5 37Z" fill="#16264a" stroke="{GOLD}" stroke-width="5" stroke-linejoin="round"/>'
-        f'<g transform="translate({32-lw/2:.1f},24)">{lt}</g></svg>', encoding="utf-8")
+
+    # favicon / small icon: no text, bolder strokes
+    lt, lw = letters(0, 0, 30, GOLD)
+    fav = ['<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 72">',
+           f'<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f7d98a"/><stop offset=".55" stop-color="{GOLD}"/><stop offset="1" stop-color="#b8862a"/></linearGradient>'
+           '<linearGradient id="n" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#22397a"/><stop offset="1" stop-color="#0d1731"/></linearGradient></defs>',
+           '<path d="M5 5H59V37C59 55 44 65 32 70C20 65 5 55 5 37Z" fill="url(#n)" stroke="url(#g)" stroke-width="5.5" stroke-linejoin="round"/>',
+           f'<path d="M8 8H56V21H8Z" fill="{CRIM}"/>',
+           f'<g transform="translate({32 - lw / 2:.1f},28)">{lt.replace(GOLD, "url(#g)")}</g></svg>']
+    (OUT / "favicon.svg").write_text("".join(fav), encoding="utf-8")
 
 
 if __name__ == "__main__":
