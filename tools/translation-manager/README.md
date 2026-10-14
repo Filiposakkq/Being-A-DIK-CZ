@@ -27,6 +27,7 @@ formats as before, so existing data keeps working and CSVs can still be opened i
 |---|---|
 | `korekce.csv` | hand-typed proofread baseline per file, manual translated-lines override |
 | `korektura_radky.csv` | per-line proofreading marks and "to fix" notes |
+| `slovnik.csv` | glossary: speaker code → full name (type `speaker`), or other terms (type `term`) |
 | `prirazeni.csv` | file → `Obecné` / `Epizoda N` |
 | `schvaleno.csv` | manually approved "untranslated-looking" lines |
 | `epizody.csv` | hand-set episode status (Nezačato / Rozpracováno / Přeloženo / V korekci / Hotovo) |
@@ -108,13 +109,15 @@ Select a translated line in *Řádky* (filter **Ke korektuře** shows what is st
 * The number in *Korektura* (files table, overview, `progress.json`, website) = the **number you typed by hand** (e.g. the 436 lines already checked) **+ the lines marked one by one**. Typing a number never drops marked lines; *Ano* = whole file.
 * Marks are stored in `_progress_data\korektura_radky.csv` (file; block; source; ok/fix; translation fingerprint; note; date), survive refreshes and renames, are backed up, and every change is undoable (`Ctrl+Z`). Untranslated lines can't be proofread.
 
+**Slovník** (glossary) – speakers in the files are only codes (`mc`, `de`, `ji`…). The tab lists every code found in the project with its line count and an example line; type the character's full name next to it (saved when you leave the field; undoable). Nothing is pre-filled or guessed. *Mluvčí: kód / celé jméno / jméno i kód* decides how speakers are shown in *Řádky*, the detail pane and the neighbouring lines (attributes such as `mc happy` are kept; a code without a name is always shown as the code). *+ Přidat položku* adds other entries (type *termín*: names, places, the fraternity…) which are stored for later features.
+
 **Kontrola** – the validator (see below). **Publikace** – see below. **Nastavení** – folder, editor,
 thresholds, website.
 
 ### Keyboard
 
 `Ctrl+F` or `/` search · `↑ ↓` / `J K` move · `PgUp/PgDn` · `A` approve / un-approve · `Shift+A` approve all
-identical (with preview) · `P` / `F` / `Shift+P` proofreading · `E` / `Enter` open in editor · `Ctrl+Z` undo · `F5` refresh · `Alt+1…6` switch tabs · `?` help.
+identical (with preview) · `P` / `F` / `Shift+P` proofreading · `E` / `Enter` open in editor · `Ctrl+Z` undo · `F5` refresh · `Alt+1…7` switch tabs · `?` help.
 Shortcuts are ignored while you type in a field, so they never conflict with text editing.
 Filters, sorting, column widths and the last tab are remembered (stored by the app, not the browser).
 

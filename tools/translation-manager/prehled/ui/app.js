@@ -72,7 +72,28 @@ const S = {
   ent: { items: [], total: 0, start: 0, sel: -1, loading: false, detail: null, pendingLine: 0 },
   val: { items: [], total: 0 },
   lastRefresh: null,
+  gl: {},   // glossary: speaker code -> full name
 };
+
+/* Speaker display: the character code ("mc"), the glossary's full name, or both. Attributes
+   ("mc happy" -> "happy") are kept. The mode is a persisted preference. */
+const speakerMode = () => pref('display.speaker', 'code');
+function speakerLabel(who) {
+  if (!who) return '';
+  const [code, ...attrs] = who.trim().split(/\s+/);
+  const name = S.gl[code];
+  const rest = attrs.length ? ' ' + attrs.join(' ') : '';
+  const mode = speakerMode();
+  if (!name || mode === 'code') return who;
+  return mode === 'name' ? name + (attrs.length ? ` (${attrs.join(' ')})` : '') : `${name} · ${code}${rest}`;
+}
+async function loadGlossary() {
+  try { S.gl = (await get('glossary')).names || {}; } catch { S.gl = {}; }
+}
+function speakerModeSelect(onchange) {
+  return h('select', { title: 'Jak zobrazovat mluvčí', onchange: (ev) => { setPref('display.speaker', ev.target.value); onchange?.(); } },
+    ...[['code', 'Mluvčí: kód'], ['name', 'Mluvčí: celé jméno'], ['both', 'Mluvčí: jméno i kód']].map(([v, l]) => h('option', { value: v, selected: speakerMode() === v }, l)));
+}
 let prefTimer = null;
 const pref = (path, def) => path.split('.').reduce((o, k) => (o && o[k] !== undefined ? o[k] : undefined), S.prefs) ?? def;
 function setPref(path, value) {
@@ -195,7 +216,7 @@ function buildTable({ key, cols, sort, onSort, className = '' }) {
 }
 
 /* ---------------------------------------------------------------- tabs */
-const TABS = [['overview', 'Přehled'], ['files', 'Soubory'], ['entries', 'Řádky'], ['validation', 'Kontrola'], ['publish', 'Publikace'], ['settings', 'Nastavení']];
+const TABS = [['overview', 'Přehled'], ['files', 'Soubory'], ['entries', 'Řádky'], ['validation', 'Kontrola'], ['glossary', 'Slovník'], ['publish', 'Publikace'], ['settings', 'Nastavení']];
 function renderTabs() {
   const nav = $('#tabs');
   nav.replaceChildren(...TABS.map(([k, label], i) => {
@@ -217,7 +238,7 @@ async function render() {
   const token = (S.renderToken = (S.renderToken || 0) + 1);
   view.replaceChildren(loading());
   try {
-    const fn = { overview: viewOverview, files: viewFiles, entries: viewEntries, validation: viewValidation, publish: viewPublish, settings: viewSettings }[S.view];
+    const fn = { overview: viewOverview, files: viewFiles, entries: viewEntries, validation: viewValidation, glossary: viewGlossary, publish: viewPublish, settings: viewSettings }[S.view];
     const node = await fn();
     if (token !== S.renderToken) return;
     view.replaceChildren(node);
@@ -260,6 +281,7 @@ async function afterProjectChange() {
   S.ready = st.ready; S.notices = st.notices; S.projectDir = st.project_dir;
   S.files = null; S.overview = null; S.ent.items = []; S.ent.sel = -1; S.fl.picked.clear();
   await refreshHeader();
+  if (S.ready) await loadGlossary();
   render();
   if (S.ready) toast('Projekt otevřen.');
 }
@@ -634,7 +656,7 @@ async function viewEntries() {
     sel('kind', '', [['', 'Všechny druhy'], ['english', 'Anglicky'], ['same', 'Shodné, možná OK'], ['symbols', 'Jen znaky'], ['empty', 'Prázdné']], 'Druh nepřeloženého řádku'),
     sel('issues', '', [['', 'Kontrola: vše'], ['any', 'S problémem'], ['error', 'S chybou'], ['warning', 'S varováním']], 'Filtr podle kontroly'),
     sel('sort', 'line', [['line', 'Řadit: řádek'], ['file', 'Řadit: soubor'], ['kind', 'Řadit: druh'], ['issues', 'Řadit: problémy']], 'Řazení'),
-    search, h('span', { class: 'spacer' }), counter)));
+    speakerModeSelect(() => repaintRows()), search, h('span', { class: 'spacer' }), counter)));
   const wrap = h('div', { class: 'pane-body' });
   main.append(wrap);
   root.append(main, detail);
@@ -660,7 +682,7 @@ async function viewEntries() {
       h('td', null, it.unit === 'string' ? h('span', { class: 'chip choice', title: 'Text z „translate strings“ – většinou volba v menu nebo text rozhraní' }, 'Volba') : h('span', { class: 'muted' }, 'Dialog')),
       h('td', null, chip(it.status, ENTRY_LABEL[it.status]), it.kind && it.status !== 'translated' ? h('div', { class: 'muted', style: { fontSize: '11.5px' } }, KIND_LABEL[it.kind]) : null),
       h('td', null, it.status === 'todo' ? h('span', { class: 'muted' }, '–') : (proofChip(it.proof) || h('span', { class: 'muted' }, 'nezkontrolováno'))),
-      h('td', { class: 'who' }, it.who), h('td', { class: 'txt entry-source' }, fmtText(it.source ?? '')), h('td', { class: 'txt entry-target' }, fmtText(it.target)),
+      h('td', { class: 'who', title: it.who }, speakerLabel(it.who)), h('td', { class: 'txt entry-source' }, fmtText(it.source ?? '')), h('td', { class: 'txt entry-target' }, fmtText(it.target)),
       h('td', null, sev ? chip(sev, `${it.issues.length}×`) : null));
   }
   async function load(reset) {
@@ -719,7 +741,7 @@ async function viewEntries() {
           h('button', { class: 'btn small', title: 'Označí jako zkontrolované všechny přeložené řádky tohoto souboru až po tento řádek (lze vrátit Ctrl+Z)', onclick: () => proofUpto() }, 'Zkontrolováno vše až sem (Shift+P)')),
         h('textarea', { id: 'proofNote', rows: 2, placeholder: 'Poznámka ke korektuře (co opravit)…', value: d.proof_note || '', style: { width: '100%' },
           onchange: (ev) => saveNote(ev.target.value) })) : null,
-      h('div', { class: 'ctx' }, 'Blok: ', h('b', { class: 'mono' }, d.block), d.who ? ['  ·  mluvčí: ', h('b', { class: 'mono' }, d.who)] : null, d.src_line ? `  ·  originál na řádku ${d.src_line}` : null),
+      h('div', { class: 'ctx' }, 'Blok: ', h('b', { class: 'mono' }, d.block), d.who ? ['  ·  mluvčí: ', h('b', { class: 'mono' }, speakerLabel(d.who))] : null, d.src_line ? `  ·  originál na řádku ${d.src_line}` : null),
       h('h4', { style: { marginTop: '10px' } }, 'Originál'), h('div', { class: 'textbox' }, fmtText(d.source ?? '(zdroj nenalezen)')),
       h('h4', null, 'Překlad'), h('div', { class: 'textbox' }, fmtText(d.target)),
       d.issues.length ? h('div', null, h('h4', null, 'Kontrola'), d.issues.map((x) => h('div', { class: 'issue ' + x.severity }, chip(x.severity, SEV_LABEL[x.severity]), ' ', x.message,
@@ -727,7 +749,7 @@ async function viewEntries() {
       (d.before.length || d.after.length) ? h('div', null, h('h4', { style: { marginTop: '10px' } }, 'Okolí v souboru'),
         d.before.map((x) => ctxLine(x)), h('div', { class: 'ctx' }, h('b', null, `▶ ${d.line}`)), d.after.map((x) => ctxLine(x))) : null);
   }
-  const ctxLine = (x) => h('div', { class: 'ctx' }, `${x.line}  `, x.who ? h('span', { class: 'mono' }, x.who + ' ') : null, fmtText(x.target));
+  const ctxLine = (x) => h('div', { class: 'ctx' }, `${x.line}  `, x.who ? h('span', { class: 'mono' }, speakerLabel(x.who) + ' ') : null, fmtText(x.target));
 
   async function toggleApprove() {
     const d = S.ent.detail; if (!d) return;
@@ -742,6 +764,11 @@ async function viewEntries() {
       if (on && pref('entries.status', 'todo') === 'todo') select(Math.min(S.ent.sel + 1, S.ent.items.length - 1));
       else select(S.ent.sel);
     } catch (err) { fail(err); }
+  }
+  function repaintRows() {
+    if (!tbody) return;
+    tbody.replaceChildren(...S.ent.items.map((it, i) => rowFor(it, i)));
+    if (S.ent.detail) drawDetail(S.ent.detail);
   }
   function refreshRow(i) { tbody.replaceChild(rowFor(S.ent.items[i], i), tbody.children[i]); }
   async function setProof(state, note) {
@@ -815,7 +842,7 @@ async function globalApproveDialog(d, done) {
     const segBtn = (k, l) => h('button', { class: scope === k ? 'on' : '', onclick: () => { scope = k; loadPreview(); } }, l);
     const rows = data.items.map((it, i) => h('tr', null,
       h('td', { class: 'center' }, h('input', { type: 'checkbox', checked: sel.has(i), disabled: !it.selectable, onchange: (e) => { e.target.checked ? sel.add(i) : sel.delete(i); armed = false; paint2(); } })),
-      h('td', null, fname(it.file)), h('td', { class: 'num' }, it.line), h('td', { class: 'who' }, it.who || '—'),
+      h('td', null, fname(it.file)), h('td', { class: 'num' }, it.line), h('td', { class: 'who' }, speakerLabel(it.who) || '—'),
       h('td', null, fmtText(it.text)), h('td', null, it.is_reference ? chip('rev', 'vybraný řádek') : null, it.approved ? chip('approved', 'schváleno') : null, h('span', { class: 'muted' }, it.notes.join('; ')))));
     const t = h('table', { class: 'data' }, h('colgroup', null, [40, 420, 70, 90, 260, 300].map((w) => h('col', { style: { width: w + 'px' } }))),
       h('thead', null, h('tr', null, ['', 'Soubor', 'Řádek', 'Mluvčí', 'Text', 'Poznámka'].map((x, i) => h('th', { class: i === 0 ? 'center' : '' }, x)))), h('tbody', null, rows));
@@ -894,6 +921,67 @@ async function viewValidation() {
     list.replaceChildren(h('div', { class: 'tablewrap' }, t.table), S.val.items.length < S.val.total ? h('div', { class: 'more' }, h('button', { class: 'btn', onclick: () => load(false) }, `Načíst další (${fmtN(S.val.items.length)} z ${fmtN(S.val.total)})`)) : null);
   }
   root.afterMount = () => load(true);
+  return root;
+}
+
+/* ================================================================ GLOSSARY */
+async function viewGlossary() {
+  let data = await get('glossary');
+  S.gl = data.names;
+  const f = pref('glossary', {});
+  const root = h('div');
+  const body = h('div');
+  const counter = h('span', { class: 'muted' });
+  const search = h('input', { type: 'search', class: 'search', id: 'search', placeholder: 'Hledat kód nebo jméno… (Ctrl+F)', value: f.q || '',
+    oninput: (ev) => { setPref('glossary.q', ev.target.value); draw(); } });
+  const seg = h('div', { class: 'seg' }, [['all', 'Vše'], ['unnamed', 'Bez jména'], ['speaker', 'Mluvčí'], ['term', 'Termíny']].map(([k, l]) =>
+    h('button', { class: (f.filter || 'all') === k ? 'on' : '', onclick: (ev) => { setPref('glossary.filter', k); seg.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b === ev.currentTarget)); draw(); } }, l)));
+  root.append(
+    h('p', { class: 'muted' }, 'Slovník jmen. Mluvčí v souborech jsou jen zkratky (mc, de, ji…); zde jim přiřadíš celé jméno. ',
+      'Zobrazení v aplikaci (Řádky, detail, okolí řádku) přepínáš vpravo: kód / celé jméno / obojí. Jméno se zapisuje automaticky po opuštění pole. Zkratky se hledají v souborech samy – nic se nevymýšlí.'),
+    h('div', { class: 'toolbar' }, seg, search, speakerModeSelect(() => toast('Zobrazení mluvčích změněno.', 'ok', 1500)),
+      h('button', { class: 'btn', onclick: () => addDialog() }, '+ Přidat položku (termín / jméno)'), h('span', { class: 'spacer' }), counter), body);
+
+  async function save(item, quiet) {
+    try { data = await post('glossary/set', { items: [item] }); S.gl = data.names; if (!quiet) toast('Uloženo ✓', 'ok', 1500); counter.textContent = stats(); }
+    catch (e) { fail(e); }
+  }
+  const stats = () => `${data.items.length} položek · bez jména: ${data.unnamed}`;
+  function draw() {
+    const q = (pref('glossary.q', '') || '').toLowerCase(), flt = pref('glossary.filter', 'all');
+    const rows = data.items.filter((i) => (!q || i.code.toLowerCase().includes(q) || i.name.toLowerCase().includes(q) || i.note.toLowerCase().includes(q)) &&
+      (flt === 'all' || (flt === 'unnamed' && i.type === 'speaker' && i.in_project && !i.name) || (flt === 'speaker' && i.type === 'speaker') || (flt === 'term' && i.type === 'term')));
+    counter.textContent = stats();
+    if (!rows.length) return body.replaceChildren(empty('Nic k zobrazení', flt === 'all' ? 'V projektu nebyli nalezeni žádní mluvčí.' : 'Změň filtr nebo hledaný text.'));
+    const t = buildTable({ key: 'glossary', cols: [{ k: 'type', w: 100, label: 'Typ' }, { k: 'code', w: 150, label: 'Kód / termín' }, { k: 'name', w: 280, label: 'Celé jméno / překlad' },
+      { k: 'note', w: 260, label: 'Poznámka' }, { k: 'count', w: 80, label: 'Řádků' }, { k: 'ex', w: 340, label: 'Příklad' }, { k: 'act', w: 190, label: '', resize: false }] });
+    for (const it of rows) {
+      const name = h('input', { type: 'text', value: it.name, placeholder: it.type === 'speaker' ? 'např. celé jméno postavy' : 'překlad / jméno', style: { width: '100%' },
+        onchange: (ev) => { it.name = ev.target.value.trim(); save({ code: it.code, name: it.name, type: it.type, note: it.note }); } });
+      const note = h('input', { type: 'text', value: it.note, style: { width: '100%' },
+        onchange: (ev) => { it.note = ev.target.value.trim(); save({ code: it.code, name: it.name, type: it.type, note: it.note }); } });
+      t.tbody.append(h('tr', null, h('td', null, chip(it.type === 'speaker' ? 'info' : 'none', it.type === 'speaker' ? 'mluvčí' : 'termín')),
+        h('td', { class: 'mono' }, it.code), h('td', null, name), h('td', null, note), h('td', { class: 'num' }, it.count || '–'),
+        h('td', { class: 'txt muted' }, it.example), h('td', null,
+          it.count ? h('button', { class: 'btn small', title: 'Zobrazit řádky tohoto mluvčího', onclick: () => go('entries', { file: '', q: it.code, status: 'all' }) }, 'Řádky') : null, ' ',
+          (it.name || it.note) ? h('button', { class: 'btn small ghost', title: 'Smazat záznam ze slovníku', onclick: async () => {
+            try { data = await post('glossary/delete', { codes: [it.code] }); S.gl = data.names; draw(); toast('Záznam smazán. Zpět: Ctrl+Z'); } catch (e) { fail(e); } } }, 'Smazat') : null)));
+    }
+    body.replaceChildren(h('div', { class: 'tablewrap' }, t.table));
+  }
+  function addDialog() {
+    const code = h('input', { type: 'text', placeholder: 'kód nebo termín (např. de, Delta Iota Kappa)' });
+    const name = h('input', { type: 'text', placeholder: 'celé jméno / překlad' });
+    const type = h('select', null, h('option', { value: 'speaker' }, 'Mluvčí (zkratka postavy)'), h('option', { value: 'term' }, 'Termín / jméno / místo'));
+    const note = h('input', { type: 'text', placeholder: 'poznámka (volitelné)' });
+    dialog({ title: 'Nová položka slovníku', narrow: true, body: h('div', { class: 'form', style: { gridTemplateColumns: '120px 1fr' } },
+      h('label', null, 'Typ'), type, h('label', null, 'Kód / termín'), code, h('label', null, 'Jméno'), name, h('label', null, 'Poznámka'), note),
+      buttons: [{ label: 'Zrušit' }, { label: 'Přidat', kind: 'primary', onclick: async () => {
+        if (!code.value.trim()) { toast('Vyplň kód nebo termín.', 'bad'); return false; }
+        await save({ code: code.value, name: name.value, type: type.value, note: note.value }); draw();
+      } }] });
+  }
+  root.afterMount = draw;
   return root;
 }
 
@@ -1018,7 +1106,7 @@ async function viewSettings() {
 /* ================================================================ keyboard */
 function helpDialog() {
   const rows = [['Ctrl+F nebo /', 'Hledat v aktuální sekci'], ['↑ ↓  (J K)', 'Předchozí / další řádek'], ['PgUp PgDn', 'Skok o stránku'], ['A', 'Schválit / zrušit schválení řádku'], ['Shift+A', 'Schválit všechny shodné… (s náhledem)'], ['P', 'Korektura: zkontrolováno (a skok na další)'], ['F', 'Korektura: označit k opravě + poznámka'], ['Shift+P', 'Korektura: zkontrolováno vše až po tento řádek'],
-    ['E nebo Enter', 'Otevřít řádek v editoru'], ['Ctrl+Z', 'Vrátit poslední změnu (mimo textová pole)'], ['F5 nebo Ctrl+R', 'Obnovit soubory'], ['Alt+1 … Alt+6', 'Přepnout sekci'], ['?', 'Tato nápověda']];
+    ['E nebo Enter', 'Otevřít řádek v editoru'], ['Ctrl+Z', 'Vrátit poslední změnu (mimo textová pole)'], ['F5 nebo Ctrl+R', 'Obnovit soubory'], ['Alt+1 … Alt+7', 'Přepnout sekci'], ['?', 'Tato nápověda']];
   dialog({ title: 'Klávesové zkratky', narrow: true, body: h('dl', { class: 'kv' }, rows.flatMap(([k, d]) => [h('dt', null, h('kbd', null, k)), h('dd', { style: { textAlign: 'left' } }, d)])), buttons: [{ label: 'Zavřít', kind: 'primary' }] });
 }
 document.addEventListener('keydown', (e) => {
@@ -1027,7 +1115,7 @@ document.addEventListener('keydown', (e) => {
   const mod = e.ctrlKey || e.metaKey;
   if (mod && e.key.toLowerCase() === 'f') { const s = $('#search'); if (s) { e.preventDefault(); s.focus(); s.select(); } return; }
   if (e.key === 'F5' || (mod && e.key.toLowerCase() === 'r')) { e.preventDefault(); doRefresh(); return; }
-  if (e.altKey && /^[1-6]$/.test(e.key)) { e.preventDefault(); go(TABS[+e.key - 1][0]); return; }
+  if (e.altKey && /^[1-7]$/.test(e.key)) { e.preventDefault(); go(TABS[+e.key - 1][0]); return; }
   if (typing) { if (e.key === 'Escape') e.target.blur(); return; }
   if (mod && e.key.toLowerCase() === 'z' && !e.shiftKey) { e.preventDefault(); doUndo(); return; }
   if (e.key === '?') { helpDialog(); return; }
@@ -1067,6 +1155,7 @@ document.querySelectorAll('[data-link]').forEach((b) => b.addEventListener('clic
     S.view = pref('view', 'overview');
     if (!TABS.some(([k]) => k === S.view)) S.view = 'overview';
     await refreshHeader();
+    if (S.ready) await loadGlossary();
     render();
     if (S.ready) S.lastRefresh = new Date().toLocaleTimeString('cs-CZ');
   } catch (e) { $('#view').replaceChildren(h('div', { class: 'notice bad' }, e.message)); }

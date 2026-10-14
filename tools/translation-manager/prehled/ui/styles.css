@@ -264,3 +264,8 @@ td .reason { color: var(--muted); font-size: 12.5px; }
 .ep-row { grid-template-columns: 86px minmax(120px, 1fr) 150px 190px 130px; }
 .ep-row .bars .bar { height: 6px; }
 .seasonbars { padding: 10px 14px 4px; display: grid; gap: 6px; }
+
+/* glossary */
+td input[type=text] { background: transparent; border-color: transparent; }
+td input[type=text]:hover { border-color: var(--line-2); }
+td input[type=text]:focus { background: var(--panel); }

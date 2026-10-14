@@ -153,6 +153,7 @@ def make_handler(sess):
                     severity=q1(q, "severity"), category=q1(q, "category"), file=q1(q, "file"), q=q1(q, "q"),
                     offset=max(0, int(q1(q, "offset", "0") or 0)), limit=int(q1(q, "limit", "200") or 200))},
                 "settings": lambda: {"ok": True, **app.settings()},
+                "glossary": lambda: {"ok": True, **app.glossary_payload()},
                 "proof/next": lambda: {"ok": True, **app.proof_next(q1(q, "file"), int(q1(q, "after", "0") or 0))},
                 "export/preview": lambda: {"ok": True, **app.export_preview()},
             }
@@ -221,6 +222,8 @@ def make_handler(sess):
                 "approve/preview": lambda: {"ok": True, **app.approval_preview(
                     str(d["file"]), ints(d["line"]), str(d.get("scope", "project")), bool(d.get("same_speaker", True)))},
                 "approve/apply": lambda: app.approval_apply(list(d.get("selections") or []), bool(d.get("on", True))),
+                "glossary/set": lambda: app.glossary_set(list(d.get("items") or [])),
+                "glossary/delete": lambda: app.glossary_delete(list(d.get("codes") or [])),
                 "proof/set": lambda: app.proof_set(list(d.get("items") or []), str(d.get("state", "ok")),
                                                    d.get("note")),
                 "proof/upto": lambda: app.proof_upto(str(d["file"]), ints(d["line"])),
