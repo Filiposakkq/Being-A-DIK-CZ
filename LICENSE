@@ -2,7 +2,9 @@ MIT License
 
 Copyright (c) 2026 Filip (Filiposakkq)
 
-Applies to the website code and generated artwork in this repository (web/, tools/).
+Applies to the website code and generated artwork in this repository (web/, tools/gen_art.py, tests/web/).
+It does NOT apply to tools/translation-manager/, which has its own, more restrictive license
+(tools/translation-manager/LICENSE).
 It does NOT apply to the translation text (see TRANSLATION-LICENSE.md) nor to the
 game "Being a DIK", which belongs to DrPinkCake.
 

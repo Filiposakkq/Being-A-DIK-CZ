@@ -29,7 +29,7 @@ formats as before, so existing data keeps working and CSVs can still be opened i
 | `korektura_radky.csv` | per-line proofreading marks and "to fix" notes |
 | `prirazeni.csv` | file → `Obecné` / `Epizoda N` |
 | `schvaleno.csv` | manually approved "untranslated-looking" lines |
-| `epizody.csv` | hand-set episode status (Nezačato / Rozpracováno / Přeloženo / Hotovo) |
+| `epizody.csv` | hand-set episode status (Nezačato / Rozpracováno / Přeloženo / V korekci / Hotovo) |
 | `historie.csv` | progress log (basis for the charts and the finish estimate) |
 | `progress.csv` | per-file overview (for Excel) |
 | `progress.json` | the public data for the website (see below) |
@@ -60,10 +60,15 @@ a *line* is one translation unit (a `translate` dialogue block or an `old`/`new`
 *Overall* = every scanned file, including shared (`Obecné`) and unassigned ones. An *episode*/*season* = only
 the files assigned to it. Therefore `overall = Σ episodes + Obecné + nezařazené`; the exporter checks it.
 
+## Links and license
+
+The top bar has icon buttons for Ko-fi, GitHub and the project website (they open in your browser; the app only ever opens these fixed addresses).
+The application is **not open source**: see [LICENSE](LICENSE) (personal, non-commercial use; redistribution, modification and commercial use only with the author's written permission).
+
 ## Using it
 
 **Přehled** – totals, remaining work, proofreading, validation counts, finish estimate, per-season and
-per-episode progress (set the episode status here), recent activity, what *Zpět* (undo) would revert.
+per-episode progress with **both** percentages (translation green, proofreading purple); set the episode status here, including *V korekci*, recent activity, what *Zpět* (undo) would revert.
 
 **Soubory** – all files with full names (the column wraps, never truncates; drag the column borders to
 resize, scroll sideways if needed; the detail panel on the right always shows the whole path).
@@ -76,7 +81,8 @@ confidence / reason / state: *Nové, Beze změny, Konflikt, Nejednoznačné, Nez
 Nothing is written until *Zapsat zařazení*. A manually set assignment is only replaced for rows whose
 checkbox you tick yourself. One undo step.
 
-**Řádky** – every translation unit with source, translation, status and validation hints. Filter by
+**Řádky** – every translation unit. Columns: file, *Řádek* (line in the translation file), *Skript* (the original `game/script.rpy:NNN` position Ren'Py recorded for the line), *Typ*, *Stav*, *Korektura*, speaker, source, translation, checks.
+*Typ* is **Dialog**, or **Volba** for lines from `translate czech strings` – mostly menu choices but also interface texts, so it is a hint; the *Typ řádku* filter shows only dialogues or only choices/strings. Proofreading has its own column and colour (purple; green = translated). Details: Filter by
 file / status / kind / validation, sort, search. Select a row for the full texts, the block id, the
 neighbouring lines and any problems. *Otevřít v editoru* jumps to the exact line.
 

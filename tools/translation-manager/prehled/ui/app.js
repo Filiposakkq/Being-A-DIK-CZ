@@ -145,11 +145,11 @@ function fmtText(text) {
   }
   return frag;
 }
-const STATUS_LABEL = { done: 'Hotovo', rev: 'Korektura', tr: 'Přeloženo', wip: 'Rozpracováno', none: 'Nezačato', planned: 'Plánováno' };
+const STATUS_LABEL = { done: 'Hotovo', rev: 'Korektura', proof: 'V korekci', tr: 'Přeloženo', wip: 'Rozpracováno', none: 'Nezačato', planned: 'Plánováno' };
 const ENTRY_LABEL = { translated: 'Přeloženo', approved: 'Schváleno', todo: 'Nepřeloženo' };
 const KIND_LABEL = { empty: 'prázdný', english: 'anglicky', same: 'shodné', symbols: 'jen znaky' };
 const SEV_LABEL = { error: 'Chyba', warning: 'Varování', info: 'Info' };
-const proofChip = (p) => (p === 'ok' ? chip('done', '✓ zkontrolováno') : p === 'fix' ? chip('warning', '⚑ k opravě')
+const proofChip = (p) => (p === 'ok' ? chip('proof', '✓ zkontrolováno') : p === 'fix' ? chip('warning', '⚑ k opravě')
   : p === 'stale' ? chip('info', '↻ změněno po korektuře') : null);
 const chip = (cls, text) => h('span', { class: 'chip ' + cls }, text);
 function bar(pct, cls = '') { return h('div', { class: 'bar ' + cls }, h('i', { style: { width: clamp01(pct) + '%' } })); }
@@ -390,16 +390,20 @@ function seasonPanel(s, episodes) {
   }
   const eps = episodes.filter((e) => e.season === s.n);
   const head = h('div', { class: 'season-head' }, h('h3', null, `Sezóna ${s.n}`), h('span', { class: 'muted' }, `epizody ${s.episodes[0]}–${s.episodes.at(-1)}`),
-    h('span', { class: 'grow' }), h('span', { class: 'num' }, `${fmtN(s.translation.done)} / ${fmtN(s.translation.total)} řádků`), h('b', { class: 'num' }, fmtPct(s.translation.percent)));
-  const panel = h('div', { class: 'panel season' }, head);
+    h('span', { class: 'grow' }),
+    h('div', { class: 'season-stats' },
+      h('div', { class: 'st' }, h('span', { class: 'lbl' }, 'Překlad'), h('b', null, fmtPct(s.translation.percent)), h('div', { class: 'muted num' }, `${fmtN(s.translation.done)} / ${fmtN(s.translation.total)}`)),
+      h('div', { class: 'st pr' }, h('span', { class: 'lbl' }, 'Korektura'), h('b', null, fmtPct(s.proofreading.percent)), h('div', { class: 'muted num' }, `${fmtN(s.proofreading.done)} / ${fmtN(s.proofreading.total)}`))));
+  const panel = h('div', { class: 'panel season' }, head,
+    h('div', { class: 'seasonbars' }, bar(s.translation.percent), bar(s.proofreading.percent, 'alt')));
   for (const e of eps) {
     const sel = h('select', { class: 'sel', value: e.status, 'aria-label': `Stav epizody ${e.n}`, onchange: async () => {
       try { await post('episode', { ep: e.n, state: sel.value }); toast(`Epizoda ${e.n}: ${STATUS_LABEL[sel.value]}`); await refreshHeader(); } catch (err) { fail(err); }
-    } }, ['none', 'wip', 'tr', 'done'].map((k) => h('option', { value: k }, STATUS_LABEL[k])));
+    } }, ['none', 'wip', 'tr', 'proof', 'done'].map((k) => h('option', { value: k }, STATUS_LABEL[k])));
     sel.value = e.status;
     panel.append(h('div', { class: 'ep-row' }, h('span', { class: 'nm' }, `Epizoda ${e.n}`),
-      e.translation.total ? bar(e.translation.percent) : h('span', { class: 'muted' }, 'žádné zařazené soubory'),
-      h('b', { class: 'num' }, fmtPct(e.translation.percent)),
+      e.translation.total ? h('div', { class: 'bars' }, bar(e.translation.percent), bar(e.proofreading.percent, 'alt')) : h('span', { class: 'muted' }, 'žádné zařazené soubory'),
+      h('div', { class: 'pcts' }, h('span', null, 'Překlad ', h('b', null, fmtPct(e.translation.percent))), h('span', { class: 'pr' }, 'Korektura ', h('b', null, fmtPct(e.proofreading.percent)))),
       h('span', { class: 'meta' }, e.files ? `${fmtN(e.translation.done)} / ${fmtN(e.translation.total)} řádků · ${e.files} souborů (${e.files_done} hotových)` : 'bez souborů'),
       h('span', { class: 'sel' }, sel)));
   }
@@ -591,12 +595,15 @@ async function copy(text) {
 
 /* ================================================================ ENTRIES */
 const EN_COLS = [
-  { k: 'file', w: 360, label: 'Soubor' }, { k: 'line', w: 66, label: 'Řádek', sortable: true }, { k: 'status', w: 150, label: 'Stav' },
+  { k: 'file', w: 360, label: 'Soubor' }, { k: 'line', w: 66, label: 'Řádek', sortable: true, title: 'Řádek v překladovém souboru' },
+  { k: 'ref', w: 150, label: 'Skript', title: 'Původní řádek ve skriptu hry (game/…:číslo), jak ho zapsal Ren\'Py' },
+  { k: 'type', w: 84, label: 'Typ', title: 'Dialog, nebo Volba (text z „translate strings“ – většinou volba v menu nebo text rozhraní)' },
+  { k: 'status', w: 120, label: 'Stav' }, { k: 'proof', w: 150, label: 'Korektura' },
   { k: 'who', w: 90, label: 'Mluvčí' }, { k: 'source', w: 420, label: 'Originál' }, { k: 'target', w: 420, label: 'Překlad' }, { k: 'issues', w: 90, label: 'Kontrola', sortable: true },
 ];
 function entQuery(extra = {}) {
   const e = pref('entries', {});
-  return { file: e.file || '', status: e.status || 'todo', kind: e.kind || '', issues: e.issues || '', q: e.q || '', sort: e.sort || 'line', limit: 200, ...extra };
+  return { file: e.file || '', status: e.status || 'todo', unit: e.unit || '', kind: e.kind || '', issues: e.issues || '', q: e.q || '', sort: e.sort || 'line', limit: 200, ...extra };
 }
 async function viewEntries() {
   if (S.goOpts) {
@@ -623,6 +630,7 @@ async function viewEntries() {
   fileSel.style.maxWidth = '340px';
   main.append(h('div', { class: 'pane-head' }, h('div', { class: 'toolbar' }, fileSel,
     sel('status', 'todo', [['todo', 'K přeložení'], ['review', 'Ke korektuře'], ['fix', 'K opravě (korektura)'], ['proofed', 'Zkontrolované'], ['all', 'Vše'], ['translated', 'Přeložené'], ['approved', 'Schválené']], 'Stav'),
+    sel('unit', '', [['', 'Dialogy i volby'], ['dialogue', 'Jen dialogy'], ['string', 'Jen volby (strings)']], 'Typ řádku'),
     sel('kind', '', [['', 'Všechny druhy'], ['english', 'Anglicky'], ['same', 'Shodné, možná OK'], ['symbols', 'Jen znaky'], ['empty', 'Prázdné']], 'Druh nepřeloženého řádku'),
     sel('issues', '', [['', 'Kontrola: vše'], ['any', 'S problémem'], ['error', 'S chybou'], ['warning', 'S varováním']], 'Filtr podle kontroly'),
     sel('sort', 'line', [['line', 'Řadit: řádek'], ['file', 'Řadit: soubor'], ['kind', 'Řadit: druh'], ['issues', 'Řadit: problémy']], 'Řazení'),
@@ -648,7 +656,10 @@ async function viewEntries() {
     const sev = hasErr ? 'error' : it.issues.length ? 'warning' : '';
     return h('tr', { class: `status-${it.status} ${hasErr ? 'has-error' : ''} ${S.ent.sel === i ? 'sel' : ''}`, dataset: { i }, onclick: () => select(i), ondblclick: () => openEditor(it.file, it.line) },
       S.ent.showFile ? h('td', null, fname(it.file)) : null,
-      h('td', { class: 'num' }, it.line), h('td', null, chip(it.status, ENTRY_LABEL[it.status]), it.kind && it.status !== 'translated' ? h('div', { class: 'muted', style: { fontSize: '11.5px' } }, KIND_LABEL[it.kind]) : null, it.proof ? h('div', null, proofChip(it.proof)) : null),
+      h('td', { class: 'num' }, it.line), h('td', { class: 'mono muted', style: { fontSize: '12px' } }, it.ref ? it.ref.replace(/^game\//, '') : '–'),
+      h('td', null, it.unit === 'string' ? h('span', { class: 'chip choice', title: 'Text z „translate strings“ – většinou volba v menu nebo text rozhraní' }, 'Volba') : h('span', { class: 'muted' }, 'Dialog')),
+      h('td', null, chip(it.status, ENTRY_LABEL[it.status]), it.kind && it.status !== 'translated' ? h('div', { class: 'muted', style: { fontSize: '11.5px' } }, KIND_LABEL[it.kind]) : null),
+      h('td', null, it.status === 'todo' ? h('span', { class: 'muted' }, '–') : (proofChip(it.proof) || h('span', { class: 'muted' }, 'nezkontrolováno'))),
       h('td', { class: 'who' }, it.who), h('td', { class: 'txt entry-source' }, fmtText(it.source ?? '')), h('td', { class: 'txt entry-target' }, fmtText(it.target)),
       h('td', null, sev ? chip(sev, `${it.issues.length}×`) : null));
   }
@@ -693,6 +704,7 @@ async function viewEntries() {
     const canApprove = d.status !== 'translated' && d.kind !== 'empty';
     detail.replaceChildren(h('div', { class: 'row', style: { justifyContent: 'space-between' } }, h('h4', null, 'Detail řádku'), chip(d.status, ENTRY_LABEL[d.status] + (d.kind_label && d.status !== 'translated' ? ` · ${d.kind_label}` : ''))),
       h('div', { class: 'path' }, `${d.file}:${d.line}`),
+      h('div', { class: 'ctx' }, d.unit === 'string' ? chip('choice', 'Volba / řetězec') : chip('none', 'Dialog'), d.ref ? ['  původní skript: ', h('b', { class: 'mono' }, d.ref)] : null),
       h('div', { class: 'actions' },
         canApprove ? h('button', { class: 'btn small primary', onclick: () => toggleApprove() }, d.status === 'approved' ? 'Zrušit schválení (A)' : 'Schválit řádek (A)') : null,
         canApprove ? h('button', { class: 'btn small', onclick: () => globalApprove() }, 'Schválit všechny shodné… (Shift+A)') : null,
@@ -980,6 +992,11 @@ async function viewSettings() {
       ...field('Soubor v repozitáři', h('input', { type: 'text', id: 'set_path', value: s.web.path }), 'Výchozí web/progress.json.'),
       ...field('Název hry na webu', h('input', { type: 'text', id: 'set_title', value: s.web.title })),
       s.web.migrated_from ? h('div', { class: 'hint' }, `Převzato z ${s.web.migrated_from}. Samostatný web.json už aplikace nepotřebuje.`) : null)),
+    h('fieldset', null, h('legend', null, 'O aplikaci'), h('p', null, h('b', null, `BaDIK Translation Manager ${S.version || ''}`),
+      ' – nástroj pro český překlad hry Being a DIK. Licence: viz soubor ', h('span', { class: 'mono' }, 'tools/translation-manager/LICENSE'),
+      ' (osobní nekomerční použití; další šíření, úpravy a komerční použití jen s mým souhlasem).'),
+      h('div', { class: 'row' }, ...[['kofi', 'Podpořit na Ko-fi'], ['github', 'GitHub'], ['repo', 'Repozitář překladu'], ['web', 'Web překladu']].map(([id, l]) =>
+        h('button', { class: 'btn small', onclick: () => post('open-url', { id }).catch(fail) }, l)))),
     h('div', { class: 'row' }, h('button', { class: 'btn primary', onclick: save }, 'Uložit nastavení'),
       h('span', { class: 'muted' }, 'Nastavení: ', h('span', { class: 'mono' }, 'config.json'), ' v %APPDATA%\\BaDIKTranslationManager')));
   async function save() {
@@ -1039,12 +1056,13 @@ document.addEventListener('keydown', (e) => {
 $('#refreshBtn').addEventListener('click', () => doRefresh());
 $('#undoBtn').addEventListener('click', doUndo);
 $('#changeProject').addEventListener('click', pickProject);
+document.querySelectorAll('[data-link]').forEach((b) => b.addEventListener('click', () => post('open-url', { id: b.dataset.link }).catch(fail)));
 
 (async function boot() {
   renderTabs();
   try {
     const st = await get('state');
-    S.ready = st.ready; S.prefs = st.prefs || {}; S.notices = st.notices || []; S.projectDir = st.project_dir || '';
+    S.ready = st.ready; S.version = st.version; S.prefs = st.prefs || {}; S.notices = st.notices || []; S.projectDir = st.project_dir || '';
     if (st.config_error) S.notices.push(st.config_error);
     S.view = pref('view', 'overview');
     if (!TABS.some(([k]) => k === S.view)) S.view = 'overview';

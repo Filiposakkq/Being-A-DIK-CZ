@@ -13,6 +13,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
+from . import __version__
 from .app import AppError
 from .config import config_dir
 from .project import check_project_dir
@@ -123,7 +124,7 @@ def make_handler(sess):
             if r == "state":
                 return self._run(lambda: {
                     "ok": True, "ready": app.ready, "notices": list(app.notices),
-                    "config_error": app.config.load_error, "prefs": app.ui_prefs(),
+                    "config_error": app.config.load_error, "prefs": app.ui_prefs(), "version": __version__,
                     "project_dir": app.config.get("project_dir", "")})
             if not app.ready:
                 return self._json({"ok": False, "error": "Není otevřený žádný projekt."}, 400)
@@ -134,7 +135,7 @@ def make_handler(sess):
                     file=q1(q, "file"), status=q1(q, "status", "all"), kind=q1(q, "kind"), q=q1(q, "q"),
                     issues=q1(q, "issues"), sort=q1(q, "sort", "line"),
                     offset=max(0, int(q1(q, "offset", "0") or 0)), limit=int(q1(q, "limit", "200") or 200),
-                    around=int(q1(q, "around", "0") or 0))},
+                    around=int(q1(q, "around", "0") or 0), unit=q1(q, "unit"))},
                 "entry": lambda: {"ok": True, **app.entry_detail(q1(q, "file"), int(q1(q, "line", "0")))},
                 "validation": lambda: {"ok": True, **app.validation_list(
                     severity=q1(q, "severity"), category=q1(q, "category"), file=q1(q, "file"), q=q1(q, "q"),
@@ -212,6 +213,7 @@ def make_handler(sess):
                                                    d.get("note")),
                 "proof/upto": lambda: app.proof_upto(str(d["file"]), ints(d["line"])),
                 "proof/clear-file": lambda: app.proof_clear_file(str(d["file"])),
+                "open-url": lambda: app.open_link(str(d.get("id", ""))),
                 "undo": lambda: app.undo(),
                 "open-editor": lambda: app.open_editor(str(d["file"]), ints(d.get("line", 1))),
                 "settings": lambda: {"ok": True, **app.update_settings(d)},
@@ -222,7 +224,7 @@ def make_handler(sess):
             fn = routes.get(r)
             if fn is None:
                 return self._json({"ok": False, "error": "Neznámá adresa."}, 404)
-            if r not in ("project/set", "project/pick", "prefs", "settings"):
+            if r not in ("project/set", "project/pick", "prefs", "settings", "open-url"):
                 try:
                     need_project()
                 except AppError as e:

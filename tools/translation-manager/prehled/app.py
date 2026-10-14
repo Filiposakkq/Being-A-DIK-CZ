@@ -2,6 +2,7 @@
 import json
 import shutil
 import threading
+import webbrowser
 from datetime import date, datetime
 from pathlib import Path
 
@@ -16,6 +17,13 @@ from .util import WriteFailed, norm_ws, write_csv
 # Files the legacy tool left next to the script; moved into _progress_data on first open.
 LEGACY_FILES = ("web.json", "progress.csv", "historie.csv", "korekce.csv", "epizody.csv",
                 "prirazeni.csv", "schvaleno.csv", "progress.json")
+# The only addresses the app will open in the browser (the UI sends just the id).
+LINKS = {
+    "kofi": "https://ko-fi.com/filiposakkq",
+    "github": "https://github.com/Filiposakkq",
+    "repo": "https://github.com/Filiposakkq/Being-A-DIK-CZ",
+    "web": "https://badik.filiposakkq.dev/",
+}
 PAGE_LIMIT = 500
 UI_PREF_MAX = 20000
 
@@ -300,7 +308,8 @@ class App:
             status = "todo"
         return status
 
-    def entries(self, file="", status="all", kind="", q="", issues="", sort="line", offset=0, limit=200, around=0):
+    def entries(self, file="", status="all", kind="", q="", issues="", sort="line", offset=0, limit=200, around=0,
+                unit=""):
         """Paged, filtered list of translation units (server side, so 45k lines stay fast)."""
         self._need_project()
         limit = max(1, min(int(limit), PAGE_LIMIT))
@@ -333,6 +342,8 @@ class App:
                 kinds = rpy.KIND_CODE.get(e.category, "")
                 if kind and kinds != kind:
                     continue
+                if unit and e.unit != unit:
+                    continue
                 iss = iss_by.get((rel, e.line), [])
                 shown = [i for i in iss if i.severity != "info" or self.config.get("validation.show_info", False)]
                 if issues == "any" and not shown:
@@ -360,7 +371,7 @@ class App:
         return {"total": total, "offset": offset, "items": [{
             "file": rel, "line": e.line, "src_line": e.src_line, "block": e.block, "who": e.who,
             "source": e.source, "target": e.target, "status": st,
-            "kind": rpy.KIND_CODE.get(e.category, ""), "proof": pf,
+            "kind": rpy.KIND_CODE.get(e.category, ""), "proof": pf, "unit": e.unit, "ref": e.ref,
             "issues": [{"severity": i.severity, "code": i.code} for i in shown],
         } for rel, e, st, shown, pf in page]}
 
@@ -380,7 +391,7 @@ class App:
                     "status": self._entry_row(rel, x),
                     "proof": self.project.proof_state(rel, x) if self.project.is_translated(rel, x) else ""}
         return {"file": rel, "path": str(self.project.root / rel), "line": e.line, "src_line": e.src_line,
-                "block": e.block, "who": e.who, "unit": e.unit, "source": e.source, "target": e.target,
+                "block": e.block, "who": e.who, "unit": e.unit, "ref": e.ref, "source": e.source, "target": e.target,
                 "src_raw": e.src_raw, "cur_raw": e.cur_raw,
                 "status": self._entry_row(rel, e), "kind": rpy.KIND_CODE.get(e.category, ""),
                 "proof": self.project.proof_state(rel, e) if self.project.is_translated(rel, e) else "",
@@ -575,6 +586,14 @@ class App:
             out = self._changed("undo")
             out["undone"] = label
             return out
+
+    def open_link(self, link_id, opener=None):
+        """Open one of the fixed project links in the default browser."""
+        url = LINKS.get(link_id)
+        if url is None:
+            raise AppError("Neznámý odkaz.")
+        (opener or webbrowser.open)(url)
+        return {"ok": True, "url": url}
 
     # ------------------------------------------------------------ editor
     def open_editor(self, rel, line):

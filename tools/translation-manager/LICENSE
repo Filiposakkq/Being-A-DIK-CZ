@@ -1,0 +1,53 @@
+BaDIK Translation Manager – License
+Version 1.0
+
+Copyright (c) 2026 Filip (Filiposakkq). All rights reserved.
+
+This license covers the BaDIK Translation Manager (the folder tools/translation-manager/ of this
+repository, its source code, the built program "BaDIKTranslationManager.exe" and its artwork).
+It does NOT cover the website code (see ../../LICENSE), the Czech translation text
+(see ../../TRANSLATION-LICENSE.md) or anything belonging to the game "Being a DIK".
+
+1. WHAT YOU MAY DO (free, no need to ask)
+   a) Run the program and use it for personal, non-commercial purposes - for example translating,
+      proofreading or tracking progress of a fan translation of "Being a DIK" or of another Ren'Py game.
+   b) Read and study the source code, and run it from source for the same purposes.
+   c) Make a private backup copy for your own use.
+   d) Report bugs and send suggestions or pull requests to the official repository
+      https://github.com/Filiposakkq/Being-A-DIK-CZ . By sending a contribution you allow the author to
+      use, change and distribute it as part of the program under this or any later license.
+
+2. WHAT YOU MAY NOT DO WITHOUT THE AUTHOR'S PRIOR WRITTEN PERMISSION
+   a) Copy, redistribute, publish, mirror, upload or host the program or its source code, in whole or in
+      part, modified or not (linking to the official repository is fine).
+   b) Distribute modified versions or derivative works, including forks that are made available to others.
+   c) Sell, rent, sublicense or otherwise use the program commercially, including offering it, or a service
+      built on it, for payment or behind a paywall / paid membership.
+   d) Remove or change copyright notices, this license, or the author's name and links, or present the program
+      (or a modified version) as your own work or as endorsed by the author.
+   e) Use the program's name or logo for another product in a way that suggests it comes from or is
+      approved by the author.
+
+3. PERMISSION
+   Permission for anything in section 2 can be requested from the author (GitHub: @Filiposakkq,
+   Discord: filiposakkq). Permission is granted case by case, must be in writing (a message from the author
+   is enough) and may carry conditions such as credit.
+
+4. THIRD-PARTY COMPONENTS
+   The built program bundles open-source components (Python, pywebview, PyInstaller's bootloader and others).
+   They stay under their own licenses, which this license does not change.
+
+5. NO WARRANTY, LIMITATION OF LIABILITY
+   The program is provided "as is", without warranty of any kind. The author is not liable for any damage or
+   data loss arising from its use. Keep backups of your translation files (the program never modifies your
+   .rpy files, but you use it at your own risk).
+
+6. TERMINATION
+   Your rights under this license end automatically if you breach it. The author may change the license for
+   future versions; versions you already received keep the license they were received under.
+
+7. THE GAME
+   "Being a DIK" and everything in it belong to DrPinkCake. This program contains no game assets and is an
+   unofficial fan tool, not endorsed by the game's author.
+
+This text is a plain-language license written for this project; it is not legal advice.

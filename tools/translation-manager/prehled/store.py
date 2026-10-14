@@ -19,7 +19,7 @@ from pathlib import Path
 from .seasons import ACTIVE_EPISODES
 from .util import WriteFailed, fold, norm_ws, read_rows, write_csv
 
-EP_STATES = [("none", "Nezačato"), ("wip", "Rozpracováno"), ("tr", "Přeloženo"), ("done", "Hotovo")]
+EP_STATES = [("none", "Nezačato"), ("wip", "Rozpracováno"), ("tr", "Přeloženo"), ("proof", "V korekci"), ("done", "Hotovo")]
 YES_WORDS = {"ano", "a", "x", "hotovo", "ok", "yes", "y", "1x"}
 UNDO_LIMIT = 30
 
