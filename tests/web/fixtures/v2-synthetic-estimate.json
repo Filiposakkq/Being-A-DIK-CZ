@@ -1,0 +1,348 @@
+{
+ "schema": 2,
+ "title": "Being A DIK",
+ "updated": "2026-10-14T18:00+02:00",
+ "translation": {
+  "done": 7691,
+  "total": 48111,
+  "percent": 16.0
+ },
+ "proofreading": {
+  "done": 0,
+  "total": 48111,
+  "percent": 0.0
+ },
+ "files": {
+  "none": 58,
+  "wip": 3,
+  "tr": 1,
+  "rev": 0,
+  "done": 10,
+  "total": 72
+ },
+ "scope": {
+  "seasons": [
+   1,
+   2
+  ],
+  "episodes": [
+   1,
+   2,
+   3,
+   4,
+   5,
+   6,
+   7,
+   8
+  ],
+  "planned_seasons": [
+   3
+  ]
+ },
+ "seasons": [
+  {
+   "n": 1,
+   "status": "active",
+   "episodes": [
+    1,
+    2,
+    3,
+    4
+   ],
+   "translation": {
+    "done": 7600,
+    "total": 19500,
+    "percent": 39.0
+   },
+   "proofreading": {
+    "done": 0,
+    "total": 19500,
+    "percent": 0.0
+   },
+   "files": 28,
+   "files_done": 6,
+   "episodes_done": 1,
+   "episodes_total": 4
+  },
+  {
+   "n": 2,
+   "status": "active",
+   "episodes": [
+    5,
+    6,
+    7,
+    8
+   ],
+   "translation": {
+    "done": 0,
+    "total": 27236,
+    "percent": 0.0
+   },
+   "proofreading": {
+    "done": 0,
+    "total": 27236,
+    "percent": 0.0
+   },
+   "files": 24,
+   "files_done": 0,
+   "episodes_done": 0,
+   "episodes_total": 4
+  },
+  {
+   "n": 3,
+   "status": "planned"
+  }
+ ],
+ "episodes": [
+  {
+   "n": 1,
+   "status": "done",
+   "percent": 100.0,
+   "files": 7,
+   "season": 1,
+   "translation": {
+    "done": 5000,
+    "total": 5000,
+    "percent": 100.0
+   },
+   "proofreading": {
+    "done": 0,
+    "total": 5000,
+    "percent": 0.0
+   },
+   "files_done": 7,
+   "files_total": 7,
+   "files_proofread": 6
+  },
+  {
+   "n": 2,
+   "status": "wip",
+   "percent": 50.0,
+   "files": 6,
+   "season": 1,
+   "translation": {
+    "done": 2500,
+    "total": 5000,
+    "percent": 50.0
+   },
+   "proofreading": {
+    "done": 0,
+    "total": 5000,
+    "percent": 0.0
+   },
+   "files_done": 2,
+   "files_total": 6,
+   "files_proofread": 0
+  },
+  {
+   "n": 3,
+   "status": "wip",
+   "percent": 2.5,
+   "files": 5,
+   "season": 1,
+   "translation": {
+    "done": 100,
+    "total": 4000,
+    "percent": 2.5
+   },
+   "proofreading": {
+    "done": 0,
+    "total": 4000,
+    "percent": 0.0
+   },
+   "files_done": 0,
+   "files_total": 5,
+   "files_proofread": 0
+  },
+  {
+   "n": 4,
+   "status": "none",
+   "percent": 0.0,
+   "files": 10,
+   "season": 1,
+   "translation": {
+    "done": 0,
+    "total": 5500,
+    "percent": 0.0
+   },
+   "proofreading": {
+    "done": 0,
+    "total": 5500,
+    "percent": 0.0
+   },
+   "files_done": 0,
+   "files_total": 10,
+   "files_proofread": 0
+  },
+  {
+   "n": 5,
+   "status": "none",
+   "percent": 0.0,
+   "files": 4,
+   "season": 2,
+   "translation": {
+    "done": 0,
+    "total": 5300,
+    "percent": 0.0
+   },
+   "proofreading": {
+    "done": 0,
+    "total": 5300,
+    "percent": 0.0
+   },
+   "files_done": 0,
+   "files_total": 4,
+   "files_proofread": 0
+  },
+  {
+   "n": 6,
+   "status": "none",
+   "percent": 0.0,
+   "files": 6,
+   "season": 2,
+   "translation": {
+    "done": 0,
+    "total": 6767,
+    "percent": 0.0
+   },
+   "proofreading": {
+    "done": 0,
+    "total": 6767,
+    "percent": 0.0
+   },
+   "files_done": 0,
+   "files_total": 6,
+   "files_proofread": 0
+  },
+  {
+   "n": 7,
+   "status": "none",
+   "percent": 0.0,
+   "files": 8,
+   "season": 2,
+   "translation": {
+    "done": 0,
+    "total": 7099,
+    "percent": 0.0
+   },
+   "proofreading": {
+    "done": 0,
+    "total": 7099,
+    "percent": 0.0
+   },
+   "files_done": 0,
+   "files_total": 8,
+   "files_proofread": 0
+  },
+  {
+   "n": 8,
+   "status": "none",
+   "percent": 0.0,
+   "files": 6,
+   "season": 2,
+   "translation": {
+    "done": 0,
+    "total": 8070,
+    "percent": 0.0
+   },
+   "proofreading": {
+    "done": 0,
+    "total": 8070,
+    "percent": 0.0
+   },
+   "files_done": 0,
+   "files_total": 6,
+   "files_proofread": 0
+  }
+ ],
+ "general": {
+  "translation": {
+   "done": 91,
+   "total": 91,
+   "percent": 100.0
+  },
+  "proofreading": {
+   "done": 0,
+   "total": 91,
+   "percent": 0.0
+  },
+  "files": 3
+ },
+ "unassigned": {
+  "translation": {
+   "done": 0,
+   "total": 1284,
+   "percent": 0.0
+  },
+  "proofreading": {
+   "done": 0,
+   "total": 1284,
+   "percent": 0.0
+  },
+  "files": 17
+ },
+ "estimate": {
+  "status": "ok",
+  "remaining": 40420,
+  "pace_per_day": 120.0,
+  "eta": "2027-06-30",
+  "eta_early": "2027-03-15",
+  "eta_late": "2028-01-10",
+  "confidence": "medium",
+  "basis_days": 21,
+  "days_with_data": 9
+ },
+ "history": [
+  {
+   "date": "2026-09-10",
+   "translation": 6.4,
+   "proofreading": 0.0
+  },
+  {
+   "date": "2026-09-11",
+   "translation": 7.5,
+   "proofreading": 0.0
+  },
+  {
+   "date": "2026-09-12",
+   "translation": 8.5,
+   "proofreading": 0.0
+  },
+  {
+   "date": "2026-09-13",
+   "translation": 9.6,
+   "proofreading": 0.0
+  },
+  {
+   "date": "2026-09-14",
+   "translation": 10.7,
+   "proofreading": 0.0
+  },
+  {
+   "date": "2026-09-15",
+   "translation": 11.7,
+   "proofreading": 0.0
+  },
+  {
+   "date": "2026-09-16",
+   "translation": 12.8,
+   "proofreading": 0.0
+  },
+  {
+   "date": "2026-09-17",
+   "translation": 13.9,
+   "proofreading": 0.0
+  },
+  {
+   "date": "2026-09-18",
+   "translation": 14.9,
+   "proofreading": 0.0
+  },
+  {
+   "date": "2026-09-19",
+   "translation": 16.0,
+   "proofreading": 0.0
+  }
+ ],
+ "_fixture_note": "Synthetic test fixture: invented numbers, only for layout tests."
+}

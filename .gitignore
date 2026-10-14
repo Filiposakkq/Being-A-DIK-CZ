@@ -3,3 +3,6 @@ __pycache__/
 .env
 web.json
 *.token
+# Translation Manager build output
+tools/translation-manager/build/
+tools/translation-manager/dist/

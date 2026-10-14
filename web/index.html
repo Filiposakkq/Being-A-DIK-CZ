@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Being a DIK – český překlad (fan project)</title>
-  <meta name="description" content="Neoficiální fanouškovský český překlad hry Being a DIK. Aktuální stav překladu, korektury a epizod. Unofficial fan translation progress.">
+  <meta name="description" content="Neoficiální fanouškovský český překlad hry Being a DIK. Aktuální stav překladu, korektury, sezón a epizod. Unofficial fan translation progress by season and episode.">
   <meta name="theme-color" content="#0a1226">
   <link rel="icon" type="image/svg+xml" href="favicon.svg">
   <link rel="stylesheet" href="styles.css">
@@ -81,21 +81,45 @@
           </article>
         </div>
 
+        <div class="facts" id="facts">
+          <div class="fact">
+            <span class="label"><span class="cs" lang="cs">Přeložené soubory</span><span class="en" lang="en">Translated files</span></span>
+            <strong id="factFiles">–</strong>
+            <span class="sub" id="factFilesSub"></span>
+          </div>
+          <div class="fact">
+            <span class="label"><span class="cs" lang="cs">Dokončené epizody</span><span class="en" lang="en">Completed episodes</span></span>
+            <strong id="factEps">–</strong>
+            <span class="sub" id="factEpsSub"></span>
+          </div>
+          <div class="fact">
+            <span class="label"><span class="cs" lang="cs">Zbývá přeložit</span><span class="en" lang="en">Left to translate</span></span>
+            <strong id="factRemaining">–</strong>
+            <span class="sub" id="factRemainingSub"></span>
+          </div>
+          <div class="fact fact-eta">
+            <span class="label"><span class="cs" lang="cs">Odhad dokončení</span><span class="en" lang="en">Estimated finish</span></span>
+            <strong id="factEta">–</strong>
+            <span class="sub" id="factEtaSub"></span>
+          </div>
+        </div>
+
         <div class="files">
           <span class="label"><span class="cs" lang="cs">Soubory skriptu</span><span class="en" lang="en">Script files</span></span>
           <ul class="counts" id="fileCounts"></ul>
         </div>
+        <p class="note" id="staleNote" hidden></p>
       </section>
 
       <section class="block" id="episodes" aria-labelledby="h-episodes">
         <div class="block-head">
-          <p class="kicker"><span class="cs" lang="cs">Sezóna 1</span><span class="en" lang="en">Season 1</span></p>
+          <p class="kicker"><span class="cs" lang="cs">Sezóny a epizody</span><span class="en" lang="en">Seasons and episodes</span></p>
           <h2 id="h-episodes"><span class="cs" lang="cs">Epizody</span><span class="en" lang="en">Episodes</span></h2>
           <p class="updated" id="epCount"></p>
         </div>
-        <ul class="eps" id="episodesList"></ul>
-        <p class="note cs" lang="cs">Stav epizod nastavuju ručně, takže je to jen orientační. Přesné procento je u souborů výše.</p>
-        <p class="note en" lang="en">Episode status is set by hand, so treat it as a rough guide. The exact percentage is in the file stats above.</p>
+        <div class="seasons" id="seasons"></div>
+        <p class="note cs" lang="cs">Procenta u epizod se počítají z řádků v souborech přiřazených ke konkrétní epizodě. Soubory společné celé hře se do epizod nepočítají, ale jsou zahrnuté v celkovém postupu výše. Označení „hotovo“ u epizody nastavuju ručně.</p>
+        <p class="note en" lang="en">Episode percentages are counted from the lines in files assigned to that episode. Files shared by the whole game are not part of any episode but are included in the overall progress above. The "done" label of an episode is set by hand.</p>
 
         <div class="chart-head">
           <h3><span class="cs" lang="cs">Vývoj v čase</span><span class="en" lang="en">Over time</span></h3>
@@ -189,6 +213,7 @@
       <p class="foot-links"><a href="https://filiposakkq.dev/">filiposakkq.dev</a> <i>///</i> <a href="#top"><span class="cs" lang="cs">Nahoru</span><span class="en" lang="en">Back to top</span> ↑</a></p>
     </div>
   </footer>
+  <script src="progress-model.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

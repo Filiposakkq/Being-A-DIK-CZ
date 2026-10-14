@@ -1,0 +1,4 @@
+# Needed only to BUILD PrehledPrekladu.exe (the application itself uses only the Python standard library).
+pyinstaller>=6.0
+# Optional: gives the app its own window (Edge WebView2). Without it the app opens an Edge/Chrome app window.
+pywebview>=5.0

@@ -1,0 +1,141 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>site rendering tests</title>
+<body style="font:14px monospace">
+<script src="harness.js"></script>
+<script>
+// Loads the real page in an iframe and feeds it fixture data through its own render().
+function openSite(width, lang) {
+  return new Promise((resolve) => {
+    const f = document.createElement("iframe");
+    f.style.cssText = `width:${width}px;height:900px;border:1px solid #888`;
+    f.src = "../../web/index.html?lang=" + (lang || "cs");
+    f.onload = () => setTimeout(() => resolve(f), 300);
+    document.body.append(f);
+  });
+}
+const txt = (d, sel) => (d.querySelector(sel) || {}).textContent || "";
+
+(async () => {
+  const real = await loadJson("v2-real-copy.json");
+  const syn = await loadJson("v2-synthetic-estimate.json");
+  const legacy = await loadJson("v1-legacy.json");
+  const broken = await loadJson("broken.json");
+
+  const f = await openSite(1100);
+  const w = f.contentWindow, d = f.contentDocument;
+
+  await test("page loads its own script without errors and has the new sections", () => {
+    ok(d.querySelector("#seasons") && d.querySelector("#facts") && d.querySelector("#chart"));
+    ok(typeof w.ProgressModel === "object", "progress-model.js loaded");
+  });
+
+  await test("three season blocks: 1 and 2 active with 4 episodes each, 3 planned", () => {
+    w.render(real);
+    const seasons = [...d.querySelectorAll(".season")];
+    eq(seasons.length, 3);
+    eq([...seasons[0].querySelectorAll(".ep")].map((e) => e.dataset.episode), ["1", "2", "3", "4"]);
+    eq([...seasons[1].querySelectorAll(".ep")].map((e) => e.dataset.episode), ["5", "6", "7", "8"]);
+    ok(seasons[2].classList.contains("season-planned"));
+    eq(seasons[2].querySelectorAll(".ep, .bar").length, 0, "planned season has no episodes or bars");
+    ok(txt(seasons[2], ".tag-planned").trim() === "Plánováno");
+  });
+
+  await test("season and episode percentages are rendered from data", () => {
+    w.render(real);
+    const s1 = d.querySelector('.season[data-season="1"]');
+    ok(txt(s1, ".season-stat").includes("17,3"), "season 1 shows 17,3 %: " + txt(s1, ".season-stat"));
+    ok(txt(d, '.season[data-season="2"] .season-stat').includes("0,0"));
+    ok(txt(s1, '.ep[data-episode="1"] .ep-pct').includes("96,8"));
+    ok(txt(d, '.ep[data-episode="1"] .ep-meta').replace(/[\s  ]/g, " ").includes("2 885"), txt(d, '.ep[data-episode="1"] .ep-meta'));
+    const none = JSON.parse(JSON.stringify(syn));
+    none.episodes[5] = { n: 6, season: 2, status: "none", translation: { done: 0, total: 0, percent: null }, proofreading: { done: 0, total: 0, percent: null }, files_total: 0, files_done: 0, files_proofread: 0 };
+    w.render(none);
+    ok(txt(d, '.ep[data-episode="6"] .ep-pct').includes("Bez dat"), "episode without files shows no data, not 0 %");
+    ok(!d.querySelector('.ep[data-episode="6"] .ep-pct').textContent.includes("0,0"));
+  });
+
+  await test("overall percentage matches data and is not diluted by season 3", () => {
+    w.render(real);
+    ok(txt(d, "#cardTr [data-pct]").trim() === "6,6");
+    ok(txt(d, "#factRemaining").replace(/\s/g, "") === String(real.translation.total - real.translation.done));
+  });
+
+  await test("facts: translated files, completed episodes", () => {
+    w.render(syn);
+    eq(txt(d, "#factEps").trim(), "1 / 8");
+    ok(txt(d, "#factFiles").includes("/"));
+  });
+
+  await test("estimate: hidden when data is insufficient, date shown when supported", () => {
+    w.render(real);
+    ok(txt(d, "#factEta").includes("málo dat"));
+    ok(!/20\d\d/.test(txt(d, "#factEta")), "no date invented");
+    w.render(syn);
+    ok(/2027/.test(txt(d, "#factEta")), "date shown: " + txt(d, "#factEta"));
+    ok(txt(d, "#factEtaSub").includes("rozmezí"));
+  });
+
+  await test("episode status label and data attribute", () => {
+    w.render(syn);
+    eq(d.querySelector('.ep[data-episode="1"]').dataset.status, "done");
+    ok(txt(d, '.ep[data-episode="2"] .ep-s').includes("Rozpracováno"));
+  });
+
+  await test("legacy data renders without errors (no technical notice for visitors)", () => {
+    w.render(legacy);
+    eq(d.querySelectorAll(".season").length, 3);
+    ok(d.querySelector("#staleNote").hidden);
+    ok(txt(d, '.ep[data-episode="1"] .ep-pct').includes("96,8"));
+    ok(txt(d, '.season[data-season="1"] .season-stat').includes("–"), "season percent unknown, not guessed");
+  });
+
+  await test("broken data does not crash the page", () => {
+    w.render(broken);
+    eq(d.querySelectorAll(".season").length, 3);
+    ok(txt(d, "#cardTr [data-pct]").trim() === "–");
+  });
+
+  await test("language switch: planned label and season names", () => {
+    w.render(real);
+    d.querySelector('[data-set-lang="en"]').click();
+    ok(txt(d, ".season-planned .tag-planned").trim() === "Planned");
+    ok(txt(d, '.season[data-season="1"] h3') === "Season 1");
+    ok(txt(d, '.season[data-season="1"] .range').includes("Episodes 1–4"));
+    d.querySelector('[data-set-lang="cs"]').click();
+    ok(txt(d, '.season[data-season="2"] .range').includes("Epizody 5–8"));
+  });
+
+  await test("existing sections, routes and links are still there", () => {
+    for (const id of ["progress", "episodes", "about", "license"]) ok(d.getElementById(id), "#" + id);
+    for (const h of ["#progress", "#episodes", "#about", "#license"]) ok(d.querySelector(`.nav a[href="${h}"]`), h);
+    ok(d.querySelector('a[href="https://www.patreon.com/drpinkcake"]'));
+    ok(d.querySelector('link[rel="stylesheet"][href="styles.css"]'));
+  });
+
+  for (const width of [360, 768]) {
+    const g = await openSite(width);
+    await test(`no horizontal overflow at ${width}px`, () => {
+      g.contentWindow.render(syn);
+      const root = g.contentDocument.documentElement;
+      ok(root.scrollWidth <= root.clientWidth + 1, `scrollWidth ${root.scrollWidth} > ${root.clientWidth}`);
+    });
+    await test(`episode cards stay inside their season at ${width}px`, () => {
+      const gd = g.contentDocument;
+      for (const ep of gd.querySelectorAll(".ep")) {
+        const r = ep.getBoundingClientRect(), p = ep.closest(".season").getBoundingClientRect();
+        ok(r.right <= p.right + 1 && r.left >= p.left - 1, "ep " + ep.dataset.episode + " overflows");
+      }
+      const cols = getComputedStyle(gd.querySelector(".eps")).gridTemplateColumns.split(" ").length;
+      eq(cols, width === 360 ? 2 : 2);
+    });
+  }
+
+  await test("wide layout shows four episode cards per row", () => {
+    const cols = getComputedStyle(d.querySelector(".eps")).gridTemplateColumns.split(" ").length;
+    eq(cols, 4);
+  });
+
+  window.finish();
+})();
+</script>
