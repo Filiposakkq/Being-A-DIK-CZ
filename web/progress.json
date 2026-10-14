@@ -1,9 +1,63 @@
 {
- "title": "",
- "updated": null,
- "translation": { "done": 0, "total": 0, "percent": 0 },
- "proofreading": { "done": 0, "total": 0, "percent": 0 },
- "files": { "none": 0, "wip": 0, "tr": 0, "rev": 0, "done": 0, "total": 0 },
- "episodes": [],
- "history": []
+ "title": "Being A DIK",
+ "updated": "2026-10-14T10:18+02:00",
+ "translation": {
+  "done": 1113,
+  "total": 45296,
+  "percent": 2.5
+ },
+ "proofreading": {
+  "done": 0,
+  "total": 45296,
+  "percent": 0.0
+ },
+ "files": {
+  "done": 0,
+  "rev": 0,
+  "tr": 2,
+  "wip": 1,
+  "none": 69,
+  "total": 72
+ },
+ "episodes": [
+  {
+   "n": 1,
+   "status": "wip"
+  },
+  {
+   "n": 2,
+   "status": "none"
+  },
+  {
+   "n": 3,
+   "status": "none"
+  },
+  {
+   "n": 4,
+   "status": "none"
+  },
+  {
+   "n": 5,
+   "status": "none"
+  },
+  {
+   "n": 6,
+   "status": "none"
+  },
+  {
+   "n": 7,
+   "status": "none"
+  },
+  {
+   "n": 8,
+   "status": "none"
+  }
+ ],
+ "history": [
+  {
+   "date": "2026-10-14",
+   "translation": 2.5,
+   "proofreading": 0.0
+  }
+ ]
 }
