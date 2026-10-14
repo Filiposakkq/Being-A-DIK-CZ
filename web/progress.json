@@ -1,8 +1,8 @@
 {
  "title": "Being A DIK",
- "updated": "2026-10-14T14:34+02:00",
+ "updated": "2026-10-14T14:35+02:00",
  "translation": {
-  "done": 2630,
+  "done": 2631,
   "total": 45335,
   "percent": 5.8
  },
@@ -14,9 +14,9 @@
  "files": {
   "done": 1,
   "rev": 0,
-  "tr": 1,
+  "tr": 2,
   "wip": 1,
-  "none": 69,
+  "none": 68,
   "total": 72
  },
  "episodes": [
