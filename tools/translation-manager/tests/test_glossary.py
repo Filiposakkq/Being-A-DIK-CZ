@@ -99,3 +99,93 @@ class GlossaryTests(TempCase):
         self.assertEqual(call("POST", "/api/glossary/set", {"items": [{"code": ""}]})[0], 400)
         st, r = call("POST", "/api/glossary/delete", {"codes": ["mc"]})
         self.assertEqual(r["names"], {})
+
+
+CHARACTERS = '''define mc = DynamicCharacter("name", color="#ffaf05")
+
+define js = Character("Josy", color="#ff1c63")
+define de = Character("Derek", color = "#0066ff")
+define bu = Character('Professor Burke', color="bc9360")
+define kid = Character("Kid")
+define esc = Character("Say \\"hi\\"")
+define empty = Character("")
+# Decompiled by unrpyc: https://github.com/CensoredUsername/unrpyc
+define de = Character("Duplicate Derek")
+'''
+
+
+class GlossaryImportTests(TempCase):
+    def setUp(self):
+        super().setUp()
+        # real layout: <game>/game/characters.rpy and <game>/game/tl/czech/*.rpy
+        self.game = self.tmp / "game"
+        self.root = self.game / "tl" / "czech"
+        self.root.mkdir(parents=True)
+        self.write("a.rpy", dialog("a1", "mc", "Hi.", "Ahoj.") + dialog("a2", "de", "Yo.", "Čau.") + dialog("a3", "xx", "Hey.", "Hej."))
+        (self.game / "characters.rpy").write_text(CHARACTERS, encoding="utf-8")
+        self.app = self.new_app()
+
+    def test_preview_parses_names_and_states_and_writes_nothing(self):
+        pv = self.app.glossary_import_preview()
+        self.assertEqual(pv["path"], str(self.game / "characters.rpy"))        # found automatically
+        items = {i["code"]: i for i in pv["items"]}
+        self.assertEqual(items["js"]["name"], "Josy")
+        self.assertEqual(items["de"]["name"], "Derek")                          # first definition wins
+        self.assertEqual(items["bu"]["name"], "Professor Burke")                # single quotes
+        self.assertEqual(items["kid"]["name"], "Kid")
+        self.assertEqual(items["mc"]["state"], "dynamic")
+        self.assertNotIn("empty", items)                                        # empty names are skipped
+        self.assertEqual(items["esc"]["name"], 'Say "hi"')
+        self.assertEqual(items["js"]["state"], "new")
+        self.assertEqual(pv["missing"], ["xx"])                                 # used in the translation, not defined
+        self.assertFalse((self.app.data_dir / "slovnik.csv").exists())
+
+    def test_apply_stores_names_keeps_notes_and_is_undoable(self):
+        self.app.glossary_set([{"code": "de", "name": "", "note": "kamarád"}])
+        self.app.glossary_import_apply([{"code": "de", "name": "Derek"}, {"code": "js", "name": "Josy"}])
+        g = self.app.store.glossary
+        self.assertEqual((g["de"]["n"], g["de"]["c"], g["js"]["n"]), ("Derek", "kamarád", "Josy"))
+        self.app.undo()
+        self.assertNotIn("js", self.app.store.glossary)
+
+    def test_existing_manual_name_is_a_conflict_not_overwritten_by_preview(self):
+        self.app.glossary_set([{"code": "de", "name": "Dereček"}])
+        items = {i["code"]: i for i in self.app.glossary_import_preview()["items"]}
+        self.assertEqual((items["de"]["state"], items["de"]["current"]), ("conflict", "Dereček"))
+        self.assertEqual(self.app.store.glossary["de"]["n"], "Dereček")
+        self.app.glossary_set([{"code": "js", "name": "Josy"}])
+        self.assertEqual({i["code"]: i for i in self.app.glossary_import_preview()["items"]}["js"]["state"], "same")
+
+    def test_bad_paths_are_refused_with_a_message(self):
+        with self.assertRaises(AppError):
+            self.app.glossary_import_preview(str(self.game / "nope.rpy"))
+        other = self.tmp / "notes.txt"
+        other.write_text("define a = Character('A')", encoding="utf-8")
+        with self.assertRaises(AppError):
+            self.app.glossary_import_preview(str(other))
+        big = self.tmp / "big.rpy"
+        big.write_bytes(b"#" * (3 * 1024 * 1024))
+        with self.assertRaises(AppError):
+            self.app.glossary_import_preview(str(big))
+
+    def test_not_found_automatically_gives_a_hint_not_an_error(self):
+        (self.game / "characters.rpy").unlink()
+        pv = self.app.glossary_import_preview()
+        self.assertEqual(pv["items"], [])
+        self.assertIn("nebyl nalezen", pv["message"])
+
+    def test_http_api(self):
+        srv, sess, _ = server.start_server(self.app)
+        self.addCleanup(srv.shutdown)
+
+        def post(path, body):
+            c = http.client.HTTPConnection("127.0.0.1", srv.server_address[1], timeout=10)
+            c.request("POST", path, json.dumps(body), {"X-Token": sess.token})
+            r = c.getresponse()
+            return r.status, json.loads(r.read())
+        st, r = post("/api/glossary/import-preview", {"path": ""})
+        self.assertEqual(st, 200)
+        self.assertTrue(any(i["code"] == "js" for i in r["items"]))
+        st, r = post("/api/glossary/import-apply", {"items": [{"code": "js", "name": "Josy"}]})
+        self.assertEqual(r["names"], {"js": "Josy"})
+        self.assertEqual(post("/api/glossary/import-preview", {"path": "C:\\nope\\x.rpy"})[0], 400)

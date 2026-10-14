@@ -6,7 +6,7 @@ Neoficiální fanouškovský překlad hry *Being a DIK* (DrPinkCake). Repozitá�
 pouze web, nástroje a (později) soubory překladu – žádné soubory hry.
 
 ## Struktura
-- `web/` – statický web (bez buildu), CZ/EN přepínač; data ze `web/progress.json`
+- `web/` – statický web (bez buildu), CZ/EN přepínač; data ze `web/progress.json`; `web/assets/game/` = oficiální tiskové obrázky hry (© DrPinkCake)
   (`progress-model.js` data ověřuje a chybějící údaje nikdy nedomýšlí)
 - `tools/translation-manager/` – **BaDIK Translation Manager**, aplikace pro správu překladu a generování `progress.json`
   (návod, sestavení `.exe`, testy: [tools/translation-manager/README.md](tools/translation-manager/README.md))
@@ -39,7 +39,9 @@ Token nikdy neukládej do repozitáře; přihlášení řeší tvůj git.
 | Kód a grafika webu (`web/`, `tools/gen_art.py`, `tests/web/`) | **MIT** – `LICENSE` |
 | BaDIK Translation Manager (`tools/translation-manager/`) | **vlastní licence** – `tools/translation-manager/LICENSE` (osobní nekomerční použití; šíření, úpravy a komerční použití jen s mým písemným souhlasem) |
 
-Hra *Being a DIK* a její obsah patří DrPinkCake; repozitář žádné soubory hry neobsahuje.
+| Obrázky ze hry (`web/assets/game/`) | **© DrPinkCake** – oficiální tiskové (press kit) obrázky, použité jen jako ilustrace; **nespadají** pod žádnou z licencí výše, na žádost držitele práv budou odstraněny |
+
+Hra *Being a DIK* a její obsah patří DrPinkCake; repozitář neobsahuje žádné soubory hry, jen těchto několik tiskových obrázků na webu.
 
 ## Podpora a kontakt
 [Ko-fi](https://ko-fi.com/filiposakkq) · [GitHub @Filiposakkq](https://github.com/Filiposakkq) · Discord `@filiposakkq` · [web](https://badik.filiposakkq.dev)

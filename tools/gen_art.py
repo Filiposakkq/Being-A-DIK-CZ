@@ -10,17 +10,17 @@ OUT = Path(__file__).resolve().parent.parent / "web"
 
 
 def letters(x, y, h, color, gap=0.42):
-    """Greek letters Delta, Iota, Kappa as simple vector shapes (top-left x,y; height h)."""
-    w = h * 0.62; s = h * 0.16; out = []; cx = x
-    out.append(f'<polygon points="{cx+w/2},{y} {cx+w},{y+h} {cx},{y+h}" fill="none" stroke="{color}" stroke-width="{s}" stroke-linejoin="miter"/>')
-    cx += w + h * gap
-    out.append(f'<rect x="{cx+w/2-s/2}" y="{y}" width="{s}" height="{h}" fill="{color}"/>')
-    cx += w * 0.5 + h * gap
-    out.append(f'<rect x="{cx}" y="{y}" width="{s}" height="{h}" fill="{color}"/>')
-    out.append(f'<polygon points="{cx+s},{y+h*0.52} {cx+w},{y} {cx+w+s*0.2},{y+s*1.1} {cx+s*2},{y+h*0.56}" fill="{color}"/>')
-    out.append(f'<polygon points="{cx+s*1.4},{y+h*0.46} {cx+w+s*0.2},{y+h-s*1.1} {cx+w},{y+h} {cx+s},{y+h*0.58}" fill="{color}"/>')
-    cx += w + s * 0.2
-    return "".join(out), cx - x
+    """Greek letters Delta, Iota, Kappa as simple vector shapes (top-left x,y; height h).
+    Returns (svg, width). Spacing is deliberately tight: Delta -> I 0.13h, I -> K 0.2h."""
+    w = h * 0.62; s = h * 0.16; out = []
+    out.append(f'<polygon points="{x+w/2},{y} {x+w},{y+h} {x},{y+h}" fill="none" stroke="{color}" stroke-width="{s}" stroke-linejoin="miter"/>')
+    ix = x + w + h * 0.13
+    out.append(f'<rect x="{ix}" y="{y}" width="{s}" height="{h}" fill="{color}"/>')
+    kx = ix + s + h * 0.2
+    out.append(f'<rect x="{kx}" y="{y}" width="{s}" height="{h}" fill="{color}"/>')
+    out.append(f'<polygon points="{kx+s},{y+h*0.52} {kx+w},{y} {kx+w+s*0.2},{y+s*1.1} {kx+s*2},{y+h*0.56}" fill="{color}"/>')
+    out.append(f'<polygon points="{kx+s*1.4},{y+h*0.46} {kx+w+s*0.2},{y+h-s*1.1} {kx+w},{y+h} {kx+s},{y+h*0.58}" fill="{color}"/>')
+    return "".join(out), kx + w + s * 0.2 - x
 
 
 def hero():
@@ -170,9 +170,9 @@ def crest():
     c.append(f'<path d="{INNER}" fill="none" stroke="{CREAM}" stroke-opacity=".4" stroke-width="2"/>')
     c.append(star(66, 62, 9, GOLD) + star(174, 62, 9, GOLD))
     c.append(f'<text x="120" y="75" text-anchor="middle" font-family="Georgia,\'Times New Roman\',serif" font-weight="700" font-size="32" letter-spacing="8" fill="{CREAM}">CZ</text>')
-    lt, lw = letters(0, 0, 64, GOLD)
-    c.append(f'<g transform="translate({120 - lw / 2 + 4:.1f},126)" opacity=".45"><g fill="#050912" stroke="#050912">{lt.replace(GOLD, "#050912")}</g></g>')
-    c.append(f'<g transform="translate({120 - lw / 2:.1f},122)">{lt.replace(GOLD, "url(#g)")}</g>')
+    lt, lw = letters(0, 0, 80, GOLD)
+    c.append(f'<g transform="translate({120 - lw / 2 + 4:.1f},112)" opacity=".45"><g fill="#050912" stroke="#050912">{lt.replace(GOLD, "#050912")}</g></g>')
+    c.append(f'<g transform="translate({120 - lw / 2:.1f},108)">{lt.replace(GOLD, "url(#g)")}</g>')
     c.append(f'<path d="M44 200 L196 200 L187 216 L196 232 L44 232 L53 216 Z" fill="url(#r)" stroke="{GOLD}" stroke-width="2.5" stroke-linejoin="round"/>')
     c.append(f'<text x="120" y="222" text-anchor="middle" font-family="Georgia,\'Times New Roman\',serif" font-weight="700" font-size="15" letter-spacing="5" fill="{CREAM}">ČESKY</text>')
     c.append('</svg>')
@@ -185,11 +185,13 @@ def crest():
            '<linearGradient id="r" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ee4258"/><stop offset="1" stop-color="#b01e33"/></linearGradient></defs>',
            '<path d="M2 3H62V38C62 57 46 67 32 72C18 67 2 57 2 38Z" fill="url(#g)"/>',
            '<path d="M9 10H55V37C55 51 44 59 32 64C20 59 9 51 9 37Z" fill="url(#n)"/>',
-           '<path d="M9 10H55V23H9Z" fill="url(#r)"/>',
-           '<path d="M32 27 L45 53 H19 Z" fill="none" stroke="url(#g)" stroke-width="7" stroke-linejoin="miter"/>',
+           '<path d="M9 10H55V21H9Z" fill="url(#r)"/>',
+           '<path d="M32 27 L43 48 H21 Z" fill="none" stroke="url(#g)" stroke-width="6" stroke-linejoin="round"/>',
            '</svg>']
     (OUT / "favicon.svg").write_text("".join(fav), encoding="utf-8")
 
 
 if __name__ == "__main__":
-    hero(); crest(); print("art written to", OUT)
+    # hero() draws an optional illustrated scene (web/assets/hero.svg); the page now uses a press-kit photo instead
+    (OUT / "assets").mkdir(parents=True, exist_ok=True)
+    crest(); print("art written to", OUT)

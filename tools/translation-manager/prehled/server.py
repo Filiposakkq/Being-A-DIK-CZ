@@ -223,6 +223,8 @@ def make_handler(sess):
                     str(d["file"]), ints(d["line"]), str(d.get("scope", "project")), bool(d.get("same_speaker", True)))},
                 "approve/apply": lambda: app.approval_apply(list(d.get("selections") or []), bool(d.get("on", True))),
                 "glossary/set": lambda: app.glossary_set(list(d.get("items") or [])),
+                "glossary/import-preview": lambda: {"ok": True, **app.glossary_import_preview(str(d.get("path", "")))},
+                "glossary/import-apply": lambda: app.glossary_import_apply(list(d.get("items") or [])),
                 "glossary/delete": lambda: app.glossary_delete(list(d.get("codes") or [])),
                 "proof/set": lambda: app.proof_set(list(d.get("items") or []), str(d.get("state", "ok")),
                                                    d.get("note")),
