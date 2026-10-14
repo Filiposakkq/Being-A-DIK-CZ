@@ -44,9 +44,10 @@ const txt = (d, sel) => (d.querySelector(sel) || {}).textContent || "";
   await test("season and episode percentages are rendered from data", () => {
     w.render(real);
     const s1 = d.querySelector('.season[data-season="1"]');
-    ok(txt(s1, ".season-stat").includes("17,3"), "season 1 shows 17,3 %: " + txt(s1, ".season-stat"));
-    ok(txt(d, '.season[data-season="2"] .season-stat').includes("0,0"));
-    ok(txt(s1, '.ep[data-episode="1"] .ep-pct').includes("96,8"));
+    ok(txt(s1, ".st-tr").includes("17,3"), "season 1 shows 17,3 %: " + txt(s1, ".st-tr"));
+    ok(txt(s1, ".st-pr").includes("2,1") || txt(s1, ".st-pr").includes("%"), "season 1 shows a proofreading percentage");
+    ok(txt(d, '.season[data-season="2"] .st-tr').includes("0,0"));
+    ok(txt(s1, '.ep[data-episode="1"] .pair-row.pt .pair-val').includes("96,8"));
     ok(txt(d, '.ep[data-episode="1"] .ep-meta').replace(/[\s  ]/g, " ").includes("2 885"), txt(d, '.ep[data-episode="1"] .ep-meta'));
     const none = JSON.parse(JSON.stringify(syn));
     none.episodes[5] = { n: 6, season: 2, status: "none", translation: { done: 0, total: 0, percent: null }, proofreading: { done: 0, total: 0, percent: null }, files_total: 0, files_done: 0, files_proofread: 0 };
@@ -80,20 +81,53 @@ const txt = (d, sel) => (d.querySelector(sel) || {}).textContent || "";
     w.render(syn);
     eq(d.querySelector('.ep[data-episode="1"]').dataset.status, "done");
     ok(txt(d, '.ep[data-episode="2"] .ep-s').includes("Rozpracováno"));
+    eq(d.querySelector('.ep[data-episode="3"]').dataset.status, "proof");
+    ok(txt(d, '.ep[data-episode="3"] .ep-s').includes("V korekci"), "proofreading status label");
   });
 
   await test("legacy data renders without errors (no technical notice for visitors)", () => {
     w.render(legacy);
     eq(d.querySelectorAll(".season").length, 3);
     ok(d.querySelector("#staleNote").hidden);
-    ok(txt(d, '.ep[data-episode="1"] .ep-pct').includes("96,8"));
-    ok(txt(d, '.season[data-season="1"] .season-stat').includes("–"), "season percent unknown, not guessed");
+    ok(txt(d, '.ep[data-episode="1"] .pair-row.pt .pair-val').includes("96,8"));
+    ok(txt(d, '.season[data-season="1"] .st-tr').includes("–"), "season percent unknown, not guessed");
+    ok(txt(d, '.season[data-season="1"] .st-pr').includes("–"), "proofreading percent unknown, not guessed");
   });
 
   await test("broken data does not crash the page", () => {
     w.render(broken);
     eq(d.querySelectorAll(".season").length, 3);
     ok(txt(d, "#cardTr [data-pct]").trim() === "–");
+  });
+
+  await test("every season and every episode shows BOTH a translation and a proofreading percentage", () => {
+    w.eval("data = " + JSON.stringify(syn));      // a language switch re-renders the page's own data
+    w.render(syn);
+    for (const s of d.querySelectorAll(".season:not(.season-planned)")) {
+      eq(s.querySelectorAll(".st").length, 2, "season stats");
+      ok(txt(s, ".st-tr .st-lbl") === "Překlad" && txt(s, ".st-pr .st-lbl") === "Korektura");
+    }
+    const eps = [...d.querySelectorAll(".ep")].filter((e) => e.querySelector(".pair"));
+    ok(eps.length >= 5, "episodes with data");
+    for (const e of eps) eq([e.querySelectorAll(".pair-row.pt").length, e.querySelectorAll(".pair-row.pp").length], [1, 1]);
+    ok(txt(d, '.ep[data-episode="1"] .pair-row.pp .pair-val').includes("20,0"));
+    d.querySelector('[data-set-lang="en"]').click();
+    ok(txt(d, ".season .st-tr .st-lbl") === "Translation" && txt(d, ".season .st-pr .st-lbl") === "Proofreading");
+    ok(txt(d, '.ep[data-episode="3"] .ep-s').includes("Proofreading"));
+    d.querySelector('[data-set-lang="cs"]').click();
+  });
+
+  await test("accuracy note, Ko-fi, GitHub repo, licenses and contact are on the page", () => {
+    const vis = (sel) => [...d.querySelectorAll(sel)].filter((n) => n.offsetParent !== null);
+    ok(vis(".note.approx").length === 1 && txt(d, ".note.approx.cs").includes("orientační"), "Czech note");
+    ok(d.querySelector('a[href="https://ko-fi.com/filiposakkq"]'), "ko-fi link");
+    ok(d.querySelector('a[href="https://github.com/Filiposakkq/Being-A-DIK-CZ"]'), "repo link");
+    eq(d.querySelectorAll(".licenses .lic").length, 3);
+    ok(d.querySelector(".contact-list").textContent.includes("@filiposakkq"));
+    for (const a of d.querySelectorAll('a[target="_blank"]')) ok((a.rel || "").includes("noopener"), "noopener on " + a.href);
+    d.querySelector('[data-set-lang="en"]').click();
+    ok(txt(d, ".note.approx.en").includes("approximate"));
+    d.querySelector('[data-set-lang="cs"]').click();
   });
 
   await test("language switch: planned label and season names", () => {

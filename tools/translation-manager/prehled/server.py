@@ -6,6 +6,7 @@ and every POST needs the per-run token that the page receives from the server.
 import json
 import mimetypes
 import secrets
+import socket
 import threading
 import time
 import traceback
@@ -52,6 +53,16 @@ def make_handler(sess):
 
     class Handler(BaseHTTPRequestHandler):
         server_version = "BaDIKTranslationManager"
+        # Large single send() calls stalled intermittently on Windows loopback (the client got exactly
+        # 65,280 bytes and then nothing), so bodies are written in small chunks.
+        CHUNK = 16 * 1024
+
+        def setup(self):
+            super().setup()
+            try:
+                self.request.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            except OSError:
+                pass
 
         def log_message(self, *args):
             pass
@@ -71,7 +82,8 @@ def make_handler(sess):
             self.send_header("Content-Security-Policy",
                              "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:")
             self.end_headers()
-            self.wfile.write(data)
+            for i in range(0, len(data), self.CHUNK):
+                self.wfile.write(data[i:i + self.CHUNK])
 
         def _json(self, payload, code=200):
             self._send(code, json.dumps(payload, ensure_ascii=False), "application/json; charset=utf-8")
@@ -114,7 +126,7 @@ def make_handler(sess):
             p = url.path
             if p in ("/", "/index.html"):
                 return self._static("index.html")
-            if p in ("/app.js", "/styles.css"):
+            if p in ("/app.js", "/styles.css", "/crest.svg", "/favicon.svg"):
                 return self._static(p[1:])
             if not p.startswith("/api/"):
                 return self._send(404, "not found", "text/plain")
@@ -234,8 +246,15 @@ def make_handler(sess):
     return Handler
 
 
+class LocalServer(ThreadingHTTPServer):
+    """The default listen backlog (5) drops connections when a browser opens many in parallel
+    (page + script + style + API calls), which showed up as sporadic ERR_CONNECTION_RESET."""
+    request_queue_size = 128
+    daemon_threads = True
+
+
 def start_server(app, pick_folder=None):
     sess = Session(app, pick_folder)
-    server = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(sess))
+    server = LocalServer(("127.0.0.1", 0), make_handler(sess))
     threading.Thread(target=server.serve_forever, daemon=True).start()
     return server, sess, f"http://127.0.0.1:{server.server_address[1]}/"

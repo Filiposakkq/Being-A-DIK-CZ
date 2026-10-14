@@ -41,4 +41,5 @@ exe = EXE(
     strip=False,
     upx=False,
     console=False,
+    icon=os.path.join(here, "assets", "icon.ico"),
 )

@@ -33,7 +33,16 @@ Samostatný `web.json` už není potřeba – nastavení webu je v aplikaci (*Na
 Token nikdy neukládej do repozitáře; přihlášení řeší tvůj git.
 
 ## Licence
-Kód webu: MIT (`LICENSE`). Překlad: viz `TRANSLATION-LICENSE.md`.
+| Co | Licence |
+|---|---|
+| Přeložený text | **CC BY-NC 4.0** – `TRANSLATION-LICENSE.md` (nekomerčně, s uvedením autora) |
+| Kód a grafika webu (`web/`, `tools/gen_art.py`, `tests/web/`) | **MIT** – `LICENSE` |
+| BaDIK Translation Manager (`tools/translation-manager/`) | **vlastní licence** – `tools/translation-manager/LICENSE` (osobní nekomerční použití; šíření, úpravy a komerční použití jen s mým písemným souhlasem) |
+
+Hra *Being a DIK* a její obsah patří DrPinkCake; repozitář žádné soubory hry neobsahuje.
+
+## Podpora a kontakt
+[Ko-fi](https://ko-fi.com/filiposakkq) · [GitHub @Filiposakkq](https://github.com/Filiposakkq) · Discord `@filiposakkq` · [web](https://badik.filiposakkq.dev)
 
 ## Nasazení
 Cloudflare Workers (statické assety z `web/`, viz `wrangler.jsonc`), doména `badik.filiposakkq.dev`.

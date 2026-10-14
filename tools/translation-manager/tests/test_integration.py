@@ -525,6 +525,20 @@ class ServerTests(TempCase):
         _, st, _ = self.call("GET", "/api/state")
         self.assertEqual(st["prefs"]["files"]["colw"]["name"], 555)
 
+    def test_many_parallel_requests_are_all_served(self):
+        """Regression: a small listen backlog reset ~1 in 15 large downloads when a browser fired many at once."""
+        from concurrent.futures import ThreadPoolExecutor
+
+        def fetch(_):
+            c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=20)
+            c.request("GET", "/app.js")
+            r = c.getresponse()
+            body = r.read()
+            return r.status == 200 and len(body) > 50000
+        with ThreadPoolExecutor(max_workers=48) as pool:
+            results = list(pool.map(fetch, range(400)))
+        self.assertTrue(all(results), f"{results.count(False)} of {len(results)} requests failed")
+
     def test_malformed_requests(self):
         c = http.client.HTTPConnection("127.0.0.1", self.port)
         c.request("POST", "/api/assign", b"{broken", {"X-Token": self.sess.token})

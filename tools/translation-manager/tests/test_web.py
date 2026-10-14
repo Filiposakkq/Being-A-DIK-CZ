@@ -88,6 +88,15 @@ class WebsiteRulesTests(unittest.TestCase):
         self.assertEqual(table, {s["n"]: list(s["episodes"]) for s in SEASONS})
         planned = re.search(r"PLANNED_SEASONS = \[([^\]]*)\]", js).group(1)
         self.assertEqual([int(x) for x in planned.split(",")], [s["n"] for s in SEASONS if s["status"] == "planned"])
+    def test_episode_statuses_match_between_manager_and_website(self):
+        from prehled.store import EP_STATES
+        js = (REPO / "web" / "progress-model.js").read_text(encoding="utf-8")
+        listed = re.search(r"const STATUSES = \[([^\]]*)\]", js).group(1)
+        self.assertEqual(re.findall(r'"(\w+)"', listed), [k for k, _l in EP_STATES])
+        app = (REPO / "web" / "app.js").read_text(encoding="utf-8")
+        for key, _label in EP_STATES:
+            self.assertRegex(app, rf"\b{key}: \"", key)             # a label exists in both languages
+
     def test_fixtures_agree_with_the_exporter_rules(self):
         import json
         from prehled import export

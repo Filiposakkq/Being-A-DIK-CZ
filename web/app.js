@@ -4,7 +4,7 @@ const T = {
   cs: {
     locale: "cs-CZ", title: "Being a DIK – český překlad (fan project)",
     lines: "řádků", checked: "řádků zkontrolováno", noData: "Zatím bez dat",
-    status: { none: "Nezačato", wip: "Rozpracováno", tr: "Přeloženo", done: "Hotovo" },
+    status: { none: "Nezačato", wip: "Rozpracováno", tr: "Přeloženo", proof: "V korekci", done: "Hotovo" },
     files: [["none", "Nezačato"], ["wip", "Rozpracováno"], ["tr", "Přeloženo"], ["rev", "Korektura"], ["done", "Hotovo"]],
     ago: (n) => (n <= 0 ? "dnes" : n === 1 ? "včera" : `před ${n} dny`),
     updated: (full, ago) => `Aktualizováno ${full} (${ago})`,
@@ -12,7 +12,7 @@ const T = {
     epDone: (d, t) => `${d} / ${t} epizod hotovo`,
     days: (n) => `${n} ${n === 1 ? "den" : n < 5 ? "dny" : "dní"}`,
     chartAria: (a, b) => `Vývoj v čase: překlad ${a} procent, korektura ${b} procent`,
-    ep: "EP",
+    ep: "EP", tr: "Překlad", pr: "Korektura",
     season: (n) => `Sezóna ${n}`, seasonKicker: (n) => `Sezóna ${n}`,
     range: (a, b) => `Epizody ${a}–${b}`,
     planned: "Plánováno",
@@ -30,7 +30,7 @@ const T = {
   en: {
     locale: "en-GB", title: "Being a DIK – Czech translation (fan project)",
     lines: "lines", checked: "lines checked", noData: "No data yet",
-    status: { none: "Not started", wip: "In progress", tr: "Translated", done: "Done" },
+    status: { none: "Not started", wip: "In progress", tr: "Translated", proof: "Proofreading", done: "Done" },
     files: [["none", "Not started"], ["wip", "In progress"], ["tr", "Translated"], ["rev", "Proofreading"], ["done", "Done"]],
     ago: (n) => (n <= 0 ? "today" : n === 1 ? "yesterday" : `${n} days ago`),
     updated: (full, ago) => `Updated ${full} (${ago})`,
@@ -38,7 +38,7 @@ const T = {
     epDone: (d, t) => `${d} / ${t} episodes done`,
     days: (n) => `${n} ${n === 1 ? "day" : "days"}`,
     chartAria: (a, b) => `Progress over time: translation ${a} percent, proofreading ${b} percent`,
-    ep: "EP",
+    ep: "EP", tr: "Translation", pr: "Proofreading",
     season: (n) => `Season ${n}`, seasonKicker: (n) => `Season ${n}`,
     range: (a, b) => `Episodes ${a}–${b}`,
     planned: "Planned",
@@ -154,8 +154,8 @@ function renderFacts(m) {
   note.textContent = msgs.join(" ");
 }
 
-function progressBar(percent, label) {
-  const bar = el("div", "bar");
+function progressBar(percent, label, extra) {
+  const bar = el("div", "bar" + (extra ? " " + extra : ""));
   bar.setAttribute("role", "progressbar");
   bar.setAttribute("aria-valuemin", "0");
   bar.setAttribute("aria-valuemax", "100");
@@ -164,26 +164,42 @@ function progressBar(percent, label) {
   return bar;
 }
 
+// "Translation 96,8 %" / "Proofreading 11,6 %" pair with a thin bar each.
+function pctPair(tr, pr, big) {
+  const t = T[lang];
+  const wrap = el("div", "pair" + (big ? " pair-big" : ""));
+  for (const [cls, label, block] of [["pt", t.tr, tr], ["pp", t.pr, pr]]) {
+    const row = el("div", "pair-row " + cls);
+    const p = fmtPct(block.percent);
+    const val = el("b", "pair-val");
+    if (p === null) val.textContent = "–";
+    else val.append(p, el("span", "unit", "%"));
+    row.append(el("span", "pair-lbl", label), val);
+    wrap.append(row, progressBar(block.percent, label, cls === "pp" ? "bar-alt" : ""));
+  }
+  return wrap;
+}
+
 function episodeEl(ep) {
   const t = T[lang];
   const li = el("li", "ep");
   li.dataset.status = ep.status;
   li.dataset.episode = String(ep.n);
-  const shape = svg("svg", { viewBox: "0 0 220 140", preserveAspectRatio: "none", "aria-hidden": "true" });
-  shape.append(svg("polygon", { points: "2,2 218,2 196,70 218,138 2,138" }));
+  const shape = svg("svg", { viewBox: "0 0 220 170", preserveAspectRatio: "none", "aria-hidden": "true" });
+  shape.append(svg("polygon", { points: "2,2 218,2 196,85 218,168 2,168" }));
   const top = el("div", "ep-top");
   top.append(el("span", "ep-n", `${t.ep} ${String(ep.n).padStart(2, "0")}`), el("span", "ep-s", t.status[ep.status]));
-  const p = fmtPct(ep.translation.percent);
-  const pct = el("div", "ep-pct" + (p === null ? " nodata" : ""));
-  if (p === null) pct.textContent = t.noEpData;
-  else pct.append(p, el("span", "unit", "%"));
   const meta = el("div", "ep-meta");
   if (ep.translation.total !== null) {
     meta.append(t.lineCount(num(ep.translation.done), num(ep.translation.total)), document.createElement("br"), t.nFiles(ep.files));
   } else {
     meta.textContent = ep.files ? t.nFiles(ep.files) : t.noEpMeta;
   }
-  li.append(shape, top, pct, progressBar(ep.translation.percent, `${t.ep} ${ep.n}`), meta);
+  if (ep.translation.percent === null && ep.proofreading.percent === null) {
+    li.append(shape, top, el("div", "ep-pct nodata", t.noEpData), meta);
+  } else {
+    li.append(shape, top, pctPair(ep.translation, ep.proofreading, false), meta);
+  }
   return li;
 }
 
@@ -201,22 +217,27 @@ function seasonEl(s) {
     return art;
   }
   if (s.episodes.length) title.append(el("span", "range", t.range(s.episodes[0].n, s.episodes[s.episodes.length - 1].n)));
-  const stat = el("div", "season-stat");
-  const strong = el("strong");
-  const p = fmtPct(s.translation.percent);
-  if (p === null) strong.textContent = "–";
-  else strong.append(p, el("span", "unit", "%"));
-  stat.append(strong);
-  head.append(stat);
+  const stats = el("div", "season-stats");
+  for (const [cls, label, block] of [["st-tr", t.tr, s.translation], ["st-pr", t.pr, s.proofreading]]) {
+    const st = el("div", "st " + cls);
+    const p = fmtPct(block.percent);
+    const strong = el("strong");
+    if (p === null) strong.textContent = "–";
+    else strong.append(p, el("span", "unit", "%"));
+    st.append(el("span", "st-lbl", label), strong);
+    if (block.total !== null) st.append(el("span", "st-sub", `${num(block.done)} / ${num(block.total)}`));
+    stats.append(st);
+  }
+  head.append(stats);
   const meta = el("p", "season-meta");
   const parts = [];
-  if (s.translation.total !== null) parts.push(t.seasonLines(num(s.translation.done), num(s.translation.total)));
   parts.push(t.seasonEps(s.episodesDone, s.episodesTotal));
   if (s.files) parts.push(t.nFiles(s.files));
   meta.textContent = parts.join(" · ");
   const list = el("ul", "eps");
   for (const ep of s.episodes) list.append(episodeEl(ep));
-  art.append(head, progressBar(s.translation.percent, t.season(s.n)), meta, list);
+  art.append(head, progressBar(s.translation.percent, `${t.season(s.n)} – ${t.tr}`),
+    progressBar(s.proofreading.percent, `${t.season(s.n)} – ${t.pr}`, "bar-alt bar-thin"), meta, list);
   return art;
 }
 
