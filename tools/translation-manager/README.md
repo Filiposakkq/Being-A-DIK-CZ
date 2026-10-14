@@ -25,7 +25,8 @@ formats as before, so existing data keeps working and CSVs can still be opened i
 
 | File | Content |
 |---|---|
-| `korekce.csv` | proofread lines per file, manual translated-lines override |
+| `korekce.csv` | hand-typed proofread baseline per file, manual translated-lines override |
+| `korektura_radky.csv` | per-line proofreading marks and "to fix" notes |
 | `prirazeni.csv` | file → `Obecné` / `Epizoda N` |
 | `schvaleno.csv` | manually approved "untranslated-looking" lines |
 | `epizody.csv` | hand-set episode status (Nezačato / Rozpracováno / Přeloženo / Hotovo) |
@@ -86,13 +87,28 @@ speakers and English-looking lines are unchecked, empty translations can never b
 lines are shown but untouched. Broad approvals need a second confirming click, and every approval is
 undoable (`Ctrl+Z`).
 
+### Proofreading
+
+Select a translated line in *Řádky* (filter **Ke korektuře** shows what is still unchecked):
+
+| Key | Does |
+|---|---|
+| `P` | mark the line **proofread** (✓) and jump to the next unchecked line; pressing it again un-marks |
+| `F` | flag the line **k opravě** (⚑) and write a note; flagged lines are not counted as proofread until you mark them ✓ |
+| `Shift+P` | mark every unchecked translated line of the file **up to this one** (for "I read everything down to here") |
+
+* Filters: *Ke korektuře*, *K opravě (korektura)*, *Zkontrolované*. *Pokračovat v korektuře* (file detail in *Soubory*, or the *Přehled* card) opens the first unchecked line.
+* If a proofread line's translation is edited later, its mark becomes **stale** (↻ "změněno po korektuře"), is no longer counted and shows up again under *Ke korektuře*.
+* The number in *Korektura* (files table, overview, `progress.json`, website) = the **number you typed by hand** (e.g. the 436 lines already checked) **+ the lines marked one by one**. Typing a number never drops marked lines; *Ano* = whole file.
+* Marks are stored in `_progress_data\korektura_radky.csv` (file; block; source; ok/fix; translation fingerprint; note; date), survive refreshes and renames, are backed up, and every change is undoable (`Ctrl+Z`). Untranslated lines can't be proofread.
+
 **Kontrola** – the validator (see below). **Publikace** – see below. **Nastavení** – folder, editor,
 thresholds, website.
 
 ### Keyboard
 
 `Ctrl+F` or `/` search · `↑ ↓` / `J K` move · `PgUp/PgDn` · `A` approve / un-approve · `Shift+A` approve all
-identical (with preview) · `E` / `Enter` open in editor · `Ctrl+Z` undo · `F5` refresh · `Alt+1…6` switch tabs · `?` help.
+identical (with preview) · `P` / `F` / `Shift+P` proofreading · `E` / `Enter` open in editor · `Ctrl+Z` undo · `F5` refresh · `Alt+1…6` switch tabs · `?` help.
 Shortcuts are ignored while you type in a field, so they never conflict with text editing.
 Filters, sorting, column widths and the last tab are remembered (stored by the app, not the browser).
 

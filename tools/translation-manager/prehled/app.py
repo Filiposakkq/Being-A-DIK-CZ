@@ -2,7 +2,7 @@
 import json
 import shutil
 import threading
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
 from . import bulk, editor, export, history as hist, publish as pub, rpy, validator
@@ -10,7 +10,7 @@ from .config import Config, migrate_web_json
 from .project import (DATA_DIR_NAME, STATUS_LABELS, STATUS_ORDER, Project, ProjectUnavailable,
                       check_project_dir, file_status, totals_of)
 from .seasons import ACTIVE_EPISODES, SEASONS
-from .store import EP_STATES, Store, parse_value, valid_assign
+from .store import EP_STATES, Store, parse_value, text_hash, valid_assign
 from .util import WriteFailed, norm_ws, write_csv
 
 # Files the legacy tool left next to the script; moved into _progress_data on first open.
@@ -240,6 +240,11 @@ class App:
         for r in rows:
             counts[file_status(r.done, r.todo, r.total, r.corr)] += 1
         approved = sum(len(v) for v in self.store.approved.values())
+        marked = flagged = 0
+        for rel in self.store.proof:
+            if rel in self.project.files:
+                ok, fix = self.project.proof_counts(rel)
+                marked, flagged = marked + ok, flagged + fix
         stats = export.stats_for(rows, self.store)
         vcounts, _ = self.validation_summary()
         pts = self.history.points()
@@ -254,7 +259,8 @@ class App:
             "project": {"path": str(self.project.root), "data_dir": str(self.data_dir),
                         "files": len(rows), "skipped": sorted(self.project.skip)},
             "totals": {"done": t_done, "total": total, "remaining": total - t_done, "percent": round(tpct, 1),
-                       "proofread": c_done, "proofread_percent": round(cpct, 1), "approved": approved},
+                       "proofread": c_done, "proofread_percent": round(cpct, 1), "approved": approved,
+                       "proof_marked": marked, "proof_fix": flagged},
             "file_counts": counts,
             "seasons": stats["seasons"], "episodes": stats["episodes"],
             "general": stats["general"], "unassigned": stats["unassigned"],
@@ -277,7 +283,8 @@ class App:
             appr = self.project.counts(r.name)[2]
             st = file_status(r.done, r.todo, r.total, r.corr)
             v = per_file.get(r.name, {"error": 0, "warning": 0, "info": 0})
-            out.append({"name": r.name, "assign": self.store.assign.get(r.name, ""), "total": r.total,
+            p_ok, p_fix = self.project.proof_counts(r.name)
+            out.append({"name": r.name, "proof_marked": p_ok, "proof_fix": p_fix, "assign": self.store.assign.get(r.name, ""), "total": r.total,
                         "done": r.done, "auto": r.auto, "todo": r.todo, "corr": r.corr, "approved": appr,
                         "status": st, "order": STATUS_ORDER[st], "errors": v["error"], "warnings": v["warning"]})
         return out
@@ -316,6 +323,13 @@ class App:
                     continue
                 if status == "translated" and st != "translated":
                     continue
+                pf = self.project.proof_state(rel, e) if st != "todo" else ""
+                if status == "review" and (st == "todo" or pf in ("ok", "fix")):
+                    continue
+                if status == "proofed" and pf != "ok":
+                    continue
+                if status == "fix" and pf != "fix":
+                    continue
                 kinds = rpy.KIND_CODE.get(e.category, "")
                 if kind and kinds != kind:
                     continue
@@ -330,7 +344,7 @@ class App:
                 if ql and ql not in (e.target or "").lower() and ql not in (e.source or "").lower() \
                         and ql not in e.who.lower() and ql not in rel.lower():
                     continue
-                rows.append((rel, e, st, shown))
+                rows.append((rel, e, st, shown, pf))
         if sort == "kind":
             rows.sort(key=lambda r: (rpy.KIND_RANK.get(r[1].category, 9), r[0].lower(), r[1].line))
         elif sort == "issues":
@@ -346,9 +360,9 @@ class App:
         return {"total": total, "offset": offset, "items": [{
             "file": rel, "line": e.line, "src_line": e.src_line, "block": e.block, "who": e.who,
             "source": e.source, "target": e.target, "status": st,
-            "kind": rpy.KIND_CODE.get(e.category, ""),
+            "kind": rpy.KIND_CODE.get(e.category, ""), "proof": pf,
             "issues": [{"severity": i.severity, "code": i.code} for i in shown],
-        } for rel, e, st, shown in page]}
+        } for rel, e, st, shown, pf in page]}
 
     def entry_detail(self, rel, line):
         self._need_project()
@@ -363,11 +377,15 @@ class App:
 
         def brief(x):
             return {"line": x.line, "who": x.who, "source": x.source, "target": x.target,
-                    "status": self._entry_row(rel, x)}
+                    "status": self._entry_row(rel, x),
+                    "proof": self.project.proof_state(rel, x) if self.project.is_translated(rel, x) else ""}
         return {"file": rel, "path": str(self.project.root / rel), "line": e.line, "src_line": e.src_line,
                 "block": e.block, "who": e.who, "unit": e.unit, "source": e.source, "target": e.target,
                 "src_raw": e.src_raw, "cur_raw": e.cur_raw,
                 "status": self._entry_row(rel, e), "kind": rpy.KIND_CODE.get(e.category, ""),
+                "proof": self.project.proof_state(rel, e) if self.project.is_translated(rel, e) else "",
+                "proof_note": self.store.proof.get(rel, {}).get(e.key, {}).get("n", ""),
+                "proof_date": self.store.proof.get(rel, {}).get(e.key, {}).get("d", ""),
                 "kind_label": e.category, "key": [e.block, norm_ws(e.source if e.source is not None else e.target)],
                 "issues": [i.to_dict() for i in iss],
                 "before": [brief(x) for x in ents[max(0, idx - 2):idx]],
@@ -389,11 +407,104 @@ class App:
             c_n, t_n = parse_value(c, total), parse_value(t, total)
             if t_n is not None and t_n == auto:
                 t_n = None
+            # the number shown = hand-typed baseline + lines marked one by one; keep the marks, store the rest
+            c_n = max(0, c_n - self.project.proof_counts(name)[0]) if c_n else c_n
 
             def go():
                 self.store.corr[name] = {"c": "" if not c_n else str(c_n), "t": "" if t_n is None else str(t_n)}
             self.store.change(f"Úprava počtů v {Path(name).name}", ("corr",), go)
             return self._changed("save")
+
+    # ------------------------------------------------------------ proofreading
+    def _proof_entry(self, rel, key):
+        key = (str(key[0]), norm_ws(str(key[1])))
+        e = next((x for x in self.project.entries(rel) if x.key == key), None)
+        return key, e
+
+    def proof_set(self, items, state, note=None):
+        """Mark lines proofread ('ok'), flagged for fixing ('fix', optional note) or clear the mark ('').
+        Only translated lines can be proofread. One undo step. Returns {changed, skipped}."""
+        self._need_project()
+        if state not in ("ok", "fix", ""):
+            raise AppError("Neplatný stav korektury.")
+        with self.lock:
+            plan, skipped = [], []
+            for it in items:
+                rel = it.get("file")
+                if rel not in self.project.files:
+                    skipped.append((rel, "neznámý soubor"))
+                    continue
+                key, e = self._proof_entry(rel, it.get("key") or ["", ""])
+                if e is None:
+                    skipped.append((rel, "řádek se v souboru změnil – obnov soubory"))
+                elif state and not self.project.is_translated(rel, e):
+                    skipped.append((rel, "řádek ještě není přeložený"))
+                else:
+                    plan.append((rel, key, e))
+            changed = 0
+
+            def go():
+                nonlocal changed
+                today = date.today().isoformat()
+                for rel, key, e in plan:
+                    marks = self.store.proof.setdefault(rel, {})
+                    old = marks.get(key)
+                    if not state:
+                        if marks.pop(key, None) is not None:
+                            changed += 1
+                    else:
+                        keep = (old or {}).get("n", "")
+                        new = {"s": state, "h": text_hash(e.target), "d": today,
+                               "n": note if note is not None else keep}
+                        if old != new:
+                            marks[key] = new
+                            changed += 1
+                    if not marks:
+                        self.store.proof.pop(rel, None)
+            label = {"ok": "Korektura: zkontrolováno", "fix": "Korektura: k opravě", "": "Korektura: zrušeno"}[state]
+            self.store.change(f"{label} ({len(plan)})", ("proof",), go)
+            out = self._changed("proof")
+            out.update(changed=changed, skipped=skipped)
+            return out
+
+    def proof_upto(self, rel, line, state="ok"):
+        """Mark every translated, not yet proofread / flagged line of a file up to `line` (inclusive)."""
+        self._need_project()
+        with self.lock:
+            if rel not in self.project.files:
+                raise AppError("Neznámý soubor.")
+            items = [{"file": rel, "key": list(e.key)} for e in self.project.entries(rel)
+                     if e.line <= line and self.project.is_translated(rel, e)
+                     and self.project.proof_state(rel, e) in ("", "stale")]
+            if not items:
+                return {"ok": True, "changed": 0, "skipped": [], "problems": []}
+            return self.proof_set(items, state)
+
+    def proof_clear_file(self, rel):
+        """Remove all per-line proofread marks of a file (one undo step)."""
+        self._need_project()
+        with self.lock:
+            if rel not in self.project.files:
+                raise AppError("Neznámý soubor.")
+            n = len(self.store.proof.get(rel, {}))
+            self.store.change(f"Korektura: smazány značky v {Path(rel).name}", ("proof",),
+                              lambda: self.store.proof.pop(rel, None))
+            out = self._changed("proof")
+            out["changed"] = n
+            return out
+
+    def proof_next(self, file="", after=0):
+        """First translated line (after `after`, in file order) that still needs proofreading, or None."""
+        self._need_project()
+        files = [file] if file else sorted(self.project.files, key=str.lower)
+        for rel in files:
+            if rel not in self.project.files:
+                raise AppError("Neznámý soubor.")
+            for e in self.project.entries(rel):
+                if (not file or e.line > after) and self.project.is_translated(rel, e) \
+                        and self.project.proof_state(rel, e) in ("", "stale"):
+                    return {"found": True, "file": rel, "line": e.line}
+        return {"found": False}
 
     def set_assign(self, name, v):
         self._need_project()
