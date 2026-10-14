@@ -1,0 +1,9 @@
+{
+ "title": "",
+ "updated": null,
+ "translation": { "done": 0, "total": 0, "percent": 0 },
+ "proofreading": { "done": 0, "total": 0, "percent": 0 },
+ "files": { "none": 0, "wip": 0, "tr": 0, "rev": 0, "done": 0, "total": 0 },
+ "episodes": [],
+ "history": []
+}
