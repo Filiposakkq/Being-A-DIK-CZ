@@ -940,7 +940,8 @@ async function viewGlossary() {
     h('p', { class: 'muted' }, 'Slovník jmen. Mluvčí v souborech jsou jen zkratky (mc, de, ji…); zde jim přiřadíš celé jméno. ',
       'Zobrazení v aplikaci (Řádky, detail, okolí řádku) přepínáš vpravo: kód / celé jméno / obojí. Jméno se zapisuje automaticky po opuštění pole. Zkratky se hledají v souborech samy – nic se nevymýšlí.'),
     h('div', { class: 'toolbar' }, seg, search, speakerModeSelect(() => toast('Zobrazení mluvčích změněno.', 'ok', 1500)),
-      h('button', { class: 'btn', onclick: () => addDialog() }, '+ Přidat položku (termín / jméno)'), h('span', { class: 'spacer' }), counter), body);
+      h('button', { class: 'btn', onclick: () => addDialog() }, '+ Přidat položku (termín / jméno)'),
+      h('button', { class: 'btn', title: 'Načte jména postav z characters.rpy hry', onclick: () => importDialog() }, 'Importovat z characters.rpy…'), h('span', { class: 'spacer' }), counter), body);
 
   async function save(item, quiet) {
     try { data = await post('glossary/set', { items: [item] }); S.gl = data.names; if (!quiet) toast('Uloženo ✓', 'ok', 1500); counter.textContent = stats(); }
@@ -968,6 +969,45 @@ async function viewGlossary() {
             try { data = await post('glossary/delete', { codes: [it.code] }); S.gl = data.names; draw(); toast('Záznam smazán. Zpět: Ctrl+Z'); } catch (e) { fail(e); } } }, 'Smazat') : null)));
     }
     body.replaceChildren(h('div', { class: 'tablewrap' }, t.table));
+  }
+  async function importDialog() {
+    let pv;
+    try { pv = await post('glossary/import-preview', { path: '' }); } catch (e) { return fail(e); }
+    const pathIn = h('input', { type: 'text', value: pv.path, placeholder: 'D:\\Hra\\game\\characters.rpy', style: { flex: 1 } });
+    const holder = h('div');
+    let rows = [];
+    const apply = h('button', { class: 'btn primary', disabled: true }, 'Zapsat do slovníku');
+    const upd = () => { const n = rows.filter((r) => r.on).length; apply.disabled = !n; apply.textContent = n ? `Zapsat do slovníku (${n})` : 'Zapsat do slovníku'; };
+    const STATE = { new: ['Nové', 'tr'], same: ['Shodné', 'none'], conflict: ['Jiné než ve slovníku', 'error'], dynamic: ['Zadává hráč', 'none'] };
+    function paint(data) {
+      rows = data.items.map((i) => ({ ...i, on: i.state === 'new' }));
+      if (!rows.length) { holder.replaceChildren(empty('Nic k importu', data.message || 'V souboru nejsou žádné řádky define … = Character("…").')); return upd(); }
+      const t = buildTable({ key: 'glimport', cols: [{ k: 'on', w: 44, label: '', resize: false }, { k: 'code', w: 110, label: 'Kód' }, { k: 'name', w: 240, label: 'Jméno v characters.rpy' },
+        { k: 'cur', w: 220, label: 'Dosud ve slovníku' }, { k: 'st', w: 190, label: 'Stav' }] });
+      for (const r of rows) {
+        t.tbody.append(h('tr', null, h('td', { class: 'center' }, h('input', { type: 'checkbox', checked: r.on, disabled: r.state === 'dynamic' || r.state === 'same',
+          title: r.state === 'conflict' ? 'Přepíše jméno, které máš ve slovníku' : '', onchange: (e) => { r.on = e.target.checked; upd(); } })),
+          h('td', { class: 'mono' }, r.code), h('td', null, r.name || h('span', { class: 'muted' }, r.note)), h('td', { class: 'muted' }, r.current || '–'),
+          h('td', null, chip(STATE[r.state][1], STATE[r.state][0]), r.in_project ? null : h('span', { class: 'muted' }, '  (není v překladu)'))));
+      }
+      holder.replaceChildren(
+        data.missing?.length ? h('div', { class: 'notice warn' }, `V překladu je ${data.missing.length} kódů mluvčích, které characters.rpy nedefinuje (mohou být definované jinde, nebo jde o překlep): `, h('span', { class: 'mono' }, data.missing.slice(0, 25).join(', ') + (data.missing.length > 25 ? ' …' : ''))) : null,
+        h('div', { class: 'tablewrap', style: { maxHeight: '48vh' } }, t.table));
+      upd();
+    }
+    const load = async () => { try { paint(await post('glossary/import-preview', { path: pathIn.value })); } catch (e) { fail(e); } };
+    paint(pv);
+    apply.onclick = async () => {
+      try {
+        data = await post('glossary/import-apply', { items: rows.filter((r) => r.on).map((r) => ({ code: r.code, name: r.name })) });
+        S.gl = data.names; draw(); toast('Jména importována ✓  (Ctrl+Z vrátí)');
+        $('#dlg').close();
+      } catch (e) { fail(e); }
+    };
+    dialog({ title: 'Import jmen z characters.rpy', body: h('div', null,
+      h('p', { class: 'muted' }, 'Soubor hry se jen čte. Zaškrtnuté řádky se zapíšou do slovníku; jména, která už ve slovníku máš a liší se, se přepíšou jen když je sám zaškrtneš.'),
+      h('div', { class: 'row nowrap' }, pathIn, h('button', { class: 'btn', onclick: load }, 'Načíst')), holder),
+      buttons: [{ label: 'Zavřít' }, { node: apply }] });
   }
   function addDialog() {
     const code = h('input', { type: 'text', placeholder: 'kód nebo termín (např. de, Delta Iota Kappa)' });

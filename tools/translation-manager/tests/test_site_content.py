@@ -32,11 +32,29 @@ class SiteContentTests(unittest.TestCase):
                        "tools/translation-manager/LICENSE", "/issues"):
             self.assertIn(needle, self.html, needle)
 
-    def test_game_assets_are_not_embedded(self):
-        """The site's own disclaimer says no game material is on it; keep that true."""
-        assets = {p.name for p in (REPO / "web" / "assets").iterdir()}
-        self.assertEqual(assets, {"crest.svg", "hero.svg"})
-        self.assertNotRegex(self.html, r"\.(png|jpe?g|webp|gif)\b")
+    ALLOWED_GAME_IMAGES = {"hero-party.jpg", "title-art.jpg", "scene-guitar.jpg", "scene-bench.jpg", "scene-dinner.jpg"}
+
+    def test_only_the_approved_press_kit_images_are_on_the_site(self):
+        """Game images are limited to the reviewed press-kit set in web/assets/game, with credit and a removal promise."""
+        game = {p.name for p in (REPO / "web" / "assets" / "game").iterdir() if p.suffix == ".jpg"}
+        self.assertEqual(game, self.ALLOWED_GAME_IMAGES)
+        self.assertEqual({p.name for p in (REPO / "web" / "assets").iterdir() if p.is_file()}, {"crest.svg"})
+        used = set(re.findall(r'(?:src|href)="([^"]+\.(?:png|jpe?g|webp|gif))"', self.html))
+        self.assertEqual({u.split("/")[-1] for u in used}, self.ALLOWED_GAME_IMAGES)
+        self.assertTrue(all(u.startswith("assets/game/") for u in used), used)
+        self.assertIn("© DrPinkCake", self.html)
+        self.assertIn("ihned odstraním", self.html)
+        self.assertIn("will remove them immediately", self.html)
+        self.assertIn("igdb.com/games/being-a-dik/presskit", self.html)
+        self.assertTrue((REPO / "web" / "assets" / "game" / "README.md").is_file())
+
+    def test_disclaimer_no_longer_claims_there_are_no_game_images(self):
+        self.assertNotIn("žádné z nich nenajdeš", self.html)
+        self.assertNotIn("None of them are on this site", self.html)
+
+    def test_game_images_are_small_enough_for_a_fast_page(self):
+        total = sum(p.stat().st_size for p in (REPO / "web" / "assets" / "game").glob("*.jpg"))
+        self.assertLess(total, 600 * 1024)
 
 
 class LicenseTests(unittest.TestCase):
@@ -59,13 +77,16 @@ class LicenseTests(unittest.TestCase):
 
     def test_readme_lists_all_three_licenses(self):
         text = (REPO / "README.md").read_text(encoding="utf-8")
-        for needle in ("CC BY-NC 4.0", "MIT", "vlastní licence", "ko-fi.com/filiposakkq"):
+        for needle in ("CC BY-NC 4.0", "MIT", "vlastní licence", "ko-fi.com/filiposakkq", "web/assets/game"):
             self.assertIn(needle, text)
+
+    def test_licenses_say_the_game_images_are_not_covered(self):
+        self.assertIn("web/assets/game", (REPO / "LICENSE").read_text(encoding="utf-8"))
 
 
 class LogoTests(unittest.TestCase):
     def test_svgs_are_valid_xml(self):
-        for f in ("web/assets/crest.svg", "web/favicon.svg", "web/assets/hero.svg",
+        for f in ("web/assets/crest.svg", "web/favicon.svg",
                   "tools/translation-manager/prehled/ui/crest.svg", "tools/translation-manager/prehled/ui/favicon.svg"):
             xml.dom.minidom.parse(str(REPO / f))
 

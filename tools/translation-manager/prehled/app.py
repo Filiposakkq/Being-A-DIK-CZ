@@ -1,5 +1,6 @@
 """Application state and operations (no HTTP, no UI) — everything the server exposes lives here."""
 import json
+import re
 import shutil
 import threading
 import webbrowser
@@ -24,6 +25,9 @@ LINKS = {
     "repo": "https://github.com/Filiposakkq/Being-A-DIK-CZ",
     "web": "https://badik.filiposakkq.dev/",
 }
+# define de = Character("Derek", color="#0066ff")      /      define mc = DynamicCharacter("name", ...)
+CHARACTER_RE = re.compile(r"""^\s*define\s+(\w+)\s*=\s*(Dynamic)?Character\(\s*(?:"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)')""")
+CHARACTERS_MAX_BYTES = 2 * 1024 * 1024
 PAGE_LIMIT = 500
 UI_PREF_MAX = 20000
 
@@ -485,6 +489,70 @@ class App:
                         self.store.glossary.pop(code, None)
             self.store.change(f"Slovník ({len(clean)})", ("glossary",), go)
             return {"ok": True, **self.glossary_payload()}
+
+    def find_characters_file(self):
+        """characters.rpy of the game: the translation folder is usually <game>/game/tl/<lang>, so look upwards."""
+        root = self.project.root
+        for base in (root.parent.parent, root.parent, root, root.parent.parent.parent):
+            cand = base / "characters.rpy"
+            if cand.is_file():
+                return cand
+        return None
+
+    def glossary_import_preview(self, path=""):
+        """Read `define xx = Character("Name", ...)` lines of the game's characters.rpy and compare with the
+        glossary. Nothing is written. states: new | same | conflict (a different name is already stored) |
+        dynamic (the name comes from a variable, e.g. the player's name - nothing to import)."""
+        self._need_project()
+        found = Path(path).expanduser() if str(path).strip() else self.find_characters_file()
+        if found is None:
+            return {"path": "", "items": [], "message": "characters.rpy nebyl nalezen – zadej cestu ručně."}
+        found = Path(found)
+        if found.suffix.lower() != ".rpy":
+            raise AppError("Importovat lze jen soubor .rpy (characters.rpy).")
+        try:
+            if not found.is_file():
+                raise AppError(f"Soubor neexistuje: {found}")
+            if found.stat().st_size > CHARACTERS_MAX_BYTES:
+                raise AppError("Soubor je příliš velký na characters.rpy.")
+            text = found.read_text(encoding="utf-8-sig", errors="replace")
+        except OSError as e:
+            raise AppError(f"Soubor nelze přečíst: {e.strerror or e}") from e
+        in_project = {self.speaker_code(e.who) for rel in self.project.files for e in self.project.entries(rel)}
+        items, seen = [], set()
+        for line in text.splitlines():
+            m = CHARACTER_RE.match(line)
+            if not m or m.group(1) in seen:
+                continue
+            code, dynamic = m.group(1), bool(m.group(2))
+            name = (m.group(3) if m.group(3) is not None else m.group(4) or "").replace('\\"', '"').strip()
+            seen.add(code)
+            cur = self.store.glossary.get(code, {}).get("n", "")
+            if dynamic:
+                state, name = "dynamic", ""
+            elif not name:
+                continue
+            elif not cur:
+                state = "new"
+            elif cur == name:
+                state = "same"
+            else:
+                state = "conflict"
+            items.append({"code": code, "name": name, "current": cur, "state": state, "in_project": code in in_project,
+                          "note": "jméno zadává hráč (DynamicCharacter)" if dynamic else ""})
+        missing = sorted(c for c in in_project - seen if c)
+        return {"path": str(found), "items": items, "message": "", "missing": missing}
+
+    def glossary_import_apply(self, items):
+        """Store the reviewed names (a stored note is kept). One undo step."""
+        self._need_project()
+        out = []
+        for it in items:
+            code = str(it.get("code", "")).strip()
+            cur = self.store.glossary.get(code, {})
+            out.append({"code": code, "name": str(it.get("name", "")).strip(), "type": "speaker",
+                        "note": cur.get("c", "") or str(it.get("note", ""))})
+        return self.glossary_set(out)
 
     def glossary_delete(self, codes):
         self._need_project()
