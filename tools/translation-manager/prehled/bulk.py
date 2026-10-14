@@ -8,7 +8,7 @@ from collections import Counter, defaultdict
 
 from . import rpy
 from .seasons import ACTIVE_EPISODES, episodes_of, season_of
-from .store import assign_label, ep_of, valid_assign
+from .store import assign_label, valid_assign
 from .util import norm_ws
 
 EP_RE = re.compile(r"(?<![a-z0-9])(?:episode|ep)[ _-]?0*(\d{1,2})(?!\d)")

@@ -6,7 +6,6 @@ and every POST needs the per-run token that the page receives from the server.
 import json
 import mimetypes
 import secrets
-import sys
 import threading
 import time
 import traceback
@@ -14,7 +13,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from .app import App, AppError
+from .app import AppError
 from .config import config_dir
 from .project import check_project_dir
 from .util import WriteFailed

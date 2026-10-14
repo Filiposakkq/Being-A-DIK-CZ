@@ -4,14 +4,13 @@ import json
 import os
 import subprocess
 import sys
-import threading
 import unittest
 from pathlib import Path
 from unittest import mock
 
-from helpers import ROOT, TempCase, dialog, rel, strings
+from helpers import ROOT, TempCase, dialog, rel
 
-from prehled import cli, config as cfgmod, editor, export, publish as pub, server
+from prehled import cli, editor, publish as pub, server
 from prehled.app import AppError
 from prehled.config import Config, migrate_web_json
 

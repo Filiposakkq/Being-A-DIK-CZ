@@ -19,7 +19,7 @@ from . import history as hist
 from .project import STATUS_LABELS, file_status, totals_of
 from .seasons import ACTIVE_EPISODES, SEASONS, season_of
 from .store import ep_of
-from .util import WriteFailed, atomic_write_text
+from .util import atomic_write_text
 
 SCHEMA = 2
 

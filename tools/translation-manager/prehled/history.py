@@ -6,7 +6,7 @@ refreshing "its" row while the translator works, exactly as the original tool di
 """
 from datetime import date, datetime, timedelta
 
-from .util import WriteFailed, read_rows, write_csv
+from .util import read_rows, write_csv
 
 HEADER = ["datum", "prelozeno", "celkem", "procenta", "korekce", "korekce_procenta"]
 STAMP_FORMAT = "%Y-%m-%d %H:%M"
@@ -122,7 +122,8 @@ def estimate(points, done_now, total_now, today=None, key=None):
     span = (today - base[0]).days
     out["basis_days"], out["days_with_data"] = span, days_with_data
     if span < MIN_SPAN_DAYS or days_with_data < MIN_DAYS_WITH_DATA:
-        out["reason"] = (f"Zatím málo dat: historie pokrývá {span} dní na {days_with_data} různých dnech "
+        covers = "jen jeden den" if span < 1 else f"{span} dní"
+        out["reason"] = (f"Zatím málo dat: historie pokrývá {covers}, záznamy jsou z {days_with_data} dnů "
                          f"(potřeba alespoň {MIN_SPAN_DAYS} dní a {MIN_DAYS_WITH_DATA} dnů se záznamem).")
         return out
     net = done_now - base[1]

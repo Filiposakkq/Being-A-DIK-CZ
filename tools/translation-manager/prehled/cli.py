@@ -19,10 +19,9 @@ import webbrowser
 from pathlib import Path
 
 from .app import App, AppError
-from .config import Config
-from .project import check_project_dir, file_status, totals_of
+from .config import Config, config_dir
+from .project import check_project_dir, totals_of
 from .server import log_exception, start_server
-from . import publish as pub, rpy
 
 NOWIN = {"creationflags": 0x08000000} if sys.platform.startswith("win") else {}
 
@@ -284,11 +283,25 @@ def main(argv=None):
     return 0
 
 
+def show_fatal(message):
+    """The exe has no console: show a crash in a message box (Windows) so it is never silent."""
+    if sys.platform.startswith("win"):
+        try:
+            import ctypes
+            ctypes.windll.user32.MessageBoxW(None, message, "Přehled překladu – chyba", 0x10)
+            return
+        except Exception:  # noqa: BLE001
+            pass
+    print(message, file=sys.stderr)
+
+
 def run():
     try:
         sys.exit(main())
     except SystemExit:
         raise
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
         log_exception()
-        raise
+        show_fatal(f"Program skončil chybou:\n{exc}\n\nPodrobnosti jsou v souboru error.log ve složce "
+                   f"{config_dir()}.")
+        sys.exit(1)

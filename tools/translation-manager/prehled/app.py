@@ -10,7 +10,7 @@ from .config import Config, migrate_web_json
 from .project import (DATA_DIR_NAME, STATUS_LABELS, STATUS_ORDER, Project, ProjectUnavailable,
                       check_project_dir, file_status, totals_of)
 from .seasons import ACTIVE_EPISODES, SEASONS
-from .store import EP_STATES, Store, parse_corr, parse_value, valid_assign
+from .store import EP_STATES, Store, parse_value, valid_assign
 from .util import WriteFailed, norm_ws, write_csv
 
 # Files the legacy tool left next to the script; moved into _progress_data on first open.

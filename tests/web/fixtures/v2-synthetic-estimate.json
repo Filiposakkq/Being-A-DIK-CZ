@@ -3,21 +3,21 @@
  "title": "Being A DIK",
  "updated": "2026-10-14T18:00+02:00",
  "translation": {
-  "done": 2976,
-  "total": 45335,
-  "percent": 6.6
+  "done": 7691,
+  "total": 48111,
+  "percent": 16.0
  },
  "proofreading": {
-  "done": 436,
-  "total": 45335,
-  "percent": 1.0
+  "done": 0,
+  "total": 48111,
+  "percent": 0.0
  },
  "files": {
-  "done": 9,
+  "none": 58,
+  "wip": 3,
+  "tr": 1,
   "rev": 0,
-  "tr": 0,
-  "wip": 1,
-  "none": 62,
+  "done": 10,
   "total": 72
  },
  "scope": {
@@ -55,9 +55,9 @@
     "percent": 39.0
    },
    "proofreading": {
-    "done": 345,
-    "total": 16708,
-    "percent": 2.1
+    "done": 0,
+    "total": 19500,
+    "percent": 0.0
    },
    "files": 28,
    "files_done": 6,
@@ -80,7 +80,7 @@
    },
    "proofreading": {
     "done": 0,
-    "total": 27252,
+    "total": 27236,
     "percent": 0.0
    },
    "files": 24,
@@ -106,9 +106,9 @@
     "percent": 100.0
    },
    "proofreading": {
-    "done": 345,
-    "total": 2979,
-    "percent": 11.6
+    "done": 0,
+    "total": 5000,
+    "percent": 0.0
    },
    "files_done": 7,
    "files_total": 7,
@@ -127,7 +127,7 @@
    },
    "proofreading": {
     "done": 0,
-    "total": 3724,
+    "total": 5000,
     "percent": 0.0
    },
    "files_done": 2,
@@ -147,7 +147,7 @@
    },
    "proofreading": {
     "done": 0,
-    "total": 4482,
+    "total": 4000,
     "percent": 0.0
    },
    "files_done": 0,
@@ -167,7 +167,7 @@
    },
    "proofreading": {
     "done": 0,
-    "total": 5523,
+    "total": 5500,
     "percent": 0.0
    },
    "files_done": 0,
@@ -187,7 +187,7 @@
    },
    "proofreading": {
     "done": 0,
-    "total": 5316,
+    "total": 5300,
     "percent": 0.0
    },
    "files_done": 0,
@@ -262,9 +262,9 @@
    "percent": 100.0
   },
   "proofreading": {
-   "done": 91,
+   "done": 0,
    "total": 91,
-   "percent": 100.0
+   "percent": 0.0
   },
   "files": 3
  },
@@ -283,7 +283,7 @@
  },
  "estimate": {
   "status": "ok",
-  "remaining": 30000,
+  "remaining": 40420,
   "pace_per_day": 120.0,
   "eta": "2027-06-30",
   "eta_early": "2027-03-15",
@@ -294,9 +294,54 @@
  },
  "history": [
   {
-   "date": "2026-10-14",
-   "translation": 6.6,
-   "proofreading": 1.0
+   "date": "2026-09-10",
+   "translation": 6.4,
+   "proofreading": 0.0
+  },
+  {
+   "date": "2026-09-11",
+   "translation": 7.5,
+   "proofreading": 0.0
+  },
+  {
+   "date": "2026-09-12",
+   "translation": 8.5,
+   "proofreading": 0.0
+  },
+  {
+   "date": "2026-09-13",
+   "translation": 9.6,
+   "proofreading": 0.0
+  },
+  {
+   "date": "2026-09-14",
+   "translation": 10.7,
+   "proofreading": 0.0
+  },
+  {
+   "date": "2026-09-15",
+   "translation": 11.7,
+   "proofreading": 0.0
+  },
+  {
+   "date": "2026-09-16",
+   "translation": 12.8,
+   "proofreading": 0.0
+  },
+  {
+   "date": "2026-09-17",
+   "translation": 13.9,
+   "proofreading": 0.0
+  },
+  {
+   "date": "2026-09-18",
+   "translation": 14.9,
+   "proofreading": 0.0
+  },
+  {
+   "date": "2026-09-19",
+   "translation": 16.0,
+   "proofreading": 0.0
   }
  ],
  "_fixture_note": "Synthetic test fixture: invented numbers, only for layout tests."

@@ -3,7 +3,7 @@ import json
 import unittest
 from datetime import date, datetime, timedelta
 
-from helpers import TempCase, dialog, rel, strings
+from helpers import TempCase, dialog, rel
 
 from prehled import bulk, export, history as hist, rpy, validator
 from prehled.seasons import ACTIVE_EPISODES, SEASONS, season_of

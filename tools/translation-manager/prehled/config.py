@@ -14,7 +14,7 @@ import os
 import sys
 from pathlib import Path
 
-from .util import WriteFailed, atomic_write_text
+from .util import atomic_write_text
 
 DEFAULTS = {
     "version": 1,

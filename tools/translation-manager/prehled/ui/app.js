@@ -5,6 +5,15 @@
 const TOKEN = document.querySelector('meta[name=token]').content;
 const $ = (s, r = document) => r.querySelector(s);
 
+/* append()/replaceChildren() turn null into the text "null"; conditional children are common here,
+   so skip null / undefined / false everywhere. */
+for (const m of ['append', 'prepend', 'replaceChildren']) {
+  const native = Element.prototype[m];
+  Element.prototype[m] = function (...kids) {
+    return native.apply(this, kids.flat(Infinity).filter((k) => k !== null && k !== undefined && k !== false));
+  };
+}
+
 function h(tag, props, ...kids) {
   const el = document.createElement(tag);
   if (props) {
@@ -638,7 +647,7 @@ async function viewEntries() {
     if (S.ent.loading) return;
     S.ent.loading = true;
     try {
-      if (reset) { S.ent.items = []; S.ent.sel = -1; S.ent.start = 0; skeleton(); wrap.append(); tbody.replaceChildren(); S.ent.more.replaceChildren(loading()); }
+      if (reset) { S.ent.items = []; S.ent.sel = -1; S.ent.start = 0; skeleton(); tbody.replaceChildren(); S.ent.more.replaceChildren(loading()); }
       const around = reset && S.ent.pendingLine ? S.ent.pendingLine : 0;
       const q = entQuery(reset ? { offset: 0, around } : { offset: S.ent.start + S.ent.items.length });
       if (around) q.status = 'all';
@@ -652,19 +661,19 @@ async function viewEntries() {
       const shown = S.ent.start + S.ent.items.length;
       S.ent.more.replaceChildren(shown < r.total ? h('button', { class: 'btn', onclick: () => load(false) }, `Načíst dalších ${Math.min(200, r.total - shown)} (zobrazeno ${fmtN(shown)} z ${fmtN(r.total)})`) : null);
       if (!r.total) S.ent.more.replaceChildren(empty('Nic nenalezeno', pref('entries.status', 'todo') === 'todo' ? 'Tady už není nic k přeložení – nebo změň filtry.' : 'Zkus změnit filtry nebo hledaný text.'));
-      if (reset && around) { const i = S.ent.items.findIndex((x) => x.line === around && (!pref('entries.file') || true)); S.ent.pendingLine = 0; if (i >= 0) select(i, true); }
+      if (reset && around) { const i = S.ent.items.findIndex((x) => x.line === around); S.ent.pendingLine = 0; if (i >= 0) select(i); }
       else if (reset && S.ent.items.length) { drawDetail(null); }
       else if (reset) drawDetail(null);
     } catch (err) { fail(err); S.ent.more?.replaceChildren(h('div', { class: 'notice bad' }, err.message)); }
     finally { S.ent.loading = false; }
   }
-  async function select(i, scroll) {
+  async function select(i) {
     if (i < 0 || i >= S.ent.items.length) return;
     tbody.querySelector('tr.sel')?.classList.remove('sel');
     S.ent.sel = i;
     const tr = tbody.children[i];
     tr?.classList.add('sel');
-    if (scroll || true) tr?.scrollIntoView({ block: 'nearest' });
+    tr?.scrollIntoView({ block: 'nearest' });
     const it = S.ent.items[i];
     try { S.ent.detail = await get('entry', { file: it.file, line: it.line }); } catch (err) { S.ent.detail = null; drawDetail(null, err.message); return; }
     if (S.ent.sel === i) drawDetail(S.ent.detail);
