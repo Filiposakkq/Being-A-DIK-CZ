@@ -178,14 +178,16 @@ def crest():
     c.append('</svg>')
     (OUT / "assets" / "crest.svg").write_text("\n".join(c), encoding="utf-8")
 
-    # favicon / small icon: no text, bolder strokes
-    lt, lw = letters(0, 0, 30, GOLD)
+    # favicon / small icon: bold and simple so it stays readable at 16-48 px (no text, no thin strokes)
     fav = ['<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 72">',
-           f'<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f7d98a"/><stop offset=".55" stop-color="{GOLD}"/><stop offset="1" stop-color="#b8862a"/></linearGradient>'
-           '<linearGradient id="n" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#22397a"/><stop offset="1" stop-color="#0d1731"/></linearGradient></defs>',
-           '<path d="M5 5H59V37C59 55 44 65 32 70C20 65 5 55 5 37Z" fill="url(#n)" stroke="url(#g)" stroke-width="5.5" stroke-linejoin="round"/>',
-           f'<path d="M8 8H56V21H8Z" fill="{CRIM}"/>',
-           f'<g transform="translate({32 - lw / 2:.1f},28)">{lt.replace(GOLD, "url(#g)")}</g></svg>']
+           f'<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffe29a"/><stop offset=".5" stop-color="{GOLD}"/><stop offset="1" stop-color="#b8862a"/></linearGradient>'
+           '<linearGradient id="n" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2a4590"/><stop offset="1" stop-color="#0f1b3d"/></linearGradient>'
+           '<linearGradient id="r" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ee4258"/><stop offset="1" stop-color="#b01e33"/></linearGradient></defs>',
+           '<path d="M2 3H62V38C62 57 46 67 32 72C18 67 2 57 2 38Z" fill="url(#g)"/>',
+           '<path d="M9 10H55V37C55 51 44 59 32 64C20 59 9 51 9 37Z" fill="url(#n)"/>',
+           '<path d="M9 10H55V23H9Z" fill="url(#r)"/>',
+           '<path d="M32 27 L45 53 H19 Z" fill="none" stroke="url(#g)" stroke-width="7" stroke-linejoin="miter"/>',
+           '</svg>']
     (OUT / "favicon.svg").write_text("".join(fav), encoding="utf-8")
 
 

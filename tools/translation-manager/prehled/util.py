@@ -119,4 +119,5 @@ def read_rows(path):
     text = path.read_text(encoding="utf-8-sig", errors="replace")
     first = text.splitlines()[0] if text.strip() else ""
     delim = ";" if first.count(";") > first.count(",") else ","
-    return [r for r in csv.reader(text.splitlines(), delimiter=delim) if r]
+    # parse the whole text (not line by line) so quoted fields may contain line breaks (notes)
+    return [r for r in csv.reader(io.StringIO(text, newline=""), delimiter=delim) if r]

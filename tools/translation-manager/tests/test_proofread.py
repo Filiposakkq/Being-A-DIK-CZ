@@ -126,6 +126,14 @@ class ProofreadTests(TempCase):
         app2 = self.new_app()                                  # next launch
         self.assertEqual(app2.project.row("a.rpy").corr, 1)
 
+    def test_multiline_note_survives_a_restart(self):
+        note = "první řádek\ndruhý; řádek"
+        self.app.proof_set([self.item("a2")], "fix", note=note)
+        again = self.new_app()
+        e = next(x for x in again.project.entries("a.rpy") if x.block.endswith(" a2"))
+        self.assertEqual(again.entry_detail("a.rpy", e.line)["proof_note"], note)
+        self.assertEqual(again.project.row("a.rpy").total, 4)               # neighbouring rows are not damaged
+
     def test_clear_file(self):
         self.app.proof_set([self.item("a1"), self.item("a2")], "ok")
         self.assertEqual(self.app.proof_clear_file("a.rpy")["changed"], 2)

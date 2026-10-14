@@ -5,6 +5,7 @@
   schvaleno.csv  soubor;blok;original                   manually approved pending lines
   epizody.csv    epizoda;stav                           hand-set episode status
   korektura_radky.csv  soubor;blok;original;stav;hash;poznamka;datum   per-line proofreading marks
+  slovnik.csv    kod;jmeno;typ;poznamka                glossary: speaker code -> full name (type "term" for later entries)
   historie.csv   see history.py
 
 Formats are unchanged, so existing data keeps working and can still be edited in Excel.
@@ -23,7 +24,8 @@ EP_STATES = [("none", "Nezačato"), ("wip", "Rozpracováno"), ("tr", "Přeložen
 YES_WORDS = {"ano", "a", "x", "hotovo", "ok", "yes", "y", "1x"}
 UNDO_LIMIT = 30
 
-KINDS = ("corr", "assign", "approved", "episodes", "proof")
+KINDS = ("corr", "assign", "approved", "episodes", "proof", "glossary")
+GLOSSARY_TYPES = ("speaker", "term")
 
 
 def text_hash(text):
@@ -93,6 +95,7 @@ class Store:
         self.approved = {}   # name -> {(block, normalized source)}
         self.episodes = {}   # episode number -> state key
         self.proof = {}      # name -> {(block, normalized source): {"s": "ok"|"fix", "h": hash, "n": note, "d": date}}
+        self.glossary = {}   # code -> {"n": full name, "t": "speaker"|"term", "c": note}
         self.undo_stack = []
         self.unsaved = set()  # kinds whose last save failed
         self.warnings = []
@@ -101,7 +104,7 @@ class Store:
     def path(self, kind):
         return self.dir / {"corr": "korekce.csv", "assign": "prirazeni.csv",
                            "approved": "schvaleno.csv", "episodes": "epizody.csv",
-                           "proof": "korektura_radky.csv"}[kind]
+                           "proof": "korektura_radky.csv", "glossary": "slovnik.csv"}[kind]
 
     # ------------------------------------------------------------ load
     def load(self):
@@ -133,6 +136,14 @@ class Store:
         for r in read_rows(self.path("approved"))[1:]:
             if len(r) >= 3 and r[0]:
                 self.approved.setdefault(r[0], set()).add((r[1], norm_ws(r[2])))
+
+    def _load_glossary(self):
+        self.glossary = {}
+        for r in read_rows(self.path("glossary"))[1:]:
+            if r and r[0].strip():
+                kind = r[2] if len(r) > 2 and r[2] in GLOSSARY_TYPES else "speaker"
+                self.glossary[r[0].strip()] = {"n": r[1].strip() if len(r) > 1 else "", "t": kind,
+                                                "c": r[3] if len(r) > 3 else ""}
 
     def _load_proof(self):
         self.proof = {}
@@ -179,6 +190,13 @@ class Store:
         data = sorted((f, b, o) for f, keys in self.approved.items() for b, o in keys)
         write_csv(self.path("approved"), [["soubor", "blok", "original"]] + [list(r) for r in data],
                   self.backups)
+
+    def _save_glossary(self):
+        rows = [["kod", "jmeno", "typ", "poznamka"]]
+        for code in sorted(self.glossary, key=str.lower):
+            g = self.glossary[code]
+            rows.append([code, g["n"], g["t"], g["c"]])
+        write_csv(self.path("glossary"), rows, self.backups)
 
     def _save_proof(self):
         rows = [["soubor", "blok", "original", "stav", "hash", "poznamka", "datum"]]

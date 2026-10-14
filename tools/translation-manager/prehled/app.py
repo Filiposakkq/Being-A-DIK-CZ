@@ -11,7 +11,7 @@ from .config import Config, migrate_web_json
 from .project import (DATA_DIR_NAME, STATUS_LABELS, STATUS_ORDER, Project, ProjectUnavailable,
                       check_project_dir, file_status, totals_of)
 from .seasons import ACTIVE_EPISODES, SEASONS
-from .store import EP_STATES, Store, parse_value, text_hash, valid_assign
+from .store import EP_STATES, GLOSSARY_TYPES, Store, parse_value, text_hash, valid_assign
 from .util import WriteFailed, norm_ws, write_csv
 
 # Files the legacy tool left next to the script; moved into _progress_data on first open.
@@ -425,6 +425,73 @@ class App:
                 self.store.corr[name] = {"c": "" if not c_n else str(c_n), "t": "" if t_n is None else str(t_n)}
             self.store.change(f"Úprava počtů v {Path(name).name}", ("corr",), go)
             return self._changed("save")
+
+    # ------------------------------------------------------------ glossary
+    @staticmethod
+    def speaker_code(who):
+        """'mc happy' -> 'mc': the character code is the first word, the rest are image attributes."""
+        parts = (who or "").split()
+        return parts[0] if parts else ""
+
+    def glossary_payload(self):
+        """Glossary rows: every speaker code found in the project (with its line count and an example)
+        merged with the saved names, plus saved entries that are not speakers (terms)."""
+        self._need_project()
+        found = {}
+        for rel in sorted(self.project.files, key=str.lower):
+            for e in self.project.entries(rel):
+                code = self.speaker_code(e.who)
+                if e.unit == "dialogue" and code:
+                    f = found.setdefault(code, {"count": 0, "example": "", "file": rel, "line": e.line})
+                    f["count"] += 1
+                    if not f["example"] and e.source:
+                        f["example"] = e.source[:90]
+        items = []
+        for code, f in found.items():
+            g = self.store.glossary.get(code, {})
+            items.append({"code": code, "name": g.get("n", ""), "type": g.get("t", "speaker"), "note": g.get("c", ""),
+                          "count": f["count"], "example": f["example"], "file": f["file"], "line": f["line"],
+                          "in_project": True})
+        for code, g in self.store.glossary.items():
+            if code not in found:
+                items.append({"code": code, "name": g["n"], "type": g["t"], "note": g["c"], "count": 0,
+                              "example": "", "file": "", "line": 0, "in_project": False})
+        items.sort(key=lambda i: (-i["count"], i["code"].lower()))
+        names = {c: g["n"] for c, g in self.store.glossary.items() if g["n"] and g["t"] == "speaker"}
+        return {"items": items, "names": names, "types": list(GLOSSARY_TYPES),
+                "unnamed": sum(1 for i in items if i["type"] == "speaker" and i["in_project"] and not i["name"])}
+
+    def glossary_set(self, items):
+        """Create / update entries. An entry with neither name nor note is removed. One undo step."""
+        self._need_project()
+        clean = []
+        for it in items:
+            code = str(it.get("code", "")).strip()
+            if not code or len(code) > 60 or any(ch in code for ch in "\r\n"):
+                raise AppError(f"Neplatný kód: {code!r}")
+            typ = it.get("type", "speaker")
+            if typ not in GLOSSARY_TYPES:
+                raise AppError("Neplatný typ položky slovníku.")
+            name, note = str(it.get("name", "")).strip(), str(it.get("note", "")).strip()
+            if len(name) > 200 or len(note) > 500:
+                raise AppError("Jméno nebo poznámka je příliš dlouhá.")
+            clean.append((code, name, typ, note))
+        with self.lock:
+            def go():
+                for code, name, typ, note in clean:
+                    if name or note:
+                        self.store.glossary[code] = {"n": name, "t": typ, "c": note}
+                    else:
+                        self.store.glossary.pop(code, None)
+            self.store.change(f"Slovník ({len(clean)})", ("glossary",), go)
+            return {"ok": True, **self.glossary_payload()}
+
+    def glossary_delete(self, codes):
+        self._need_project()
+        with self.lock:
+            self.store.change(f"Slovník: smazáno ({len(codes)})", ("glossary",),
+                              lambda: [self.store.glossary.pop(str(c), None) for c in codes])
+            return {"ok": True, **self.glossary_payload()}
 
     # ------------------------------------------------------------ proofreading
     def _proof_entry(self, rel, key):
