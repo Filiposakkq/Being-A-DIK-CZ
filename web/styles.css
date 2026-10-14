@@ -288,3 +288,11 @@ h3 { margin: 0 0 8px; font: 700 1.15rem var(--display); }
 .note.credit { margin-top: 14px; font-size: 0.82rem; }
 @media (max-width: 760px) { .shots { grid-template-columns: 1fr; } .shot-wide img { aspect-ratio: 16 / 9; } }
 @media (prefers-reduced-motion: reduce) { .shot img { transition: none; } .shot:hover img { transform: none; } }
+
+/* note about the translation tool */
+.toolnote { display: flex; gap: 16px 22px; align-items: flex-start; margin-top: 18px; padding: 20px 24px; border: 1px solid var(--line); border-left: 3px solid var(--crimson); border-radius: 6px; background: var(--panel); }
+.toolnote h3 { margin: 0 0 8px; }
+.toolnote p { margin: 0; color: var(--cream-dim); max-width: 78ch; }
+.toolnote b { color: var(--cream); }
+.tool-tag { flex: none; padding: 3px 12px; border: 1px solid var(--crimson-soft); border-radius: 999px; color: var(--crimson-soft); font-size: 0.75rem; letter-spacing: 0.14em; text-transform: uppercase; }
+@media (max-width: 640px) { .toolnote { flex-direction: column; padding: 16px; } }

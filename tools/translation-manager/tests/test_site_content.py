@@ -27,6 +27,11 @@ class SiteContentTests(unittest.TestCase):
         self.assertIn("Procenta jsou orientační", self.html)
         self.assertIn("Percentages are approximate", self.html)
 
+    def test_site_explains_the_scope_of_the_translation_tool(self):
+        for needle in ("Vzniká hlavně pro mě", "jen pro <em>Being a DIK</em> (1. a 2. sezónu)", "jen české rozhraní", "3. sezóna",
+                       "built mainly for me", "Czech-only interface", "season 3", "more Ren'Py games"):
+            self.assertIn(needle, self.html, needle)
+
     def test_license_and_contact_section(self):
         for needle in ("CC BY-NC 4.0", "MIT", "BaDIK Translation Manager", "@filiposakkq", "TRANSLATION-LICENSE.md",
                        "tools/translation-manager/LICENSE", "/issues"):
@@ -115,3 +120,27 @@ class LogoTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DocumentationTests(unittest.TestCase):
+    """The scope of the tool (own use, BaD seasons 1-2, Czech UI, roadmap) must be stated in every README."""
+
+    def test_scope_is_stated_in_the_readmes(self):
+        root = (REPO / "README.md").read_text(encoding="utf-8")
+        tool = (REPO / "tools" / "translation-manager" / "README.md").read_text(encoding="utf-8")
+        for text in (root, tool):
+            self.assertIn("hlavně pro mě", text)
+            self.assertIn("3. sezón", text)
+        for needle in ("developed mainly for me", "only for *Being a DIK*, seasons 1 and 2", "Czech only", "season 3",
+                       "other Ren'Py games", "English interface"):
+            self.assertIn(needle, tool, needle)
+        self.assertIn("English summary", root)
+        app_js = (REPO / "tools" / "translation-manager" / "prehled" / "ui" / "app.js").read_text(encoding="utf-8")
+        self.assertIn("vzniká hlavně pro mě", app_js)                      # also shown inside the app (Nastavení)
+
+    def test_every_readme_link_to_a_local_file_exists(self):
+        for readme in (REPO / "README.md", REPO / "tools" / "translation-manager" / "README.md", REPO / "tests" / "web" / "README.md"):
+            for target in re.findall(r"\]\(([^)#\s]+)(?:#[^)]*)?\)", readme.read_text(encoding="utf-8")):
+                if target.startswith(("http://", "https://", "mailto:")):
+                    continue
+                self.assertTrue((readme.parent / target).exists(), f"{readme.name}: broken link {target}")
