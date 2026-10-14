@@ -1,4 +1,4 @@
-# Přehled překladu – Translation Manager
+# BaDIK Translation Manager 1.0
 
 Desktop tool for the Czech translation of *Being a DIK*: it reads the Ren'Py translation files
 (`game/tl/czech/**/*.rpy`), tracks translation / proofreading progress per file, episode and season,
@@ -11,12 +11,12 @@ gives it its own window; without it an Edge/Chrome "app" window is used).
 
 | How | What |
 |---|---|
-| `PrehledPrekladu.exe` | Standalone, no Python needed. Build it yourself (see [Build](#build-the-exe)). Can live in any folder. |
+| `BaDIKTranslationManager.exe` | Standalone, no Python needed. Build it yourself (see [Build](#build-the-exe)). Can live in any folder. |
 | `run_manager.bat` | From source (Python 3.9+). Works from any folder. |
 | `py progress.py [folder] [options]` | Same, from a terminal. |
 
 On the first start the app asks for the translation folder (`…\game\tl\czech`). **It remembers it** in
-`%APPDATA%\PrehledPrekladu\config.json` and opens it automatically next time. If the saved folder
+`%APPDATA%\BaDIKTranslationManager\config.json` and opens it automatically next time. If the saved folder
 disappears, the welcome screen asks for a new one; *Změnit…* in the top bar (or *Nastavení*) switches
 project at any time. A folder passed on the command line wins over the saved one and is remembered too.
 
@@ -184,10 +184,10 @@ directory); `--publish` shows the preview and asks for typed confirmation; `--br
 build_exe.bat            runs the tests, then builds
 build_exe.bat /notest
 ```
-or `py -m pip install -r requirements-build.txt` then `py -m PyInstaller --noconfirm --clean PrehledPrekladu.spec`.
-Result: `dist\PrehledPrekladu.exe` (one file, no console). It does not depend on the working directory: settings are in
-`%APPDATA%\PrehledPrekladu`, data in `_progress_data` next to the translation files, the UI is bundled.
-A crash shows a message box and is logged to `%APPDATA%\PrehledPrekladu\error.log`.
+or `py -m pip install -r requirements-build.txt` then `py -m PyInstaller --noconfirm --clean BaDIKTranslationManager.spec`.
+Result: `dist\BaDIKTranslationManager.exe` (one file, no console). It does not depend on the working directory: settings are in
+`%APPDATA%\BaDIKTranslationManager`, data in `_progress_data` next to the translation files, the UI is bundled.
+A crash shows a message box and is logged to `%APPDATA%\BaDIKTranslationManager\error.log`.
 `.github/workflows/translation-manager.yml` runs the tests on pull requests and builds the exe for tags `manager-v*`
 as a workflow artifact only (no release, no deploy, no push).
 

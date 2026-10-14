@@ -1,8 +1,8 @@
 @echo off
-rem Builds PrehledPrekladu.exe (no Python needed to RUN it). Double-click this file or run it from any folder.
+rem Builds BaDIKTranslationManager.exe (no Python needed to RUN it). Double-click this file or run it from any folder.
 rem   build_exe.bat            run the tests, then build
 rem   build_exe.bat /notest    build without running the tests
-rem Result: dist\PrehledPrekladu.exe (next to this file). Copy it anywhere - it remembers the translation folder.
+rem Result: dist\BaDIKTranslationManager.exe (next to this file). Copy it anywhere - it remembers the translation folder.
 setlocal EnableExtensions
 pushd "%~dp0" || (echo Cannot enter the script folder "%~dp0". & pause & exit /b 1)
 
@@ -41,12 +41,12 @@ if errorlevel 1 (
 )
 
 echo [3/3] Building ...
-%PY% -m PyInstaller --noconfirm --clean PrehledPrekladu.spec
+%PY% -m PyInstaller --noconfirm --clean BaDIKTranslationManager.spec
 if errorlevel 1 goto :fail
-if not exist "dist\PrehledPrekladu.exe" goto :fail
+if not exist "dist\BaDIKTranslationManager.exe" goto :fail
 
 echo.
-echo Done: %CD%\dist\PrehledPrekladu.exe
+echo Done: %CD%\dist\BaDIKTranslationManager.exe
 echo Start it anywhere. On first start it asks for the translation folder (game\tl\czech) and remembers it.
 popd
 pause

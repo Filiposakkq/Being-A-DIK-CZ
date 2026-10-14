@@ -1,2 +1,2 @@
-"""Přehled překladu – translation manager for Ren'Py projects (Being a DIK CZ)."""
-__version__ = "2.0.0"
+"""BaDIK Translation Manager 1.0 – translation manager for Ren'Py projects (Being a DIK CZ)."""
+__version__ = "1.0.0"

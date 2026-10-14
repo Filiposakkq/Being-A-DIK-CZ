@@ -1,5 +1,5 @@
 "use strict";
-/* Přehled překladu – UI. Vanilla JS, no build step. All data is inserted with textContent
+/* BaDIK Translation Manager – UI. Vanilla JS, no build step. All data is inserted with textContent
    (the h() helper), never innerHTML, so file contents can never inject markup. */
 
 const TOKEN = document.querySelector('meta[name=token]').content;
@@ -917,7 +917,7 @@ async function viewSettings() {
       ...field('Název hry na webu', h('input', { type: 'text', id: 'set_title', value: s.web.title })),
       s.web.migrated_from ? h('div', { class: 'hint' }, `Převzato z ${s.web.migrated_from}. Samostatný web.json už aplikace nepotřebuje.`) : null)),
     h('div', { class: 'row' }, h('button', { class: 'btn primary', onclick: save }, 'Uložit nastavení'),
-      h('span', { class: 'muted' }, 'Nastavení: ', h('span', { class: 'mono' }, 'config.json'), ' v %APPDATA%\\PrehledPrekladu')));
+      h('span', { class: 'muted' }, 'Nastavení: ', h('span', { class: 'mono' }, 'config.json'), ' v %APPDATA%\\BaDIKTranslationManager')));
   async function save() {
     try {
       await post('settings', {

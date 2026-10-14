@@ -1,4 +1,4 @@
-# Tests the Translation Manager and, for a version tag, builds PrehledPrekladu.exe.
+# Tests the Translation Manager and, for a version tag, builds BaDIKTranslationManager.exe.
 #
 # Safety: this workflow only READS the repository and uploads the exe as a *workflow artifact*.
 # It does not create a release, does not deploy the website and does not push anything.
@@ -32,7 +32,7 @@ jobs:
         run: python -m unittest discover -s tests -v
 
   build-exe:
-    # only for tags like manager-v2.0.0 (or a manual run)
+    # only for tags like manager-v1.0.0 (or a manual run)
     if: startsWith(github.ref, 'refs/tags/manager-v') || github.event_name == 'workflow_dispatch'
     needs: test
     runs-on: windows-latest
@@ -46,13 +46,13 @@ jobs:
           python-version: "3.12"
       - name: Install build tools
         run: python -m pip install -r requirements-build.txt
-      - name: Build PrehledPrekladu.exe
-        run: python -m PyInstaller --noconfirm --clean PrehledPrekladu.spec
+      - name: Build BaDIKTranslationManager.exe
+        run: python -m PyInstaller --noconfirm --clean BaDIKTranslationManager.spec
       - name: Check that the exe exists
-        run: if (-not (Test-Path dist/PrehledPrekladu.exe)) { throw "exe was not built" }
+        run: if (-not (Test-Path dist/BaDIKTranslationManager.exe)) { throw "exe was not built" }
         shell: pwsh
       - uses: actions/upload-artifact@v4
         with:
-          name: PrehledPrekladu-${{ github.ref_name }}
-          path: tools/translation-manager/dist/PrehledPrekladu.exe
+          name: BaDIKTranslationManager-${{ github.ref_name }}
+          path: tools/translation-manager/dist/BaDIKTranslationManager.exe
           if-no-files-found: error

@@ -1,7 +1,7 @@
 """Application settings, stored in one JSON file that does not depend on the working directory.
 
-  Windows: %APPDATA%\\PrehledPrekladu\\config.json
-  other:   ~/.config/prehled-prekladu/config.json
+  Windows: %APPDATA%\\BaDIKTranslationManager\\config.json
+  other:   ~/.config/badik-translation-manager/config.json
   override the folder with the PREHLED_CONFIG_DIR environment variable (used by the tests).
 
 Holds: the remembered project folder, the editor, validation thresholds, UI preferences and the
@@ -39,8 +39,8 @@ def config_dir():
         return Path(env)
     if sys.platform.startswith("win"):
         base = os.environ.get("APPDATA")
-        return Path(base) / "PrehledPrekladu" if base else Path.home() / "PrehledPrekladu"
-    return Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "prehled-prekladu"
+        return Path(base) / "BaDIKTranslationManager" if base else Path.home() / "BaDIKTranslationManager"
+    return Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "badik-translation-manager"
 
 
 def _merge(base, over):
