@@ -116,20 +116,48 @@ h3 { margin: 0 0 8px; font: 700 1.15rem var(--display); }
 .counts li { color: var(--cream-dim); font-size: 0.92rem; }
 .counts b { margin-left: 6px; color: var(--cream); font: 800 1.05rem var(--display); font-variant-numeric: tabular-nums; }
 
-/* episodes as banners */
-.eps { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; margin: 0; padding: 0; list-style: none; }
-.ep { position: relative; display: flex; flex-direction: column; justify-content: center; gap: 4px; min-height: 84px; padding: 12px 30px 12px 18px; }
+/* at-a-glance facts */
+.facts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-top: 18px; }
+.fact { display: flex; flex-direction: column; gap: 4px; padding: 16px 18px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); min-width: 0; }
+.fact strong { font: 800 clamp(1.45rem, 3.4vw, 1.9rem)/1.1 var(--display); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.fact .sub { color: var(--muted); font-size: 0.82rem; }
+.fact-eta strong { color: var(--gold); }
+.fact-eta strong.dim { color: var(--cream-dim); font-size: 1.15rem; }
+
+/* seasons and episodes */
+.seasons { display: grid; gap: 20px; }
+.season { padding: 20px 22px 22px; background: var(--panel); border: 1px solid var(--line); border-top: 3px solid var(--gold); border-radius: 6px; }
+.season-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 8px 24px; margin-bottom: 14px; }
+.season-head h3 { margin: 0; font-size: 1.5rem; }
+.season-head .range { color: var(--muted); font-size: 0.86rem; letter-spacing: 0.08em; text-transform: uppercase; }
+.season-stat { text-align: right; }
+.season-stat strong { display: block; font: 800 2rem/1 var(--display); font-variant-numeric: tabular-nums; }
+.season-stat .unit { color: var(--crimson-soft); font-size: 0.55em; margin-left: 2px; }
+.season-meta { margin: 10px 0 0; color: var(--muted); font-size: 0.86rem; font-variant-numeric: tabular-nums; }
+.season-planned { border-top-color: transparent; border-style: dashed; border-color: rgba(226, 176, 74, 0.45); background: transparent; }
+.season-planned h3 { color: var(--cream-dim); }
+.season-planned p { margin: 6px 0 0; max-width: 64ch; color: var(--muted); }
+.tag-planned { display: inline-flex; padding: 3px 12px; border: 1px dashed var(--gold); border-radius: 999px; color: var(--gold); font-size: 0.78rem; letter-spacing: 0.14em; text-transform: uppercase; }
+
+.eps { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 18px 0 0; padding: 0; list-style: none; }
+.ep { position: relative; display: flex; flex-direction: column; gap: 6px; min-height: 140px; padding: 14px 24px 14px 16px; min-width: 0; }
 .ep svg { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0; }
 .ep svg polygon { vector-effect: non-scaling-stroke; stroke-width: 1.5; fill: rgba(245, 236, 214, 0.03); stroke: rgba(245, 236, 214, 0.28); stroke-dasharray: 5 4; }
 .ep > * { position: relative; z-index: 1; }
-.ep-n { font: 800 1.25rem var(--display); letter-spacing: 0.04em; }
-.ep-s { font-size: 0.78rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
-.ep[data-status="wip"] svg polygon { fill: rgba(226, 176, 74, 0.14); stroke: var(--gold); stroke-dasharray: none; }
+.ep-top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.ep-n { font: 800 1.15rem var(--display); letter-spacing: 0.04em; white-space: nowrap; }
+.ep-s { font-size: 0.74rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); text-align: right; }
+.ep-pct { font: 800 1.7rem/1 var(--display); font-variant-numeric: tabular-nums; }
+.ep-pct .unit { font-size: 0.55em; }
+.ep-pct.nodata { font: 600 0.95rem var(--body); color: var(--muted); }
+.ep .bar { height: 8px; }
+.ep-meta { color: var(--muted); font-size: 0.8rem; line-height: 1.35; font-variant-numeric: tabular-nums; }
+.ep[data-status="wip"] svg polygon { fill: rgba(226, 176, 74, 0.1); stroke: var(--gold); stroke-dasharray: none; }
 .ep[data-status="wip"] .ep-s { color: var(--gold); }
-.ep[data-status="tr"] svg polygon { fill: rgba(245, 236, 214, 0.16); stroke: var(--cream); stroke-dasharray: none; }
+.ep[data-status="tr"] svg polygon { fill: rgba(245, 236, 214, 0.1); stroke: var(--cream); stroke-dasharray: none; }
 .ep[data-status="tr"] .ep-s { color: var(--cream); }
-.ep[data-status="done"] svg polygon { fill: var(--gold); stroke: var(--gold); stroke-dasharray: none; }
-.ep[data-status="done"] .ep-n, .ep[data-status="done"] .ep-s { color: #1a1405; }
+.ep[data-status="done"] svg polygon { fill: rgba(226, 176, 74, 0.2); stroke: var(--gold); stroke-dasharray: none; }
+.ep[data-status="done"] .ep-s { color: var(--gold); }
 
 .chart-head { display: flex; align-items: baseline; justify-content: space-between; margin: 48px 0 12px; }
 .chart-head h3 { margin: 0; }
@@ -171,6 +199,21 @@ h3 { margin: 0 0 8px; font: 700 1.15rem var(--display); }
   .hero-shade { background: linear-gradient(0deg, var(--bg) 0%, rgba(10, 18, 38, 0.2) 34%, transparent 60%); height: 250px; bottom: auto; }
   .hero-in { padding-block: 8px 40px; }
   .score { grid-template-columns: 1fr; }
+}
+@media (max-width: 900px) {
+  .facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .eps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 460px) {
+  .season { padding: 16px 14px 18px; }
+  .season-stat { text-align: left; }
+  .facts { gap: 8px; }
+  .fact { padding: 12px 12px; }
+  .eps { gap: 8px; }
+  .ep { min-height: 128px; padding-left: 12px; }
+  .ep-top { flex-direction: column; align-items: flex-start; gap: 0; }
+  .ep-n { white-space: nowrap; font-size: 1.05rem; }
+  .ep-s { text-align: left; font-size: 0.7rem; letter-spacing: 0.06em; }
 }
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }

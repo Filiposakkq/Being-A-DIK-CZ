@@ -1,0 +1,129 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>progress-model tests</title>
+<body style="font:14px monospace">
+<script src="harness.js"></script>
+<script src="../../web/progress-model.js"></script>
+<script>
+const NOW = Date.parse("2026-10-15T12:00:00Z");
+const M = ProgressModel;
+
+(async () => {
+  const real = await loadJson("v2-real-copy.json");
+  const syn = await loadJson("v2-synthetic-estimate.json");
+  const legacy = await loadJson("v1-legacy.json");
+  const broken = await loadJson("broken.json");
+  const empty = await loadJson("empty.json");
+
+  await test("season 1 contains episodes 1-4, season 2 contains 5-8 (from data)", () => {
+    const m = M.normalize(real, NOW);
+    eq(m.seasons.map((s) => s.n), [1, 2, 3]);
+    eq(m.seasons[0].episodes.map((e) => e.n), [1, 2, 3, 4]);
+    eq(m.seasons[1].episodes.map((e) => e.n), [5, 6, 7, 8]);
+  });
+
+  await test("season 3 is planned and has no numbers", () => {
+    const s3 = M.normalize(real, NOW).seasons[2];
+    eq(s3, { n: 3, status: "planned", episodes: [] });
+  });
+
+  await test("season percentages equal their episodes' line sums", () => {
+    const m = M.normalize(syn, NOW);
+    for (const s of m.seasons.filter((x) => x.status === "active")) {
+      const d = s.episodes.reduce((a, e) => a + (e.translation.done || 0), 0);
+      const t = s.episodes.reduce((a, e) => a + (e.translation.total || 0), 0);
+      eq([s.translation.done, s.translation.total], [d, t], "season " + s.n);
+      eq(s.translation.percent, Math.round(d / t * 1000) / 10);
+    }
+  });
+
+  await test("active scope: seasons + shared + unassigned = overall (planned season adds nothing)", () => {
+    const m = M.normalize(real, NOW);
+    const act = m.seasons.filter((s) => s.status === "active");
+    const sumT = act.reduce((a, s) => a + s.translation.total, 0) + real.general.translation.total + real.unassigned.translation.total;
+    eq(sumT, m.translation.total);
+  });
+
+  await test("overall figures come straight from the data", () => {
+    const m = M.normalize(real, NOW);
+    eq([m.translation.done, m.translation.total], [real.translation.done, real.translation.total]);
+    eq(m.translation.percent, real.translation.percent);
+    eq(m.remaining, real.translation.total - real.translation.done);
+    eq(m.files.translated, real.files.tr + real.files.rev + real.files.done);
+  });
+
+  await test("completed episodes counted from status done", () => {
+    const m = M.normalize(syn, NOW);
+    eq(m.completedEpisodes, 1);
+    eq(m.totalEpisodes, 8);
+  });
+
+  await test("episodes without files have no percent (nothing invented)", () => {
+    const m = M.normalize({ schema: 2, episodes: [{ n: 3, season: 1, status: "none", translation: { done: 0, total: 0, percent: null }, files_total: 0 }] }, NOW);
+    const e = m.episodes[0];
+    eq([e.translation.total, e.translation.percent, e.hasData, e.files], [0, null, false, 0]);
+  });
+
+  await test("estimate shown only when status ok with a valid date", () => {
+    eq(M.normalize(real, NOW).estimate.status, "insufficient_data");
+    eq(M.normalize(real, NOW).estimate.eta, null);
+    const e = M.normalize(syn, NOW).estimate;
+    eq([e.status, e.eta, e.etaEarly, e.etaLate, e.confidence], ["ok", "2027-06-30", "2027-03-15", "2028-01-10", "medium"]);
+    const bad = M.normalize(Object.assign({}, syn, { estimate: { status: "ok", eta: "2027-13-45" } }), NOW).estimate;
+    ok(bad.status !== "ok", "invalid date must not be shown");
+    eq(bad.eta, null);
+    eq(M.normalize(Object.assign({}, syn, { estimate: { status: "ok", eta: "2027-02-31" } }), NOW).estimate.eta, null);
+  });
+
+  await test("legacy schema-1 data still works: seasons derived, episode percent kept, no invented lines", () => {
+    const m = M.normalize(legacy, NOW);
+    ok(m.warnings.includes("old-schema"));
+    eq(m.seasons.map((s) => s.n + ":" + s.status), ["1:active", "2:active", "3:planned"]);
+    eq(m.seasons[0].episodes.map((e) => e.n), [1, 2, 3, 4]);
+    eq(m.seasons[1].episodes.map((e) => e.n), [5, 6, 7, 8]);
+    const ep1 = m.episodes[0];
+    eq([ep1.translation.percent, ep1.translation.total, ep1.files], [96.8, null, 7]);
+    eq(m.seasons[0].translation.percent, null);
+    eq(m.estimate.status, "unknown");
+  });
+
+  await test("broken data does not throw and yields empty, honest values", () => {
+    const m = M.normalize(broken, NOW);
+    eq([m.translation.percent, m.proofreading.percent, m.remaining], [null, null, null]);
+    eq(m.episodes, []);
+    eq(m.history, []);
+    eq(m.estimate.eta, null);
+    eq(m.seasons.map((s) => s.status), ["active", "active", "planned"]);
+  });
+
+  await test("empty / garbage inputs", () => {
+    for (const v of [{}, null, undefined, [], "x", 5]) {
+      const m = M.normalize(v, NOW);
+      eq(m.translation.percent, null);
+      eq(m.seasons.length, 3);
+    }
+    eq(M.normalize(empty, NOW).completedEpisodes, 0);
+  });
+
+  await test("stale data is flagged", () => {
+    ok(M.normalize(real, Date.parse("2027-02-01T00:00:00Z")).warnings.includes("stale"));
+    ok(!M.normalize(real, NOW).warnings.includes("stale"));
+  });
+
+  await test("values are clamped / rejected, never trusted blindly", () => {
+    const m = M.normalize({ translation: { done: 50, total: 10, percent: 500 }, episodes: [{ n: 1, status: "bogus", percent: 150 }, { n: "x" }, { n: 2, status: "done", percent: 40.5, files: 2 }] }, NOW);
+    eq(m.translation.percent, null);
+    eq(m.episodes.map((e) => e.n), [1, 2]);
+    eq(m.episodes[0].status, "none");
+    eq(m.episodes[0].translation.percent, null);
+    eq(m.episodes[1].translation.percent, 40.5);
+  });
+
+  await test("fallback season table is only the documented mapping", () => {
+    eq(M.FALLBACK_SEASONS, { 1: [1, 2, 3, 4], 2: [5, 6, 7, 8], 3: [] });
+    eq(M.PLANNED_SEASONS, [3]);
+  });
+
+  window.finish();
+})();
+</script>
