@@ -246,7 +246,8 @@ class EditorTests(TempCase):
         (self.tmp / "vs" / "bin" / "code.cmd").write_text("")
         (self.tmp / "vs" / "Code.exe").write_text("")
         found = editor.find_vscode(which=lambda n: str(self.tmp / "vs" / "bin" / "code.cmd") if n == "code" else None, env={})
-        self.assertEqual(Path(found), self.tmp / "vs" / "Code.exe")
+        # compare resolved paths: CI temp folders use 8.3 short names (RUNNER~1) that resolve() expands
+        self.assertEqual(Path(found).resolve(), (self.tmp / "vs" / "Code.exe").resolve())
 
 
 def git(cwd, *args):
