@@ -223,6 +223,20 @@ class EditorTests(TempCase):
         self.assertTrue(r["ok"])
         self.assertEqual(self.calls[0], [str(exe), "--line", "12", str(self.f.resolve())])
 
+    def test_default_finder_returns_a_path_or_none_never_a_function(self):
+        for kind in ("vscode", "notepadpp"):
+            found = editor.default_finder(kind)
+            self.assertTrue(found is None or isinstance(found, str), found)
+
+    def test_real_default_lookup_works_end_to_end(self):
+        """Regression: without an injected finder the editor path used to be a function object."""
+        fake = self.tmp / "Code.exe"
+        fake.write_text("")
+        with mock.patch.object(editor, "find_vscode", return_value=str(fake)):
+            r = editor.open_in_editor(self.f, 5, {"preferred": "vscode"}, root=self.root, runner=self.runner)
+        self.assertTrue(r["ok"], r)
+        self.assertEqual(self.calls[0][:2], [str(fake), "-g"])
+
     def test_line_is_clamped(self):
         editor.open_in_editor(self.f, -5, {"preferred": "vscode"}, root=self.root, runner=self.runner, finder=self.finder({"vscode": "C:/V/Code.exe"}))
         self.assertTrue(self.calls[0][2].endswith(":1"))
