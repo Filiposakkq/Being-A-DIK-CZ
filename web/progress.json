@@ -1,22 +1,22 @@
 {
  "title": "Being A DIK",
- "updated": "2026-10-14T14:54+02:00",
+ "updated": "2026-10-14T15:53+02:00",
  "translation": {
-  "done": 2631,
+  "done": 2976,
   "total": 45335,
-  "percent": 5.8
+  "percent": 6.6
  },
  "proofreading": {
-  "done": 91,
+  "done": 436,
   "total": 45335,
-  "percent": 0.2
+  "percent": 1.0
  },
  "files": {
-  "done": 3,
+  "done": 9,
   "rev": 0,
   "tr": 0,
   "wip": 1,
-  "none": 68,
+  "none": 62,
   "total": 72
  },
  "episodes": [
@@ -56,8 +56,8 @@
  "history": [
   {
    "date": "2026-10-14",
-   "translation": 5.8,
-   "proofreading": 0.2
+   "translation": 6.6,
+   "proofreading": 1.0
   }
  ]
 }
