@@ -1,20 +1,20 @@
 {
  "title": "Being A DIK",
- "updated": "2026-10-14T10:18+02:00",
+ "updated": "2026-10-14T10:24+02:00",
  "translation": {
   "done": 1113,
   "total": 45296,
   "percent": 2.5
  },
  "proofreading": {
-  "done": 0,
+  "done": 5,
   "total": 45296,
   "percent": 0.0
  },
  "files": {
-  "done": 0,
+  "done": 1,
   "rev": 0,
-  "tr": 2,
+  "tr": 1,
   "wip": 1,
   "none": 69,
   "total": 72
