@@ -1,6 +1,6 @@
 """Command line / launcher.
 
-  PrehledPrekladu.exe                      open the window with the remembered project folder
+  BaDIKTranslationManager.exe                      open the window with the remembered project folder
   progress.py "<game>\\game\\tl\\czech"      open that folder (and remember it)
   ... --nogui                              print the summary only (writes the csv / json files)
   ... --todo                               with --nogui: only unfinished files
@@ -63,7 +63,7 @@ def run_desktop(url):
         print("(pywebview není nainstalovaný: py -m pip install pywebview)")
         return False
     try:
-        webview.create_window("Přehled překladu", url, width=1560, height=940, min_size=(1000, 620),
+        webview.create_window("BaDIK Translation Manager 1.0", url, width=1560, height=940, min_size=(1000, 620),
                               background_color="#0f1319")
         if sys.platform.startswith("win"):
             webview.start(gui="edgechromium")
@@ -288,7 +288,7 @@ def show_fatal(message):
     if sys.platform.startswith("win"):
         try:
             import ctypes
-            ctypes.windll.user32.MessageBoxW(None, message, "Přehled překladu – chyba", 0x10)
+            ctypes.windll.user32.MessageBoxW(None, message, "BaDIK Translation Manager – chyba", 0x10)
             return
         except Exception:  # noqa: BLE001
             pass

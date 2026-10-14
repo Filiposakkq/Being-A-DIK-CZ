@@ -8,7 +8,7 @@ pouze web, nástroje a (později) soubory překladu – žádné soubory hry.
 ## Struktura
 - `web/` – statický web (bez buildu), CZ/EN přepínač; data ze `web/progress.json`
   (`progress-model.js` data ověřuje a chybějící údaje nikdy nedomýšlí)
-- `tools/translation-manager/` – **Přehled překladu**, aplikace pro správu překladu a generování `progress.json`
+- `tools/translation-manager/` – **BaDIK Translation Manager**, aplikace pro správu překladu a generování `progress.json`
   (návod, sestavení `.exe`, testy: [tools/translation-manager/README.md](tools/translation-manager/README.md))
 - `tools/gen_art.py` – generuje SVG grafiku (`web/assets/`, `web/favicon.svg`)
 - `tests/web/` – testy webu (otevři `model.test.html` / `site.test.html` přes `py -m http.server`)
@@ -25,7 +25,7 @@ Rozdělení je definované na jednom místě (`tools/translation-manager/prehled
 v `progress.json`.
 
 ## Aktualizace statistik
-Web čte jediný soubor, `web/progress.json`, který vytváří aplikace Přehled překladu (schéma 2: celkový postup,
+Web čte jediný soubor, `web/progress.json`, který vytváří aplikace BaDIK Translation Manager (schéma 2: celkový postup,
 sezóny, epizody, odhad dokončení, historie; bez názvů souborů). Generování a publikování jsou oddělené:
 aplikace data průběžně generuje lokálně a na GitHub je pošle **až po tvém potvrzení** v okně *Publikace*
 (náhled → potvrzení → commit jen tohoto souboru → push). Nic se neposílá automaticky.

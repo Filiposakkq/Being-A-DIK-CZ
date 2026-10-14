@@ -1,7 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
-# PyInstaller spec for PrehledPrekladu.exe (one file, no console window).
-# Build with build_exe.bat (or: py -m PyInstaller --noconfirm --clean PrehledPrekladu.spec).
-# The UI files (prehled/ui) are bundled; settings live in %APPDATA%\PrehledPrekladu, project data in
+# PyInstaller spec for BaDIKTranslationManager.exe (one file, no console window).
+# Build with build_exe.bat (or: py -m PyInstaller --noconfirm --clean BaDIKTranslationManager.spec).
+# The UI files (prehled/ui) are bundled; settings live in %APPDATA%\BaDIKTranslationManager, project data in
 # <translation folder>\_progress_data, so the exe does not depend on the folder it is started from.
 import os
 
@@ -36,7 +36,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name="PrehledPrekladu",
+    name="BaDIKTranslationManager",
     debug=False,
     strip=False,
     upx=False,

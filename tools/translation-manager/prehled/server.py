@@ -50,7 +50,7 @@ def make_handler(sess):
         return (query.get(key) or [default])[0]
 
     class Handler(BaseHTTPRequestHandler):
-        server_version = "Prehled"
+        server_version = "BaDIKTranslationManager"
 
         def log_message(self, *args):
             pass

@@ -13,6 +13,6 @@ if not defined PY (
 %PY% "%~dp0progress.py" %*
 if errorlevel 1 (
   echo.
-  echo The program ended with an error ^(code %errorlevel%^). Details are in %%APPDATA%%\PrehledPrekladu\error.log if it crashed.
+  echo The program ended with an error ^(code %errorlevel%^). Details are in %%APPDATA%%\BaDIKTranslationManager\error.log if it crashed.
   pause
 )
