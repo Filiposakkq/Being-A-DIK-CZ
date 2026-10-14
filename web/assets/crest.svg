@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 290" role="img" aria-label="Crest">
+<path d="M20 20H220V142C220 212 164 252 120 272C76 252 20 212 20 142Z" fill="#16264a" stroke="#e2b04a" stroke-width="9" stroke-linejoin="round"/>
+<path d="M34 34H206V140C206 200 160 236 120 254C80 236 34 200 34 140Z" fill="none" stroke="#f5ecd6" stroke-opacity=".35" stroke-width="2"/>
+<path d="M34 34H206V86H34Z" fill="#c8283d"/>
+<g transform="translate(30.4,112)"><polygon points="22.94,0 45.88,74 0,74" fill="none" stroke="#e2b04a" stroke-width="11.84" stroke-linejoin="miter"/><rect x="93.98" y="0" width="11.84" height="74" fill="#e2b04a"/><rect x="130.98000000000002" y="0" width="11.84" height="74" fill="#e2b04a"/><polygon points="142.82000000000002,38.480000000000004 176.86,0 179.228,13.024000000000001 154.66000000000003,41.440000000000005" fill="#e2b04a"/><polygon points="147.556,34.04 179.228,60.976 176.86,74 142.82000000000002,42.919999999999995" fill="#e2b04a"/></g>
+<rect x="58" y="206" width="124" height="3" fill="#e2b04a"/>
+<text x="120" y="68" text-anchor="middle" font-family="Georgia,'Times New Roman',serif" font-weight="700" font-size="26" letter-spacing="7" fill="#f5ecd6">CZ</text>
+</svg>
