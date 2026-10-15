@@ -1,4 +1,4 @@
-# BaDIK Translation Manager 1.5
+# BaDIK Translation Manager 1.6
 
 Desktop tool for the Czech fan translation of *Being a DIK*. It reads the Ren'Py translation files
 (`game/tl/czech/**/*.rpy`), tracks translation and proofreading progress per file, episode and season, checks the
@@ -187,6 +187,24 @@ the string literal (a bare `"`, a lone `\`) is skipped.
   Czech letters) have a wrong width in their CFF charstrings, and a browser then leaves a gap after every accented letter. Choosing a new line does not
   flicker: the scene info, the decoded picture, the fonts and their widths are fetched first and the view is swapped in one go (cached per line).
   Without the game's font files the preview uses a fallback font, so wrapping is an estimate.
+
+## Focus mode, layouts, quick translating (1.6)
+
+* **Focus mode** (`Ctrl+Shift+F`, the ◩ button): hides the top bar, the tabs and the status bar so only the list and the detail stay; a small floating bar keeps
+  *Zobrazit vše*, the layout menu, full screen (⛶ / F11, done by the app window because F11 does not reach a pywebview window) and undo.
+* **Rozložení** (menu in *Řádky*): *Automaticky*, *Detail dole*, *Detail vpravo*, **Scéna a filmový pás**, *Rychlé překládání*, *Dva monitory* (detail window) and
+  your own layouts (*Uložit aktuální rozložení…*, stored in the preferences; they remember layout, tab and panel sizes). Changing the layout keeps the open line.
+* **Film layout**: a big scene picture with the dialogue box, the editor under it and a horizontal **strip of the neighbouring lines** (cards with the speaker badge, number
+  and text; dashed = untranslated; the current one centred; a click jumps there). The list table is hidden, the filters stay.
+* **Quick translating** (palette or *Rozložení*): focus mode + film layout, only untranslated lines, the editor is focused on every line, `Ctrl+Enter` saves and moves
+  to the next untranslated line, the floating bar shows how many are left. *Zobrazit vše* ends it.
+* **Speaker badges and colours**: round badges with the initial in the colour from the game's `Character(...)` lines (`/api/game/characters`; a stable colour from the code
+  when the game sources are not found) in the list, the film strip and the bubbles.
+* **Bubbles** (*Scéna* tab → *Bubliny*): the lines of the scene as chat bubbles in the speaker's colour, translation large, original small; a click jumps to the line.
+* **Overview**: a hero panel with two rings (translation, proofreading), what is left, the pace and the estimated finish, and buttons *Pokračovat* (the last line you
+  had open), *Rychle překládat* and *Nejblíž dokončení* (the file with the fewest lines left).
+* SVG icons in the top bar, nicer empty states, a short fade when a section changes (off with *reduce motion* in the system), slightly higher contrast of the
+  `faint` colour in both themes. The interface size is left to the window's own zoom (`Ctrl` + mouse wheel).
 
 ## Detail window (second window)
 

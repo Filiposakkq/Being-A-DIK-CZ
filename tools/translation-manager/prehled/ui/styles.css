@@ -1,4 +1,4 @@
-/* BaDIK Translation Manager 1.5 – design tokens first (dark default, light via [data-theme]); components use only tokens.
+/* BaDIK Translation Manager 1.6 – design tokens first (dark default, light via [data-theme]); components use only tokens.
    Every class used by app.js is styled here; nothing in the markup depends on the look. */
 :root {
   color-scheme: dark;
@@ -11,7 +11,7 @@
   --line-2: #2f3b4e;
   --text: #e8ecf3;
   --muted: #95a1b5;
-  --faint: #5f6b7e;
+  --faint: #7d899d;
   --accent: #7aa7ff;
   --accent-2: #a58bff;
   --accent-bg: rgba(122, 167, 255, 0.15);
@@ -54,13 +54,13 @@
   --line-2: #cdd5e2;
   --text: #1a2231;
   --muted: #566277;
-  --faint: #8a95a8;
+  --faint: #6b778b;
   --accent: #3563e9;
   --accent-2: #7048d6;
   --accent-bg: rgba(53, 99, 233, 0.11);
   --accent-bg-soft: rgba(53, 99, 233, 0.05);
   --on-accent: #ffffff;
-  --good: #14895a;
+  --good: #0f7a50;
   --good-bg: rgba(20, 137, 90, 0.11);
   --good-line: rgba(20, 137, 90, 0.4);
   --info: #0b7a91;
@@ -511,3 +511,48 @@ details.inpane > summary { margin-bottom: 4px; }
 table.entries tr.picked td { background: var(--accent-bg, rgba(90, 140, 255, .18)); }
 .pickinfo { display: inline-flex; gap: 6px; align-items: center; font-size: 13px; }
 .mtedit { width: 100%; box-sizing: border-box; }
+
+/* ---- v1.6: focus mode, film layout, speaker badges, bubbles, icons */
+.btn.icon svg { display: block; }
+.sbadge { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%; font-size: 11px; font-weight: 700; line-height: 1; vertical-align: middle; flex: none; }
+body.focus .topbar, body.focus .tabs, body.focus .statusbar { display: none; }
+body.focus #app { grid-template-rows: 1fr; }
+.focusbar { position: fixed; top: 8px; right: 12px; z-index: 40; display: flex; gap: 6px; align-items: center; padding: 5px 8px; background: var(--panel); border: 1px solid var(--line-2); border-radius: 999px; box-shadow: var(--shadow); }
+.focusbar .menu { right: 0; left: auto; }
+body.focus .pane-head { padding-right: 330px; }
+.split.film { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+.split.film > .splitter { display: none; }
+.split.film > .pane { min-height: 0; }
+.split.film > .pane .pane-body { display: none; }
+.split.film > .detail { border-top: 1px solid var(--line); border-left: 0; padding-top: 10px; }
+.filmstrip { display: flex; gap: 8px; overflow-x: auto; padding: 4px 2px 10px; margin: 8px 0; }
+.fcard { flex: 0 0 190px; text-align: left; border: 1px solid var(--line); background: var(--panel-2); color: var(--text); border-radius: 10px; padding: 7px 9px; cursor: pointer; font: inherit; transition: border-color .12s, background .12s, transform .12s; }
+.fcard:hover { border-color: var(--line-2); transform: translateY(-1px); }
+.fcard.cur { border-color: var(--accent); background: var(--accent-bg-soft); }
+.fcard.st-todo { border-style: dashed; }
+.fcard .fhead { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+.fcard .fnum { color: var(--muted); font-size: 12px; font-family: var(--mono); }
+.fcard .ftxt { font-size: 13px; line-height: 1.35; max-height: 4.1em; overflow: hidden; }
+.bubbles { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
+.bubble { border-left: 4px solid var(--sc, var(--line-2)); background: var(--panel-2); border-radius: 4px 12px 12px 4px; padding: 8px 12px; cursor: pointer; transition: background .12s; }
+.bubble:hover { background: var(--hover); }
+.bubble.cur { background: var(--accent-bg-soft); box-shadow: 0 0 0 1px var(--accent) inset; }
+.bubble .bwho { display: flex; align-items: center; gap: 6px; font-size: 12.5px; margin-bottom: 3px; }
+.bubble .btxt { font-size: 15px; }
+.bubble .bsrc { font-size: 12.5px; margin-top: 3px; }
+
+/* ---- v1.6: overview hero, empty states, motion */
+.hero { display: flex; gap: 24px; align-items: center; padding: 18px 22px; margin-bottom: 14px; flex-wrap: wrap; background: linear-gradient(135deg, var(--accent-bg-soft), transparent 60%), var(--panel); }
+.hero-ring { position: relative; flex: none; }
+.hero-pct { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1.1; }
+.hero-pct b { font-size: 22px; }
+.hero-pct span { font-size: 11px; }
+.hero-body { min-width: 260px; flex: 1; }
+.hero-body h2 { margin: 0 0 4px; font-size: 22px; }
+.empty-ico { color: var(--faint); margin-bottom: 6px; }
+@keyframes viewin { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+#view > * { animation: viewin .16s ease-out; }
+@media (prefers-reduced-motion: reduce) { #view > *, .fcard, .bubble { animation: none; transition: none; } }
+
+.menu.flip-x { left: auto; right: 0; }
+.menu.flip-y { top: auto; bottom: 100%; margin-top: 0; margin-bottom: 4px; }

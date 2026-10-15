@@ -56,6 +56,7 @@
     await openView('overview');
     ok('Přehled ukazuje týdenní cíl', document.querySelector('#view .goalrow'), 'chybí panel cíle');
     ok('Přehled má karty', document.querySelectorAll('#view .stat').length >= 4, `karet: ${document.querySelectorAll('#view .stat').length}`);
+    ok('Přehled má hlavní panel s kruhovým grafem a tlačítky', !!document.querySelector('#view .hero svg circle') && [...document.querySelectorAll('#view .hero button')].length >= 2, 'chybí panel');
   });
   await step('Soubory', async () => {
     await openView('files');
@@ -158,9 +159,18 @@
     }
     const fo = await post('focus', { file: S.ent.items[0]?.file || 'x', line: S.ent.items[0]?.line || 1 });
     ok('hlavní okno sdílí vybraný řádek s doprovodným oknem', (await get('focus')).seq === fo.seq && fo.seq > 0, JSON.stringify(fo));
-    const lay = [...document.querySelectorAll('#view .frow button')].find((b) => /Detail (vpravo|dole)/.test(b.textContent));
-    ok('seznam řádků má přepínač rozložení detailu', !!lay, 'chybí');
-    if (lay) { const before = !!document.querySelector('#view .split.ecols'); lay.click(); await sleep(400); ok('přepínač změní rozložení (vedle / pod)', before !== !!document.querySelector('#view .split.ecols'), 'beze změny'); setPref('entries.layout', 'rows'); }
+    const pickLayout = async (label) => { clickText('#view .frow button', 'Rozložení')?.click(); await sleep(80); const it = clickText('#view .menu .menuitem', label); it?.click(); await sleep(700); return !!it; };
+    ok('seznam řádků má nabídku rozložení', !!clickText('#view .frow button', 'Rozložení'), 'chybí');
+    ok('rozložení „Detail vpravo“ dá detail vedle seznamu', (await pickLayout('Detail vpravo')) && !!document.querySelector('#view .split.ecols'), 'beze změny');
+    ok('rozložení „Scéna a filmový pás“ ukáže pás řádků a skryje tabulku', (await pickLayout('Scéna a filmový pás')) && !!document.querySelector('#view .split.film') && !!(await waitFor(() => document.querySelector('#entryDetail .filmstrip .fcard'), 4000)), 'chybí pás nebo rozložení');
+    ok('filmový pás ukazuje aktuální řádek', !!document.querySelector('#entryDetail .filmstrip .fcard.cur'), 'chybí zvýrazněná karta');
+    setFocus(true);
+    ok('režim soustředění skryje horní lištu a ukáže plovoucí lištu', getComputedStyle(document.querySelector('.topbar')).display === 'none' && !!document.getElementById('focusbar'), 'lišta zůstala');
+    setFocus(false);
+    ok('konec soustředění vrátí lištu a smaže plovoucí lištu', getComputedStyle(document.querySelector('.topbar')).display !== 'none' && !document.getElementById('focusbar'), 'lišta se nevrátila');
+    ok('odznak mluvčího má iniciálu a barvu', (() => { const b = speakerBadge('mc'); return b && b.textContent.length === 1 && !!b.style.background; })(), 'chybí odznak');
+    ok('čitelná barva textu na odznaku', readableOn('#ffffff') === '#111' && readableOn('#000000') === '#fff' && readableOn('hsl(10 50% 50%)') === '#fff', 'špatný kontrast');
+    setPref('entries.layout', 'rows'); await openView('entries', { file: '', status: 'all' }); await sleep(300);
     const tg = await post('mt/targets', { file: '' });
     ok('API strojového překladu vrací cíle a počet znaků', Array.isArray(tg.items) && tg.total === tg.items.length && tg.chars >= 0, JSON.stringify(tg).slice(0, 80));
     mtDialog({ picked: [], anchor: null, file: '' }, null);

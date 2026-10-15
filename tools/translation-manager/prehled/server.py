@@ -210,6 +210,7 @@ def make_handler(sess):
                 "settings": lambda: {"ok": True, **app.settings()},
                 "fix/last": lambda: {"ok": True, **app.fix_last()},
                 "game/fontmetrics": lambda: {"ok": True, **app.game_font_metrics(q1(q, "k"))},
+                "game/characters": lambda: {"ok": True, **app.game_characters()},
                 "game/scene": lambda: {"ok": True, **app.scene_info(q1(q, "file"), int(q1(q, "line", "0")))},
                 "entry/scene": lambda: {"ok": True, **app.entry_scene(q1(q, "file"), int(q1(q, "line", "0")), int(q1(q, "radius", "6") or 6))},
                 "snapshots": lambda: {"ok": True, **app.snapshot_list()},

@@ -188,6 +188,14 @@ class SceneInfoTests(TempCase):
         app.open_project(proj)
         return app, base
 
+    def test_characters_of_the_game_are_listed_for_colours_and_badges(self):
+        app, base = self.make()
+        (base / "game" / "chars.rpy").write_text('define js = Character("Josy", color="#ff1c63")\n', encoding="utf-8")
+        app._gi = None
+        self.assertEqual(app.game_characters()["characters"]["js"], {"name": "Josy", "color": "#ff1c63", "dynamic": False})
+        self.write("a.rpy", dialog("a1", "mc", "Hi.", "Ahoj.", 3))
+        self.assertEqual(self.new_app().game_characters(), {"characters": {}})      # no game sources
+
     def test_scene_info_names_the_picture_and_carries_the_textbox_metrics(self):
         app, _base = self.make()
         info = app.scene_info("tl.rpy", app.project.entries("tl.rpy")[0].line)
