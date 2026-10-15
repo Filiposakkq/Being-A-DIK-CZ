@@ -1,4 +1,4 @@
-# BaDIK Translation Manager 1.1
+# BaDIK Translation Manager 1.2
 
 Desktop tool for the Czech fan translation of *Being a DIK*. It reads the Ren'Py translation files
 (`game/tl/czech/**/*.rpy`), tracks translation and proofreading progress per file, episode and season, checks the
@@ -166,10 +166,31 @@ line changed (otherwise the file is restored). It refuses when the file changed 
 refresh first. **↶ Vrátit poslední změnu souboru** (in the editor and in *Kontrola*) undoes the last file change from its backup, one step at a time (up
 to 30 steps; refused when the file was edited elsewhere since). A line you had marked proofread becomes *changed after proofreading* automatically.
 
+### Snippets, glossary suggestions, copying
+
+Under the box: buttons that insert `{i}…`, `{b}…`, `{u}…` (wrap the selected text), `{w}`, `{p}`, `{nw}`, `\n`, `…` and Czech quotes `„ “` at the cursor.
+*Chybí z originálu* offers every tag / `[variable]` of the original that the translation lacks (one click inserts it); *Slovník* offers the Czech
+form of every glossary term found in the original (✓ when it is already used). **⧉ Originál / ⧉ Překlad / ⧉ Oboje** copy the texts to the clipboard,
+*Originál do pole* pastes the source into the box.
+
+## Ignoring findings
+
+*Ignorovat…* (a finding in *Kontrola*, or in the line detail) hides that one finding on that one line from lists, counts, row highlighting and the
+worst-files ranking; an optional note says why. Nothing is deleted: *Kontrola → Ignorované* lists everything ignored (state, note, date, the line's
+translation) and **Přestat ignorovat** restores it; *Přehled* shows how many are ignored. An ignore is bound to the translation text of that line:
+when the text changes it expires (*Text se změnil*) and the finding shows up again. Stored in `_progress_data\ignorovano.csv` (undoable with Ctrl+Z).
+
+## UI self-test
+
+`run_ui_selftest.bat` (or `py tests\ui\serve_selftest.py`) starts the app on a synthetic project (a temp folder named `.badik-selftest`) and opens
+it with `?selftest=1`. `prehled/ui/selftest.js` walks through every tab and the main dialogs, fails on any JavaScript error and shows a PASS / FAIL
+panel (window title `SELFTEST PASS (n)`). Only in that synthetic project does it also save a translation and undo it, and ignore / restore a finding.
+On your own project, opening `?selftest=1` only reads. Python tests (`tests\test_ui_selftest_assets.py`) check that the harness and its project stay valid.
+
 ## Look
 
-*Vzhled* button in the top bar: automatic (follows the system) / dark / light, remembered. Version 1.1 is a visual refresh (tabs with icons, cards,
-light theme) with the same functions as before.
+*Vzhled* button in the top bar: automatic (follows the system) / dark / light, remembered. Version 1.1 was a visual refresh (tabs with icons, cards,
+light theme); 1.2 adds the side-by-side original / translation, a *Hustota* button (comfortable / compact tables) and the features above.
 
 ## More review tools
 

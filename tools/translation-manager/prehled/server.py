@@ -140,7 +140,7 @@ def make_handler(sess):
             p = url.path
             if p in ("/", "/index.html"):
                 return self._static("index.html")
-            if p in ("/app.js", "/styles.css", "/crest.svg", "/favicon.svg"):
+            if p in ("/app.js", "/styles.css", "/crest.svg", "/favicon.svg", "/selftest.js"):
                 return self._static(p[1:])
             if not p.startswith("/api/"):
                 return self._send(404, "not found", "text/plain")
@@ -165,7 +165,9 @@ def make_handler(sess):
                 "entry": lambda: {"ok": True, **app.entry_detail(q1(q, "file"), int(q1(q, "line", "0")))},
                 "validation": lambda: {"ok": True, **app.validation_list(
                     severity=q1(q, "severity"), category=q1(q, "category"), file=q1(q, "file"), q=q1(q, "q"),
-                    offset=max(0, int(q1(q, "offset", "0") or 0)), limit=int(q1(q, "limit", "200") or 200))},
+                    offset=max(0, int(q1(q, "offset", "0") or 0)), limit=int(q1(q, "limit", "200") or 200),
+                    ignored=q1(q, "ignored", "hide"))},
+                "ignore/list": lambda: {"ok": True, **app.ignored_list()},
                 "settings": lambda: {"ok": True, **app.settings()},
                 "fix/last": lambda: {"ok": True, **app.fix_last()},
                 "entry/context": lambda: {"ok": True, **app.entry_context(q1(q, "file"), int(q1(q, "line", "0")))},
@@ -254,6 +256,7 @@ def make_handler(sess):
                 "fix/preview": lambda: {"ok": True, **app.fix_preview(list(d.get("items") or []), str(d.get("file", "")))},
                 "fix/apply": lambda: app.fix_apply(list(d.get("items") or []), str(d.get("file", ""))),
                 "fix/undo": lambda: app.fix_undo(),
+                "ignore/set": lambda: app.ignore_set(list(d.get("items") or []), bool(d.get("on", True)), str(d.get("note", ""))),
                 "entry/check": lambda: {"ok": True, **app.entry_check(str(d["file"]), ints(d["line"]), str(d.get("text", "")))},
                 "entry/save": lambda: app.entry_save(str(d["file"]), ints(d["line"]), str(d.get("text", ""))),
                 "approve/rules": lambda: {"ok": True, **app.rule_preview(d.get("rules") or [], list(d.get("files") or []))},

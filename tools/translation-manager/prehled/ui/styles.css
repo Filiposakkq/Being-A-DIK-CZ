@@ -1,4 +1,4 @@
-/* BaDIK Translation Manager 1.1 – design tokens first (dark default, light via [data-theme]); components use only tokens.
+/* BaDIK Translation Manager 1.2 – design tokens first (dark default, light via [data-theme]); components use only tokens.
    Every class used by app.js is styled here; nothing in the markup depends on the look. */
 :root {
   color-scheme: dark;
@@ -374,3 +374,17 @@ td.whoname { font-size: 13px; color: var(--text); }
 .editnote { font-size: 12px; margin: 2px 0 6px; }
 .editmsg { margin-top: 6px; }
 .editor .editbox:focus { background: var(--panel); }
+
+/* v1.2: side by side original / translation, snippets, ignored findings, compact density */
+.pair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); gap: 18px; margin-top: 10px; align-items: start; }
+@media (max-width: 1000px) { .pair { grid-template-columns: 1fr; } }
+.pair .editor { margin: 0; }
+.pair .textbox { max-height: 220px; min-height: 76px; }
+.snips { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin: 6px 0 2px; font-size: 12.5px; }
+.snip { font-family: var(--mono); padding: 1px 8px; }
+.issue.ignored { opacity: .6; border-style: dashed; }
+:root[data-density="compact"] table.data td { padding: 3px 10px; font-size: 13px; }
+:root[data-density="compact"] table.data th { padding: 6px 10px; }
+:root[data-density="compact"] .ep-row { padding-top: 5px; padding-bottom: 5px; }
+:root[data-density="compact"] .list li { padding-top: 4px; padding-bottom: 4px; }
+.btn.icon { min-width: 34px; justify-content: center; }
