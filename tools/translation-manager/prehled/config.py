@@ -32,6 +32,7 @@ DEFAULTS = {
     },
     "goals": {"translate_per_week": 0, "proofread_per_week": 0},      # 0 = automatic, from the recent pace
     "snapshots": {"enabled": True, "interval_hours": 12, "keep": 20},  # zip backups of the translation folder
+    "mt": {"provider": "", "api_key": "", "base_url": "", "model": "", "source_lang": "EN", "target_lang": "CS", "consent": False},  # optional machine translation
     "lint": {"sdk": ""},                                               # Ren'Py SDK folder for the game check
     "web": {"repo": "", "path": "web/progress.json", "title": "", "migrated_from": ""},
     "ui": {},
@@ -109,7 +110,13 @@ class Config:
         self.save()
 
     def public(self):
-        return copy.deepcopy(self.data)
+        """The settings for the UI. The machine translation key never leaves the app: only whether one is stored."""
+        d = copy.deepcopy(self.data)
+        mt = d.get("mt")
+        if isinstance(mt, dict):
+            mt["has_key"] = bool(mt.get("api_key"))
+            mt["api_key"] = ""
+        return d
 
 
 def migrate_web_json(cfg, data_dir):

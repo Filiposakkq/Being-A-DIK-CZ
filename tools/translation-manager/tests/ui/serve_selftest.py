@@ -90,7 +90,8 @@ def make_project():
     return proj
 
 
-def main():
+def start_synthetic():
+    """Start the app server on a synthetic project (isolated config folder). Returns (server, app, url, cleanup)."""
     cfg = tempfile.mkdtemp(prefix="badik-cfg-")
     os.environ["PREHLED_CONFIG_DIR"] = cfg
     from prehled import server
@@ -102,7 +103,17 @@ def main():
     app.open_project(proj)
     app.glossary_set([{"code": "Dik Coins", "name": "dikmince", "type": "term"}])
     srv, _sess, url = server.start_server(app)
-    url += "?selftest=1"
+
+    def cleanup():
+        srv.shutdown()
+        app.close()
+        shutil.rmtree(proj.parents[2].parent, ignore_errors=True)
+        shutil.rmtree(cfg, ignore_errors=True)
+    return srv, app, url + "?selftest=1", cleanup
+
+
+def main():
+    _srv, _app, url, cleanup = start_synthetic()
     print("UI self-test:", url, flush=True)
     if "--no-open" not in sys.argv:
         webbrowser.open(url)
@@ -112,10 +123,7 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
-        srv.shutdown()
-        app.close()
-        shutil.rmtree(proj.parents[2].parent, ignore_errors=True)
-        shutil.rmtree(cfg, ignore_errors=True)
+        cleanup()
 
 
 if __name__ == "__main__":

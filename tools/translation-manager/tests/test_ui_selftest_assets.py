@@ -57,6 +57,28 @@ class SelfTestAssets(TempCase):
             app.close()
         self.assertIn("selftest", (UI / "app.js").read_text(encoding="utf-8"))
 
+    def test_start_synthetic_serves_the_app_for_the_browser_runner(self):
+        srv, app, url, cleanup = load_serve_module().start_synthetic()
+        try:
+            self.assertTrue(url.endswith("?selftest=1"))
+            host, port = srv.server_address
+            c = http.client.HTTPConnection(host, port, timeout=10)
+            c.request("GET", "/api/state")
+            r = c.getresponse()
+            body = r.read().decode("utf-8")
+            self.assertEqual(r.status, 200)
+            self.assertIn('"ready": true', body)
+            self.assertIn(".badik-selftest", str(app.project.root))
+        finally:
+            cleanup()
+
+    def test_ci_runner_and_workflow_are_in_place(self):
+        runner = (SERVE.parent / "run_selftest_ci.py").read_text(encoding="utf-8")
+        self.assertIn("window.__selftest", runner)
+        wf = (SERVE.parents[4] / ".github" / "workflows" / "translation-manager.yml").read_text(encoding="utf-8")
+        self.assertIn("ui-selftest:", wf)
+        self.assertIn("run_selftest_ci.py", wf)
+
     def test_selftest_only_writes_in_the_synthetic_project(self):
         js = (UI / "selftest.js").read_text(encoding="utf-8")
         self.assertIn(".badik-selftest", js)
