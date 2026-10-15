@@ -1,4 +1,4 @@
-# BaDIK Translation Manager 1.0
+# BaDIK Translation Manager 1.1
 
 Desktop tool for the Czech fan translation of *Being a DIK*. It reads the Ren'Py translation files
 (`game/tl/czech/**/*.rpy`), tracks translation and proofreading progress per file, episode and season, checks the
@@ -41,7 +41,7 @@ The top bar has icon links to Ko-fi, GitHub and the project website; the app onl
 
 ## Where data lives
 
-Everything for a project is in `<translation folder>\_progress_data\` (CSV, Excel-friendly). The `.rpy` files are modified in exactly one case: the explicit *Opravit* button for a changed speaker / trailing code ([see Validation](#validation)):
+Everything for a project is in `<translation folder>\_progress_data\` (CSV, Excel-friendly). The `.rpy` files are modified only by explicit actions: editing a translation in the app ([see Translating in the app](#translating-in-the-app)) and the *Opravit* button for a changed speaker / trailing code ([see Validation](#validation)):
 
 | File | Content |
 |---|---|
@@ -121,7 +121,7 @@ renamed / removed ones. A rename is detected by identical content (or the same b
 Metadata of removed files is kept; unsaved things (a locked CSV, a half-edited number) are confirmed first; unreadable files keep their last state.
 
 **Keyboard:** `Ctrl+F` or `/` search · `↑ ↓`/`J K` move · `PgUp/PgDn` · `A` approve · `Shift+A` approve identical · `P` / `F` / `Shift+P`
-proofreading · `E`/`Enter` open in editor · `Ctrl+Z` undo · `F5` refresh · `Alt+1…7` tabs · `?` help. Shortcuts are ignored while typing in
+proofreading · `E`/`Enter` open in editor · `Ctrl+Z` undo (metadata) · `Ctrl+Enter` save the translation · `F5` refresh · `Alt+1…7` tabs · `?` help. Shortcuts are ignored while typing in
 a field. Filters, sorting, column and pane sizes are remembered (stored by the app, not the browser).
 
 ## Validation
@@ -143,7 +143,7 @@ absolute difference is large; tags and `[variables]` don't count, very short sou
 as an error (Ren'Py reads scripts as UTF-8). Not checked: spelling, grammar, meaning, text overflow. The term check is approximate (Czech endings
 are matched by word stem) and therefore only an info.
 
-### Fixing a changed speaker (the only write to `.rpy` files)
+### Fixing a changed speaker
 
 For *Mluvčí / atributy se liší od originálu* and *Kód za textem se liší* the **Opravit** button (per row, in the line detail, and *Opravit
 mluvčí / atributy…* for all of them) copies the speaker, image attributes and trailing code from the original comment above the line.
@@ -152,6 +152,24 @@ The quoted text is never touched. Flow: preview of every change (before → afte
 file changed on disk since it was loaded (refresh first) or when the fix would make a translated line identical to the original (counted as
 untranslated) – those are left for manual fixing. **Vrátit poslední opravu** restores the files of the last fix from their backups, but only if they were not edited since (the file's hash is compared), so later work is never thrown away. Line endings and a BOM are preserved. Save the file in your editor first; unsaved editor
 changes would be overwritten.
+
+## Translating in the app
+
+The line detail (*Řádky*) has an editable **Překlad** box. **Ctrl+Enter** writes the text into the `.rpy` file and jumps to the next untranslated
+line; **Esc** discards; *Kopírovat originál* pastes the source as a base. While you type, the validator checks the new text (tags, variables, length,
+dialogue box, typos) and shows the result; a text that would break the string literal (a bare `"`, a lone `\`, a real line break) cannot be saved –
+write a new line as `\n` and a quote as `\"`.
+
+Only the text between the quotes is replaced; speaker, attributes, trailing code, line endings, BOM and every other line stay byte for byte as they
+were. Each save makes a backup of the file in `_progress_data\backups`, writes atomically, parses the file again and verifies that exactly this one
+line changed (otherwise the file is restored). It refuses when the file changed on disk since it was loaded (e.g. unsaved or saved edits in VS Code) –
+refresh first. **↶ Vrátit poslední změnu souboru** (in the editor and in *Kontrola*) undoes the last file change from its backup, one step at a time (up
+to 30 steps; refused when the file was edited elsewhere since). A line you had marked proofread becomes *changed after proofreading* automatically.
+
+## Look
+
+*Vzhled* button in the top bar: automatic (follows the system) / dark / light, remembered. Version 1.1 is a visual refresh (tabs with icons, cards,
+light theme) with the same functions as before.
 
 ## More review tools
 
@@ -166,7 +184,8 @@ changes would be overwritten.
   (stem comparison, so endings do not matter); filter *only missing*.
 * **Script context** – the line detail shows the original game script around the line's `game/…:N` reference (read-only; needs the `.rpy` sources
   of the game above `game/tl/…`). Shown automatically for choice / UI strings, which have no dialogue around them.
-* **Approve by rule** (*Řádky → Schválit podle pravidla…*) – preview, then approves with the normal, undoable approval: only symbols, interjections
+* **Approve by rule** (*Řádky → Schválit podle pravidla…*) – search all files or only chosen ones (preselected from the *Soubory* picks or the file
+  filter), preview, then approves with the normal, undoable approval: only symbols, interjections
   (Hmm, Ah, Haha…), or lines that consist only of glossary names. Untranslated English sentences never match.
 * **Worst files** – *Přehled* ranks files by problems per 100 lines (an error counts three times).
 * **Changed after proofreading** – lines marked proofread whose translation changed since are counted (*Přehled*, *Soubory* badge ↻, filter *Změněno po

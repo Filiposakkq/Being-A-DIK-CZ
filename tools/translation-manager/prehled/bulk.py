@@ -291,16 +291,18 @@ def name_words(glossary):
     return out
 
 
-def rule_candidates(project, glossary, rules, rel=None):
+def rule_candidates(project, glossary, rules, rels=None):
     """Pending lines that a simple rule says need no translation. Nothing is changed.
 
     Returns {items:[{file, line, key, who, text, rule, selectable, selected, notes}], counts}.
+    `rels` limits the search to those files (None / empty = the whole project).
     An already approved line is listed but not selectable; an empty translation never qualifies."""
     rules = [r for r in rules if r in RULES]
     names = name_words(glossary) if "names" in rules else set()
     approved = project.store.approved
     items, per_rule = [], Counter()
-    for f in ([rel] if rel else sorted(project.files, key=str.lower)):
+    files = [f for f in (rels or []) if f in project.files] if rels else sorted(project.files, key=str.lower)
+    for f in sorted(files, key=str.lower):
         done = approved.get(f, ())
         for e in project.entries(f):
             if not e.pending or e.category == rpy.K_EMPTY:
@@ -322,6 +324,6 @@ def rule_candidates(project, glossary, rules, rel=None):
                           "key": [e.block, norm_ws(e.source)], "approved": already,
                           "selectable": not already, "selected": not already,
                           "notes": ["už schváleno"] if already else []})
-    return {"items": items, "rules": RULES,
+    return {"items": items, "rules": RULES, "files": len(files),
             "counts": {"total": len(items), "selectable": sum(1 for i in items if i["selectable"]),
                        "by_rule": dict(per_rule)}}

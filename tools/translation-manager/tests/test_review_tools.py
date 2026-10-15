@@ -95,6 +95,17 @@ class RuleApprovalTests(TempCase):
         self.app.undo()
         self.assertEqual(self.app.overview()["totals"]["done"], before)
 
+    def test_rules_can_be_limited_to_chosen_files(self):
+        self.write("other.rpy", dialog("o1", "mc", "Haha", None, 5))
+        self.app.refresh(force=True)
+        everywhere = self.app.rule_preview(["interjections"])
+        self.assertEqual(sorted({i["file"] for i in everywhere["items"]}), ["other.rpy", "script.rpy"])
+        only = self.app.rule_preview(["interjections"], ["other.rpy"])
+        self.assertEqual([i["file"] for i in only["items"]], ["other.rpy"])
+        self.assertEqual(only["files"], 1)
+        with self.assertRaises(AppError):
+            self.app.rule_preview(["interjections"], ["missing.rpy"])
+
     def test_untranslated_english_sentences_never_match(self):
         self.assertNotIn("Where are you going today?", [i["text"] for i in
                          bulk.rule_candidates(self.app.project, self.app.store.glossary, list(bulk.RULES))["items"]])
