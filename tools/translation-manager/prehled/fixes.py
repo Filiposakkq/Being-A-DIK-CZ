@@ -8,13 +8,20 @@ Safety: a plan is built first (nothing written); applying re-reads the file and 
 on disk since it was parsed; a backup of the file is always made; the write is atomic; the file is
 parsed again afterwards and the result is verified.
 """
+import hashlib
+import json
 import re
+from datetime import datetime
+from pathlib import Path
 
 from . import rpy, validator
 from .util import WriteFailed, atomic_write_bytes, make_backup, norm_ws
 
 SPLIT_RE = re.compile(r"(\r\n|\r|\n)")
 BOM = b"\xef\xbb\xbf"
+
+
+LAST_FILE = "last_fix.json"
 
 
 class FixError(Exception):
@@ -77,7 +84,7 @@ def apply(project, data_dir, planned):
             skipped.append((p["file"], p["line"], p["skip"]))
         else:
             by_file.setdefault(p["file"], []).append(p)
-    fixed, backups = 0, []
+    fixed, backups, record = 0, [], []
     for rel, items in by_file.items():
         full = project.path_of(rel)
         fi = project.files.get(rel)
@@ -113,4 +120,56 @@ def apply(project, data_dir, planned):
             atomic_write_bytes(full, data)
             raise FixError(f"{rel}: kontrola po zápisu selhala, soubor byl vrácen do původního stavu.")
         fixed += len(items)
+        if backup:
+            record.append({"file": rel, "backup": str(backup), "after": hashlib.sha1(new_bytes).hexdigest(),
+                           "lines": len(items)})
+    if record:
+        _write_record(data_dir, {"time": datetime.now().isoformat(timespec="seconds"), "files": record})
     return {"fixed": fixed, "skipped": skipped, "backups": backups}
+
+
+def _write_record(data_dir, rec):
+    atomic_write_bytes(data_dir / LAST_FILE, json.dumps(rec, ensure_ascii=False, indent=1).encode("utf-8"))
+
+
+def last(data_dir):
+    """The last fix that can still be undone: {time, files, lines} or None."""
+    try:
+        rec = json.loads((data_dir / LAST_FILE).read_text(encoding="utf-8"))
+        if not rec.get("files"):
+            return None
+        rec["lines"] = sum(f.get("lines", 0) for f in rec["files"])
+        return rec
+    except (OSError, ValueError):
+        return None
+
+
+def undo(project, data_dir):
+    """Put the files of the last fix back from their backups. Refuses when a file was edited since the fix
+    (the backup would silently throw those edits away). Returns {restored: [rel...], lines}."""
+    rec = last(data_dir)
+    if rec is None:
+        raise FixError("Není co vracet.")
+    checked = []
+    for f in rec["files"]:
+        full = project.path_of(f["file"])
+        bak = Path(f["backup"])
+        try:
+            now = hashlib.sha1(full.read_bytes()).hexdigest()
+            before = bak.read_bytes()
+        except OSError as e:
+            raise FixError(f"{f['file']}: nelze číst soubor nebo zálohu ({e.strerror or e}).") from e
+        if now != f["after"]:
+            raise FixError(f"{f['file']}: soubor se od opravy změnil. Vrácení by smazalo pozdější úpravy – "
+                           f"zálohu najdeš v {bak.parent}.")
+        checked.append((full, before, f["file"]))
+    for full, before, _rel in checked:
+        try:
+            atomic_write_bytes(full, before)
+        except WriteFailed as e:
+            raise FixError(f"Nelze zapsat: {e.reason} ({full.name})") from e
+    try:
+        (data_dir / LAST_FILE).unlink()
+    except OSError:
+        pass
+    return {"restored": [c[2] for c in checked], "lines": rec["lines"]}

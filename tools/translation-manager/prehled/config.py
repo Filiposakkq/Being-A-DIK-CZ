@@ -25,6 +25,8 @@ DEFAULTS = {
     "validation": {
         "enabled": True,
         "show_info": False,
+        "spelling": True,
+        "textbox": {"enabled": True, "chars_per_line": 65, "max_lines": 4},
         "length": {"enabled": True, "min_source_chars": 12, "max_ratio": 2.2, "min_ratio": 0.45,
                    "min_extra_chars": 25, "min_missing_chars": 18},
     },

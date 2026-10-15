@@ -75,6 +75,27 @@ class FixTests(TempCase):
         self.assertNotIn(b"\n", out.replace(b"\r\n", b""))
         self.assertIn(b'mc happy "Ahoj tam."', out)
 
+    def test_undo_restores_the_files_and_forgets_the_fix(self):
+        self.assertIsNone(self.app.fix_last()["last"])
+        self.app.fix_apply()
+        self.assertEqual(self.app.fix_last()["last"]["lines"], 2)
+        res = self.app.fix_undo()
+        self.assertEqual(res["restored"], ["script.rpy"])
+        self.assertEqual(self.path.read_text(encoding="utf-8"), self.text)
+        self.assertIsNone(self.app.fix_last()["last"])
+        self.assertEqual(len(self.codes()), 3)          # the errors are back
+        with self.assertRaises(AppError):
+            self.app.fix_undo()
+
+    def test_undo_refuses_when_the_file_was_edited_after_the_fix(self):
+        self.app.fix_apply()
+        edited = self.path.read_text(encoding="utf-8") + "# later edit\n"
+        self.path.write_text(edited, encoding="utf-8")
+        with self.assertRaises(AppError):
+            self.app.fix_undo()
+        self.assertEqual(self.path.read_text(encoding="utf-8"), edited)
+        self.assertIsNotNone(self.app.fix_last()["last"])
+
     def test_nothing_to_fix(self):
         self.write("script.rpy", dialog("a1", "mc", "Hello.", "Ahoj."))
         app = self.new_app()

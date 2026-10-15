@@ -15,7 +15,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from . import __version__
-from .app import AppError
+from .app import AppError, ProjectBusy
 from .config import config_dir
 from .project import check_project_dir
 from .util import WriteFailed
@@ -117,6 +117,8 @@ def make_handler(sess):
                 with app.lock:
                     result = fn()
                 self._json(result if isinstance(result, dict) else {"ok": True, "result": result})
+            except ProjectBusy as e:
+                self._json({"ok": False, "error": str(e), "locked": True, "path": e.path}, 409)
             except AppError as e:
                 self._json({"ok": False, "error": str(e)}, 400)
             except KeyError as e:
@@ -165,6 +167,10 @@ def make_handler(sess):
                     severity=q1(q, "severity"), category=q1(q, "category"), file=q1(q, "file"), q=q1(q, "q"),
                     offset=max(0, int(q1(q, "offset", "0") or 0)), limit=int(q1(q, "limit", "200") or 200))},
                 "settings": lambda: {"ok": True, **app.settings()},
+                "fix/last": lambda: {"ok": True, **app.fix_last()},
+                "entry/context": lambda: {"ok": True, **app.entry_context(q1(q, "file"), int(q1(q, "line", "0")))},
+                "glossary/occurrences": lambda: {"ok": True, **app.glossary_occurrences(
+                    q1(q, "code"), q1(q, "missing") == "1")},
                 "glossary": lambda: {"ok": True, **app.glossary_payload()},
                 "proof/next": lambda: {"ok": True, **app.proof_next(q1(q, "file"), int(q1(q, "after", "0") or 0))},
                 "export/preview": lambda: {"ok": True, **app.export_preview()},
@@ -204,7 +210,7 @@ def make_handler(sess):
 
             def project_set():
                 path = str(d.get("path", "")).strip().strip('"')
-                app.open_project(path)
+                app.open_project(path, force=bool(d.get("force")))
                 return {"ok": True}
 
             def project_pick():
@@ -247,6 +253,8 @@ def make_handler(sess):
                 "open-url": lambda: app.open_link(str(d.get("id", ""))),
                 "fix/preview": lambda: {"ok": True, **app.fix_preview(list(d.get("items") or []), str(d.get("file", "")))},
                 "fix/apply": lambda: app.fix_apply(list(d.get("items") or []), str(d.get("file", ""))),
+                "fix/undo": lambda: app.fix_undo(),
+                "approve/rules": lambda: {"ok": True, **app.rule_preview(d.get("rules") or [], str(d.get("file", "")))},
                 "undo": lambda: app.undo(),
                 "open-editor": lambda: app.open_editor(str(d["file"]), ints(d.get("line", 1))),
                 "settings": lambda: {"ok": True, **app.update_settings(d)},

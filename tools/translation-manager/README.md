@@ -135,6 +135,7 @@ and length may differ freely).
 | **Chyba** | stray / mis-nested closing tag, unterminated `[var` / `{tag`, a `[variable]` the source doesn't have, changed `{}` / `%s`, changed speaker or trailing code (`with vpunch`), lone `\` |
 | **Varování** | a source tag or `[variable]` missing, extra tag, changed tag argument, missing `{nw}`/`{fast}`, different `\n` count, unclosed tag the source closes, length far from the source |
 | **Varování – Text** | digits that differ from the source, double space, the same word twice in a row, English left in a translated line (≥ 3 English function words) |
+| **Varování – Typo / okno** | a probable typo (missing diacritics, swapped or doubled letters – from the project's own vocabulary, see below), a translation that needs more lines than the dialogue box holds |
 | **Info** (hidden by default) | different number of `{w}` / `{p}` pauses, dropped `{#…}`, a number written out in words, a glossary *term* whose Czech form is not found in the translation |
 
 Length warnings are a review aid with thresholds in *Nastavení* (default: warn above 2.2× or below 0.45× of the visible length and only if the
@@ -149,8 +150,29 @@ mluvčí / atributy…* for all of them) copies the speaker, image attributes an
 The quoted text is never touched. Flow: preview of every change (before → after) → confirm → backup of the file in
 `_progress_dataackups` (always, up to 50 per file) → atomic write → file parsed again and verified (otherwise restored). Refused when the
 file changed on disk since it was loaded (refresh first) or when the fix would make a translated line identical to the original (counted as
-untranslated) – those are left for manual fixing. Line endings and a BOM are preserved. Save the file in your editor first; unsaved editor
+untranslated) – those are left for manual fixing. **Vrátit poslední opravu** restores the files of the last fix from their backups, but only if they were not edited since (the file's hash is compared), so later work is never thrown away. Line endings and a BOM are preserved. Save the file in your editor first; unsaved editor
 changes would be overwritten.
+
+## More review tools
+
+* **Typo hints** (`spelling.py`) – no dictionary: the words of the already translated lines are the vocabulary. A word that occurs ≤ 3× but looks like
+  a mistyped form of a word used ≥ 5× and ≥ 5× more often is reported (`prijdu` → `přijdu`, `tkaový` → `takový`, `dobbře` → `dobře`). Source words,
+  speaker names and glossary entries are never reported. Short words (`byt`/`být`) are only an info. Switch off in *Nastavení*.
+* **Dialogue box check** – estimates the lines a translation needs (explicit `
+` plus word wrap at *chars per line*) and warns when it exceeds the
+  limit *and* the original needed fewer. Defaults (65 characters × 4 lines) come from the game's `gui.rpy` (text width 1116 px, font 33 px); both are
+  editable in *Nastavení*.
+* **Term occurrences** – *Slovník → Výskyty* lists every line whose original contains a glossary term and whether the Czech form is used there
+  (stem comparison, so endings do not matter); filter *only missing*.
+* **Script context** – the line detail shows the original game script around the line's `game/…:N` reference (read-only; needs the `.rpy` sources
+  of the game above `game/tl/…`). Shown automatically for choice / UI strings, which have no dialogue around them.
+* **Approve by rule** (*Řádky → Schválit podle pravidla…*) – preview, then approves with the normal, undoable approval: only symbols, interjections
+  (Hmm, Ah, Haha…), or lines that consist only of glossary names. Untranslated English sentences never match.
+* **Worst files** – *Přehled* ranks files by problems per 100 lines (an error counts three times).
+* **Changed after proofreading** – lines marked proofread whose translation changed since are counted (*Přehled*, *Soubory* badge ↻, filter *Změněno po
+  korektuře* in *Řádky*).
+* **Project lock** – `_progress_data\lock.json` (pid, computer, refreshed every 15 s) stops a second copy of the app from opening the same project:
+  it offers to take over. A lock not refreshed for 60 s (crash) counts as free; the copy that lost the project shows a warning in *Přehled*.
 
 ## Completion estimate
 

@@ -8,8 +8,9 @@ import webbrowser
 from datetime import date, datetime
 from pathlib import Path
 
-from . import bulk, editor, export, fixes, history as hist, publish as pub, rpy, validator
+from . import bulk, editor, export, fixes, history as hist, publish as pub, rpy, spelling, validator
 from .config import Config, migrate_web_json
+from .lock import ProjectLock, ProjectLocked
 from .project import (DATA_DIR_NAME, STATUS_LABELS, STATUS_ORDER, Project, ProjectUnavailable,
                       check_project_dir, file_status, totals_of)
 from .seasons import ACTIVE_EPISODES, SEASONS
@@ -41,6 +42,14 @@ class AppError(Exception):
     """An operation failed for a reason the user should read."""
 
 
+class ProjectBusy(AppError):
+    """The project is open in another running copy of the app (see lock.py)."""
+
+    def __init__(self, message, path):
+        super().__init__(message)
+        self.path = str(path)
+
+
 class App:
     def __init__(self, config=None):
         self.config = config or Config().load()
@@ -50,11 +59,19 @@ class App:
         self.history = None
         self.data_dir = None
         self.notices = []          # one-off messages for the UI (migration, load problems...)
+        self._spell_cache = None
         self._val_cache = {}       # rel -> (digest, cfg signature, [(line, Issue, entry)])
         self.last_save_error = ""
+        self.plock = None          # ProjectLock of the open project
 
     # ------------------------------------------------------------ project lifecycle
-    def open_project(self, path):
+    def close(self):
+        """Release the project lock (called on exit)."""
+        if self.plock:
+            self.plock.release()
+            self.plock = None
+
+    def open_project(self, path, force=False):
         ok, msg = check_project_dir(path)
         if not ok:
             raise AppError(msg)
@@ -73,6 +90,14 @@ class App:
                 except OSError:
                     pass
         with self.lock:
+            new_lock = ProjectLock(data_dir)
+            try:
+                new_lock.acquire(force=force)
+            except ProjectLocked as e:
+                raise ProjectBusy(str(e), root) from e
+            if self.plock:
+                self.plock.release()
+            self.plock = new_lock
             self.notices = [n for n in self.notices if n]
             msg = migrate_web_json(self.config, data_dir)
             if msg:
@@ -170,14 +195,33 @@ class App:
         """Glossary terms {English: Czech} used by the term-consistency check."""
         return {c: g["n"] for c, g in self.store.glossary.items() if g["t"] == "term" and g["n"]}
 
+    def _spell(self):
+        """Spelling hints built from the whole project's translated text; rebuilt when any file or the glossary changes."""
+        if not self.config.get("validation.spelling", True):
+            return None
+        key = (tuple(sorted((rel, id(fi.parsed)) for rel, fi in self.project.files.items())),
+               tuple(sorted((c, g["n"]) for c, g in self.store.glossary.items())))
+        if self._spell_cache and self._spell_cache[0] == key:
+            return self._spell_cache[1]
+        known = set()
+        for c, g in self.store.glossary.items():
+            known.update(spelling.words_of(c))
+            known.update(spelling.words_of(g["n"]))
+        targets = (e.target for fi in self.project.files.values() for e in fi.parsed.entries if not e.pending)
+        obj = spelling.Spelling.build(targets, known)
+        self._spell_cache = (key, obj)
+        return obj
+
     def _issues(self, rel):
         fi = self.project.files[rel]
         terms = self._terms()
-        sig = json.dumps([self._length_cfg(), terms], sort_keys=True)
+        spell = self._spell()
+        tb = self.config.get("validation.textbox", {})
+        sig = json.dumps([self._length_cfg(), terms, tb, spell.sig if spell else ""], sort_keys=True)
         hit = self._val_cache.get(rel)
         if hit and hit[0] is fi.parsed and hit[1] == sig:
             return hit[2]
-        res = validator.check_parsed(fi.parsed, self._length_cfg(), terms)
+        res = validator.check_parsed(fi.parsed, self._length_cfg(), terms, spell, tb)
         self._val_cache[rel] = (fi.parsed, sig, res)
         return res
 
@@ -263,13 +307,14 @@ class App:
         for r in rows:
             counts[file_status(r.done, r.todo, r.total, r.corr)] += 1
         approved = sum(len(v) for v in self.store.approved.values())
-        marked = flagged = 0
+        marked = flagged = stale = 0
         for rel in self.store.proof:
             if rel in self.project.files:
                 ok, fix = self.project.proof_counts(rel)
                 marked, flagged = marked + ok, flagged + fix
+                stale += self.project.proof_stale(rel)
         stats = export.stats_for(rows, self.store)
-        vcounts, _ = self.validation_summary()
+        vcounts, per_file = self.validation_summary()
         pts = self.history.points()
         recent = []
         prev = None
@@ -283,17 +328,18 @@ class App:
                         "files": len(rows), "skipped": sorted(self.project.skip)},
             "totals": {"done": t_done, "total": total, "remaining": total - t_done, "percent": round(tpct, 1),
                        "proofread": c_done, "proofread_percent": round(cpct, 1), "approved": approved,
-                       "proof_marked": marked, "proof_fix": flagged},
+                       "proof_marked": marked, "proof_fix": flagged, "proof_stale": stale},
             "file_counts": counts,
             "seasons": stats["seasons"], "episodes": stats["episodes"],
             "general": stats["general"], "unassigned": stats["unassigned"],
-            "validation": vcounts,
+            "validation": vcounts, "worst_files": self._worst_files(per_file),
             "estimate": self.estimate(),
             "recent": recent[-8:][::-1],
             "undo": [s["label"] for s in self.store.undo_stack][-5:][::-1],
             "unsaved": sorted(self.store.unsaved),
             "last_save_error": self.last_save_error,
             "last_refresh": self.project.last_report.to_dict() if self.project.last_report else None,
+            "lock_lost": bool(self.plock and not self.plock.check()),
             "loaded_at": self.project.loaded_at,
             "episode_states": [{"key": k, "label": l} for k, l in EP_STATES],
         }
@@ -309,7 +355,8 @@ class App:
             p_ok, p_fix = self.project.proof_counts(r.name)
             out.append({"name": r.name, "proof_marked": p_ok, "proof_fix": p_fix, "assign": self.store.assign.get(r.name, ""), "total": r.total,
                         "done": r.done, "auto": r.auto, "todo": r.todo, "corr": r.corr, "approved": appr,
-                        "status": st, "order": STATUS_ORDER[st], "errors": v["error"], "warnings": v["warning"]})
+                        "status": st, "order": STATUS_ORDER[st], "errors": v["error"], "warnings": v["warning"],
+                        "proof_stale": self.project.proof_stale(r.name)})
         return out
 
     # ------------------------------------------------------------ entries
@@ -353,6 +400,8 @@ class App:
                 if status == "proofed" and pf != "ok":
                     continue
                 if status == "fix" and pf != "fix":
+                    continue
+                if status == "stale" and pf != "stale":
                     continue
                 kinds = rpy.KIND_CODE.get(e.category, "")
                 if kind and kinds != kind:
@@ -753,6 +802,85 @@ class App:
         except ValueError as e:
             raise AppError(str(e)) from e
 
+    def rule_preview(self, rules, file=""):
+        self._need_project()
+        return bulk.rule_candidates(self.project, self.store.glossary, list(rules or []), file or None)
+
+    def glossary_occurrences(self, code, only_missing=False, limit=400):
+        """Every line whose original contains the glossary term `code`, with whether the Czech form is used."""
+        self._need_project()
+        g = self.store.glossary.get(code)
+        if g is None:
+            raise AppError("Záznam ve slovníku neexistuje.")
+        czech = g.get("n", "")
+        rows, found, missing, untranslated = [], 0, 0, 0
+        for rel in sorted(self.project.files, key=str.lower):
+            for e in self.project.entries(rel):
+                if e.source is None or not validator.term_in_text(e.source, code):
+                    continue
+                translated = self.project.is_translated(rel, e)
+                used = (validator.term_used(e.target, czech) if czech and translated else None)
+                if used:
+                    found += 1
+                elif used is False:
+                    missing += 1
+                else:
+                    untranslated += 1
+                if only_missing and used is not False:
+                    continue
+                rows.append({"file": rel, "line": e.line, "who": e.who, "source": e.source, "target": e.target,
+                             "translated": translated, "used": used})
+        return {"code": code, "czech": czech, "found": found, "missing": missing, "untranslated": untranslated,
+                "items": rows[:limit], "truncated": len(rows) > limit}
+
+    def _game_root(self):
+        """Folder that contains `game/` (references look like game/script.rpy:123), found above the translation folder."""
+        for parent in self.project.root.parents:
+            if parent.name.lower() == "game":
+                return parent.parent
+        return None
+
+    def entry_context(self, rel, line, radius=6):
+        """The original game script around the line this translation unit comes from (read-only)."""
+        self._need_project()
+        if rel not in self.project.files:
+            raise AppError("Neznámý soubor.")
+        e = next((x for x in self.project.entries(rel) if x.line == line), None)
+        if e is None:
+            raise AppError("Řádek už v souboru není – obnov soubory.")
+        m = re.match(r"^(game/.+?):(\d+)$", e.ref or "")
+        if not m:
+            return {"available": False, "reason": "U řádku není zaznamenaná pozice ve skriptu hry."}
+        base = self._game_root()
+        if base is None:
+            return {"available": False, "ref": e.ref, "reason": "Složka hry (game) nad překladem nebyla nalezena."}
+        path = (base / m.group(1)).resolve()
+        if base.resolve() not in path.parents or path.suffix.lower() not in (".rpy", ".rpym"):
+            return {"available": False, "ref": e.ref, "reason": "Neplatná cesta ke skriptu."}
+        try:
+            if path.stat().st_size > 8 * 1024 * 1024:
+                return {"available": False, "ref": e.ref, "reason": "Skript je příliš velký."}
+            lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            return {"available": False, "ref": e.ref,
+                    "reason": f"Skript {m.group(1)} nebyl nalezen (originální .rpy soubory hry nejsou po ruce, možná jen .rpyc)."}
+        n = int(m.group(2))
+        a, b = max(1, n - radius), min(len(lines), n + radius)
+        return {"available": True, "ref": e.ref, "path": str(path),
+                "lines": [{"n": i, "text": lines[i - 1], "hit": i == n} for i in range(a, b + 1)]}
+
+    def _worst_files(self, counts_by_file, limit=10):
+        totals = {r.name: r.total for r in self.project.rows()}
+        out = []
+        for rel, c in counts_by_file.items():
+            problems = c["error"] * 3 + c["warning"]
+            if not problems or rel not in totals:
+                continue
+            out.append({"name": rel, "errors": c["error"], "warnings": c["warning"], "lines": totals[rel],
+                        "score": round(problems / max(1, totals[rel]) * 100, 1)})
+        out.sort(key=lambda r: (-r["score"], -r["errors"], r["name"].lower()))
+        return out[:limit]
+
     def approval_apply(self, selections, on=True):
         self._need_project()
         with self.lock:
@@ -798,6 +926,25 @@ class App:
             out.update(res)
             return out
 
+    def fix_last(self):
+        self._need_project()
+        return {"last": fixes.last(self.data_dir)}
+
+    def fix_undo(self):
+        """Restore the files changed by the last Opravit from their backups."""
+        self._need_project()
+        with self.lock:
+            try:
+                res = fixes.undo(self.project, self.data_dir)
+            except fixes.FixError as e:
+                raise AppError(str(e)) from e
+            finally:
+                self.project.refresh(force=True)
+                self._val_cache.clear()
+            out = self._changed("fix-undo")
+            out.update(res)
+            return out
+
     def open_link(self, link_id, opener=None):
         """Open one of the fixed project links in the default browser."""
         url = LINKS.get(link_id)
@@ -839,6 +986,23 @@ class App:
                 out["enabled"] = bool(va["enabled"])
             if "show_info" in va:
                 out["show_info"] = bool(va["show_info"])
+            if "spelling" in va:
+                out["spelling"] = bool(va["spelling"])
+            tbx = va.get("textbox")
+            if isinstance(tbx, dict):
+                to = {}
+                if "enabled" in tbx:
+                    to["enabled"] = bool(tbx["enabled"])
+                for k, lo_, hi in (("chars_per_line", 20, 400), ("max_lines", 1, 30)):
+                    if k in tbx:
+                        try:
+                            val = int(float(tbx[k]))
+                        except (TypeError, ValueError):
+                            raise AppError(f"Neplatná hodnota: {k}") from None
+                        if not lo_ <= val <= hi:
+                            raise AppError(f"{k} musí být v rozmezí {lo_}–{hi}.")
+                        to[k] = val
+                out["textbox"] = to
             ln = va.get("length")
             if isinstance(ln, dict):
                 lo = {}
