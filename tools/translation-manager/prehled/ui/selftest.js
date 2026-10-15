@@ -148,6 +148,26 @@
     [...document.querySelectorAll('#view button')].find((x) => /Zpět na nálezy/.test(x.textContent))?.click();
     await sleep(300);
   });
+  await step('Zálohy a lint', async () => {
+    const snaps = await get('snapshots');
+    ok('API záloh vrací seznam', Array.isArray(snaps.items), JSON.stringify(snaps).slice(0, 80));
+    if (synthetic) {
+      const made = await post('snapshots/create');
+      ok('ruční záloha se vytvoří', made.snapshot?.files >= 1, JSON.stringify(made).slice(0, 80));
+      const files = await get('snapshots/files', { name: made.snapshot.name });
+      ok('porovnání zálohy vrací soubory', files.files.length >= 1 && files.files.every((f) => f.state), 'prázdný výsledek');
+      await post('snapshots/delete', { name: made.snapshot.name });
+    }
+    setPref('validation.consistency', false); setPref('validation.ignored', 'hide'); setPref('validation.lint', false);
+    await openView('validation');
+    const b = await waitFor(() => [...document.querySelectorAll('#view button')].find((x) => x.textContent === 'Lint hry'));
+    ok('Kontrola má režim „Lint hry“', b, 'chybí tlačítko');
+    b?.click();
+    ok('režim lintu se vykreslí a nabízí cestu k SDK', await waitFor(() => document.querySelector('#view input[type=text]') && /Lint/.test(document.querySelector('#view').innerText), 5000) && !document.querySelector('#view .notice.bad'), 'chybí');
+    [...document.querySelectorAll('#view button')].find((x) => /Zpět na nálezy/.test(x.textContent))?.click();
+    setPref('validation.lint', false);
+    await sleep(300);
+  });
   await step('Kontrola', async () => {
     setPref('validation.consistency', false); setPref('validation.ignored', 'hide');      // do not depend on saved view modes
     await openView('validation');
@@ -171,7 +191,7 @@
   await step('Publikace', async () => { await openView('publish'); });
   await step('Nastavení', async () => {
     await openView('settings');
-    for (const id of ['set_val', 'set_spell', 'set_tb', 'set_tbcpl', 'set_tblines']) ok(`nastavení má pole ${id}`, document.getElementById(id), 'chybí');
+    for (const id of ['set_val', 'set_spell', 'set_tb', 'set_tbcpl', 'set_tblines', 'set_snap_on', 'set_snap_h', 'set_snap_keep', 'set_sdk', 'set_goal_t']) ok(`nastavení má pole ${id}`, document.getElementById(id), 'chybí');
   });
   await step('Vzhled a hustota', async () => {
     const t0 = pref('ui.theme', 'auto'), d0 = pref('ui.density', 'comfortable');

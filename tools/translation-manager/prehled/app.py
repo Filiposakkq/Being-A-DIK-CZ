@@ -9,7 +9,8 @@ from dataclasses import replace
 from datetime import date, datetime
 from pathlib import Path
 
-from . import bulk, editor, export, fixes, history as hist, memory, publish as pub, rpy, spelling, textedit, texthistory, validator
+from . import (__version__, bulk, editor, export, fixes, history as hist, lint, memory, publish as pub, rpy, snapshots,
+               spelling, textedit, texthistory, validator)
 from .config import Config, migrate_web_json
 from .lock import ProjectLock, ProjectLocked
 from .project import (DATA_DIR_NAME, STATUS_LABELS, STATUS_ORDER, Project, ProjectUnavailable,
@@ -63,6 +64,7 @@ class App:
         self._spell_cache = None
         self._memory_cache = None
         self.texthist = None       # TextHistory of the open project
+        self.linter = lint.Linter()
         self._val_cache = {}       # rel -> (digest, cfg signature, [(line, Issue, entry)])
         self.last_save_error = ""
         self.plock = None          # ProjectLock of the open project
@@ -1105,6 +1107,7 @@ class App:
                      if (chosen is None or (l["file"], l["line"]) in chosen)]
             if not edits:
                 raise AppError("Není co sjednocovat.")
+            self._snapshot_for_bulk(len(edits), len({e[0] for e in edits}))
             try:
                 res = fixes.apply_edits(self.project, self.data_dir, edits, f"Sjednocení překladu: {group['source'][:40]}")
                 self._log_text(res["details"], "unify")
@@ -1139,6 +1142,120 @@ class App:
                 out[k] = found[k]
         out["source"] = "gui.rpy hry" if any(k in found for k in self.GUI_DEFAULTS) else "výchozí hodnoty"
         return out
+
+    # ------------------------------------------------------------ snapshots of the translation folder
+    def _snapshot(self, reason, force=False):
+        """Zip of all .rpy files (see snapshots.py). Never raises; problems become a notice."""
+        cfg = self.config.get("snapshots", {})
+        if not force and not cfg.get("enabled", True):
+            return None
+        if reason == "bulk" and snapshots.recent(self.data_dir, 10):
+            return None
+        try:
+            snap = snapshots.create(self.project.root, self.data_dir, reason, __version__)
+            if snap:
+                snapshots.prune(self.data_dir, cfg.get("keep", 20))
+            return snap
+        except (snapshots.SnapshotError, OSError) as e:
+            self.notices.append(f"Záloha se nevytvořila: {e}")
+            return None
+
+    def _snapshot_for_bulk(self, lines, files):
+        if lines >= 20 or files >= 2:
+            self._snapshot("bulk")
+
+    def maybe_auto_snapshot(self):
+        """At start: a snapshot in the background when the last one is older than the interval (called by the UI server)."""
+        if not self.project or not self.config.get("snapshots.enabled", True):
+            return
+        interval = self.config.get("snapshots.interval_hours", 12)
+        if not snapshots.due(self.data_dir, interval):
+            return
+        threading.Thread(target=lambda: self._snapshot("auto"), daemon=True).start()
+
+    def snapshot_list(self):
+        self._need_project()
+        cfg = self.config.get("snapshots", {})
+        return {"items": snapshots.list_snapshots(self.data_dir), "enabled": cfg.get("enabled", True),
+                "interval_hours": cfg.get("interval_hours", 12), "keep": cfg.get("keep", 20)}
+
+    def snapshot_create(self):
+        self._need_project()
+        with self.lock:
+            try:
+                snap = snapshots.create(self.project.root, self.data_dir, "manual", __version__)
+            except snapshots.SnapshotError as e:
+                raise AppError(str(e)) from e
+            if snap is None:
+                raise AppError("Ve složce nejsou žádné soubory .rpy.")
+            snapshots.prune(self.data_dir, self.config.get("snapshots.keep", 20))
+            return {"ok": True, "snapshot": snap}
+
+    def snapshot_files(self, name):
+        self._need_project()
+        try:
+            return {"files": snapshots.compare(self.project.root, self.data_dir, name)}
+        except (snapshots.SnapshotError, OSError) as e:
+            raise AppError(str(e)) from e
+
+    def snapshot_restore(self, name, files=None):
+        """Put files of a snapshot back. The current state is saved first, so the restore can be undone the same way."""
+        self._need_project()
+        with self.lock:
+            before = {rel: list(self.project.entries(rel)) for rel in self.project.files}
+            try:
+                res = snapshots.restore(self.project.root, self.data_dir, name, files, __version__)
+            except snapshots.SnapshotError as e:
+                raise AppError(str(e)) from e
+            finally:
+                self.project.refresh(force=True)
+                self._val_cache.clear()
+            for rel in self.project.files:
+                if rel in before:
+                    ch = texthistory.diff_files(before[rel], self.project.entries(rel))
+                    self._log_text([{"file": rel, "key": c["key"], "old": c["old"], "new": c["new"]} for c in ch], "restore")
+            self.store.ensure_files([r.name for r in self.project.rows()])
+            out = self._changed("restore")
+            out.update(restored=res["restored"], safety=(res["safety"] or {}).get("name", ""))
+            return out
+
+    def snapshot_delete(self, name):
+        self._need_project()
+        try:
+            snapshots.delete(self.data_dir, name)
+        except snapshots.SnapshotError as e:
+            raise AppError(str(e)) from e
+        return {"ok": True}
+
+    # ------------------------------------------------------------ Ren'Py lint of the whole game
+    def lint_start(self):
+        self._need_project()
+        sdk = str(self.config.get("lint.sdk", "")).strip()
+        if not sdk:
+            raise AppError("Nastav nejdřív složku Ren'Py SDK (tam, kde je renpy.py).")
+        base = self._game_root()
+        if base is None:
+            raise AppError("Složka hry (game) nad překladem nebyla nalezena – lint potřebuje zdrojové soubory hry.")
+        try:
+            self.linter.start(sdk, base)
+        except lint.LintError as e:
+            raise AppError(str(e)) from e
+        return {"ok": True}
+
+    def lint_status(self):
+        self._need_project()
+        st = self.linter.status()
+        base = self._game_root()
+        for it in st.get("issues", []):
+            it["rel"] = ""
+            if base is not None:
+                try:
+                    p = (base / it["file"]).resolve()
+                    it["rel"] = p.relative_to(self.project.root.resolve()).as_posix()
+                    it["rel"] = next((r for r in self.project.files if r.replace("\\", "/") == it["rel"]), "")
+                except (ValueError, OSError):
+                    it["rel"] = ""
+        return st
 
     FIX_KINDS = ("speaker", "spaces", "typo")
     FIX_LABELS = {"speaker": "mluvčí / atributy", "spaces": "dvojité mezery", "typo": "překlepy"}
@@ -1185,6 +1302,7 @@ class App:
             if not todo:
                 raise AppError("Není co opravovat.")
             fixed, backups = 0, []
+            self._snapshot_for_bulk(len(todo), len({p["file"] for p in todo}))
             try:
                 speaker = {(p["file"], p["line"]) for p in todo if p["kind"] == "speaker"}
                 if speaker:
@@ -1277,6 +1395,7 @@ class App:
             if not edits:
                 raise AppError("Vybrané řádky se mezitím změnily – zobraz náhled znovu.")
             label = f"Nahrazení „{str(find)[:30]}“ → „{str(replace)[:30]}“"
+            self._snapshot_for_bulk(len(edits), len({e[0] for e in edits}))
             try:
                 res = fixes.apply_edits(self.project, self.data_dir, edits, label)
                 self._log_text(res["details"], "replace")
@@ -1454,6 +1573,24 @@ class App:
                     lo["enabled"] = bool(ln["enabled"])
                 out["length"] = lo
             clean["validation"] = out
+        sn = patch.get("snapshots")
+        if isinstance(sn, dict):
+            o = {}
+            if "enabled" in sn:
+                o["enabled"] = bool(sn["enabled"])
+            for k, lo, hi in (("interval_hours", 1, 168), ("keep", 3, 100)):
+                if k in sn:
+                    try:
+                        val = int(float(sn[k]))
+                    except (TypeError, ValueError):
+                        raise AppError(f"Neplatná hodnota: {k}") from None
+                    if not lo <= val <= hi:
+                        raise AppError(f"{k} musí být v rozmezí {lo}–{hi}.")
+                    o[k] = val
+            clean["snapshots"] = o
+        li = patch.get("lint")
+        if isinstance(li, dict) and "sdk" in li:
+            clean["lint"] = {"sdk": str(li["sdk"]).strip().strip('"')[:500]}
         gl = patch.get("goals")
         if isinstance(gl, dict):
             g = {}

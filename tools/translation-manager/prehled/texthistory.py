@@ -19,7 +19,7 @@ FILE_NAME = "historie_textu.jsonl"
 MAX_LINES = 60000
 KEEP_LINES = 40000
 VIA = {"edit": "úprava v aplikaci", "fix": "oprava", "replace": "nahrazení", "unify": "sjednocení",
-       "undo": "vrácení změny", "external": "změna mimo aplikaci"}
+       "undo": "vrácení změny", "restore": "obnovení ze zálohy", "external": "změna mimo aplikaci"}
 
 
 def key_of(block, source):

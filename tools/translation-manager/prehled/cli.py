@@ -233,6 +233,7 @@ def main(argv=None):
     if path:
         try:
             rep = app.open_project(path)
+            app.maybe_auto_snapshot()
             print(f"Projekt: {path}  ({len(app.project.files)} souborů, {rep.seconds:.1f} s)")
         except AppError as e:
             print(f"! {e}")
