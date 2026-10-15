@@ -77,7 +77,7 @@ const S = {
 
 /* Speaker display: the character code ("mc"), the glossary's full name, or both. Attributes
    ("mc happy" -> "happy") are kept. The mode is a persisted preference. */
-const speakerMode = () => pref('display.speaker', 'code');
+const speakerMode = () => pref('display.speaker', 'both');   // both = two columns (code, name)
 function speakerLabel(who) {
   if (!who) return '';
   const [code, ...attrs] = who.trim().split(/\s+/);
@@ -87,12 +87,19 @@ function speakerLabel(who) {
   if (!name || mode === 'code') return who;
   return mode === 'name' ? name + (attrs.length ? ` (${attrs.join(' ')})` : '') : `${name} · ${code}${rest}`;
 }
+/* "mc happy" -> the glossary name of "mc" */
+const speakerName = (who) => S.gl[(who || '').trim().split(/\s+/)[0]] || '';
+/* detail pane: code and name always both, as "mc – Name" */
+function speakerFull(who) {
+  const n = speakerName(who);
+  return n ? `${who} – ${n}` : who;
+}
 async function loadGlossary() {
   try { S.gl = (await get('glossary')).names || {}; } catch { S.gl = {}; }
 }
 function speakerModeSelect(onchange) {
   return h('select', { title: 'Jak zobrazovat mluvčí', onchange: (ev) => { setPref('display.speaker', ev.target.value); onchange?.(); } },
-    ...[['code', 'Mluvčí: kód'], ['name', 'Mluvčí: celé jméno'], ['both', 'Mluvčí: jméno i kód']].map(([v, l]) => h('option', { value: v, selected: speakerMode() === v }, l)));
+    ...[['both', 'Mluvčí: kód i jméno (2 sloupce)'], ['code', 'Mluvčí: jen kód'], ['name', 'Mluvčí: jen jméno']].map(([v, l]) => h('option', { value: v, selected: speakerMode() === v }, l)));
 }
 let prefTimer = null;
 const pref = (path, def) => path.split('.').reduce((o, k) => (o && o[k] !== undefined ? o[k] : undefined), S.prefs) ?? def;
@@ -179,6 +186,41 @@ function loading(text = 'Načítám…') { return h('div', { class: 'loading' },
 const isTyping = (t) => t && (['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName) || t.isContentEditable);
 
 /* resizable, sortable table with a persisted column layout */
+/* Draggable divider between a list and its detail pane. axis 'v': detail below (height), 'h': detail on the right
+   (width). The size is clamped (min px, max share of the area), saved as a preference, double-click resets it,
+   arrow keys resize it when it has focus. */
+function makeSplitter(root, axis, { key, def, min, maxFrac }) {
+  const vertical = axis === 'v';
+  const prop = vertical ? '--detail-h' : '--detail-w';
+  const bar = h('div', { class: 'splitter ' + (vertical ? 'sp-v' : 'sp-h'), role: 'separator', tabindex: '0',
+    'aria-orientation': vertical ? 'horizontal' : 'vertical', title: 'Tažením změníš velikost detailu, dvojklik ji vrátí. S fokusem fungují šipky.' });
+  const clampTo = (v) => {
+    const total = vertical ? root.clientHeight : root.clientWidth;
+    const max = Math.max(min, Math.floor(total * maxFrac));
+    return Math.round(Math.max(min, Math.min(max, v)));
+  };
+  const apply = (v, save) => { const c = clampTo(v); root.style.setProperty(prop, c + 'px'); if (save) setPref(key, c); return c; };
+  const current = () => parseInt(root.style.getPropertyValue(prop), 10) || def;
+  const fromPointer = (ev) => { const r = root.getBoundingClientRect(); return vertical ? r.bottom - ev.clientY : r.right - ev.clientX; };
+  bar.addEventListener('pointerdown', (e) => {
+    e.preventDefault(); bar.setPointerCapture(e.pointerId); bar.classList.add('drag');
+    const move = (ev) => apply(fromPointer(ev), false);
+    const up = (ev) => { bar.classList.remove('drag'); bar.removeEventListener('pointermove', move); bar.removeEventListener('pointerup', up); apply(fromPointer(ev), true); };
+    bar.addEventListener('pointermove', move); bar.addEventListener('pointerup', up);
+  });
+  bar.addEventListener('dblclick', () => apply(def, true));
+  bar.addEventListener('keydown', (e) => {
+    const step = e.shiftKey ? 80 : 20;
+    const grow = e.key === (vertical ? 'ArrowUp' : 'ArrowLeft'), shrink = e.key === (vertical ? 'ArrowDown' : 'ArrowRight');
+    if (grow || shrink) { e.preventDefault(); apply(current() + (grow ? step : -step), true); }
+    else if (e.key === 'Home') { e.preventDefault(); apply(def, true); }
+  });
+  bar.sync = () => apply(pref(key, def), false);      // re-clamp after the window changed size
+  S.splitSync = () => bar.sync();
+  return bar;
+}
+window.addEventListener('resize', () => S.splitSync?.());
+
 function buildTable({ key, cols, sort, onSort, className = '' }) {
   const saved = pref(key + '.colw', {});
   const colgroup = h('colgroup', null, cols.map((c) => h('col', { style: { width: (saved[c.k] || c.w) + 'px' } })));
@@ -473,7 +515,7 @@ async function viewFiles() {
     h('button', { class: 'btn', onclick: () => bulkAssignDialog(null) }, 'Navrhnout zařazení…'), pickBtn, h('span', { class: 'spacer' }), counter)));
   const wrap = h('div', { class: 'pane-body' });
   main.append(wrap);
-  root.append(main, detail);
+  root.append(main, makeSplitter(root, 'h', { key: 'files.detailw', def: 350, min: 260, maxFrac: 0.6 }), detail);
 
   function draw() {
     const rows = fileView();
@@ -621,7 +663,7 @@ const EN_COLS = [
   { k: 'ref', w: 150, label: 'Skript', title: 'Původní řádek ve skriptu hry (game/…:číslo), jak ho zapsal Ren\'Py' },
   { k: 'type', w: 84, label: 'Typ', title: 'Dialog, nebo Volba (text z „translate strings“ – většinou volba v menu nebo text rozhraní)' },
   { k: 'status', w: 120, label: 'Stav' }, { k: 'proof', w: 150, label: 'Korektura' },
-  { k: 'who', w: 90, label: 'Mluvčí' }, { k: 'source', w: 420, label: 'Originál' }, { k: 'target', w: 420, label: 'Překlad' }, { k: 'issues', w: 90, label: 'Kontrola', sortable: true },
+  { k: 'who', w: 90, label: 'Kód', title: 'Zkratka mluvčího (a atributy obrázku)' }, { k: 'whoname', w: 170, label: 'Jméno', title: 'Celé jméno ze Slovníku' }, { k: 'source', w: 420, label: 'Originál' }, { k: 'target', w: 420, label: 'Překlad' }, { k: 'issues', w: 90, label: 'Kontrola', sortable: true },
 ];
 function entQuery(extra = {}) {
   const e = pref('entries', {});
@@ -656,17 +698,18 @@ async function viewEntries() {
     sel('kind', '', [['', 'Všechny druhy'], ['english', 'Anglicky'], ['same', 'Shodné, možná OK'], ['symbols', 'Jen znaky'], ['empty', 'Prázdné']], 'Druh nepřeloženého řádku'),
     sel('issues', '', [['', 'Kontrola: vše'], ['any', 'S problémem'], ['error', 'S chybou'], ['warning', 'S varováním']], 'Filtr podle kontroly'),
     sel('sort', 'line', [['line', 'Řadit: řádek'], ['file', 'Řadit: soubor'], ['kind', 'Řadit: druh'], ['issues', 'Řadit: problémy']], 'Řazení'),
-    speakerModeSelect(() => repaintRows()), search, h('span', { class: 'spacer' }), counter)));
+    speakerModeSelect(() => render()), search, h('span', { class: 'spacer' }), counter)));
   const wrap = h('div', { class: 'pane-body' });
   main.append(wrap);
-  root.append(main, detail);
+  root.append(main, makeSplitter(root, 'v', { key: 'entries.detailh', def: 300, min: 140, maxFrac: 0.7 }), detail);
   let timer;
   const debounceLoad = () => { clearTimeout(timer); timer = setTimeout(() => load(true), 250); };
   let tbody;
 
   function skeleton() {
     const showFile = !pref('entries.file', '');
-    const cols = EN_COLS.filter((c) => showFile || c.k !== 'file');
+    const mode = speakerMode();
+    const cols = EN_COLS.filter((c) => (showFile || c.k !== 'file') && !(c.k === 'who' && mode === 'name') && !(c.k === 'whoname' && mode === 'code'));
     const t = buildTable({ key: 'entries' + (showFile ? '' : '1'), cols, className: 'entries' });
     tbody = t.tbody;
     const more = h('div', { class: 'more' });
@@ -682,7 +725,9 @@ async function viewEntries() {
       h('td', null, it.unit === 'string' ? h('span', { class: 'chip choice', title: 'Text z „translate strings“ – většinou volba v menu nebo text rozhraní' }, 'Volba') : h('span', { class: 'muted' }, 'Dialog')),
       h('td', null, chip(it.status, ENTRY_LABEL[it.status]), it.kind && it.status !== 'translated' ? h('div', { class: 'muted', style: { fontSize: '11.5px' } }, KIND_LABEL[it.kind]) : null),
       h('td', null, it.status === 'todo' ? h('span', { class: 'muted' }, '–') : (proofChip(it.proof) || h('span', { class: 'muted' }, 'nezkontrolováno'))),
-      h('td', { class: 'who', title: it.who }, speakerLabel(it.who)), h('td', { class: 'txt entry-source' }, fmtText(it.source ?? '')), h('td', { class: 'txt entry-target' }, fmtText(it.target)),
+      speakerMode() !== 'name' ? h('td', { class: 'who' }, it.who) : null,
+      speakerMode() !== 'code' ? h('td', { class: 'whoname' }, speakerName(it.who) || h('span', { class: 'muted' }, it.who ? '–' : '')) : null,
+      h('td', { class: 'txt entry-source' }, fmtText(it.source ?? '')), h('td', { class: 'txt entry-target' }, fmtText(it.target)),
       h('td', null, sev ? chip(sev, `${it.issues.length}×`) : null));
   }
   async function load(reset) {
@@ -741,7 +786,7 @@ async function viewEntries() {
           h('button', { class: 'btn small', title: 'Označí jako zkontrolované všechny přeložené řádky tohoto souboru až po tento řádek (lze vrátit Ctrl+Z)', onclick: () => proofUpto() }, 'Zkontrolováno vše až sem (Shift+P)')),
         h('textarea', { id: 'proofNote', rows: 2, placeholder: 'Poznámka ke korektuře (co opravit)…', value: d.proof_note || '', style: { width: '100%' },
           onchange: (ev) => saveNote(ev.target.value) })) : null,
-      h('div', { class: 'ctx' }, 'Blok: ', h('b', { class: 'mono' }, d.block), d.who ? ['  ·  mluvčí: ', h('b', { class: 'mono' }, speakerLabel(d.who))] : null, d.src_line ? `  ·  originál na řádku ${d.src_line}` : null),
+      h('div', { class: 'ctx' }, 'Blok: ', h('b', { class: 'mono' }, d.block), d.who ? ['  ·  mluvčí: ', h('b', { class: 'mono' }, speakerFull(d.who))] : null, d.src_line ? `  ·  originál na řádku ${d.src_line}` : null),
       h('h4', { style: { marginTop: '10px' } }, 'Originál'), h('div', { class: 'textbox' }, fmtText(d.source ?? '(zdroj nenalezen)')),
       h('h4', null, 'Překlad'), h('div', { class: 'textbox' }, fmtText(d.target)),
       d.issues.length ? h('div', null, h('h4', null, 'Kontrola'), d.issues.map((x) => h('div', { class: 'issue ' + x.severity }, chip(x.severity, SEV_LABEL[x.severity]), ' ', x.message,
@@ -973,7 +1018,7 @@ async function viewGlossary() {
   async function importDialog() {
     let pv;
     try { pv = await post('glossary/import-preview', { path: '' }); } catch (e) { return fail(e); }
-    const pathIn = h('input', { type: 'text', value: pv.path, placeholder: 'D:\\Hra\\game\\characters.rpy', style: { flex: 1 } });
+    const pathIn = h('input', { type: 'text', value: pv.path, placeholder: 'složka hry nebo soubor characters.rpy', style: { flex: 1 } });
     const holder = h('div');
     let rows = [];
     const apply = h('button', { class: 'btn primary', disabled: true }, 'Zapsat do slovníku');
@@ -983,15 +1028,17 @@ async function viewGlossary() {
       rows = data.items.map((i) => ({ ...i, on: i.state === 'new' }));
       if (!rows.length) { holder.replaceChildren(empty('Nic k importu', data.message || 'V souboru nejsou žádné řádky define … = Character("…").')); return upd(); }
       const t = buildTable({ key: 'glimport', cols: [{ k: 'on', w: 44, label: '', resize: false }, { k: 'code', w: 110, label: 'Kód' }, { k: 'name', w: 240, label: 'Jméno v characters.rpy' },
-        { k: 'cur', w: 220, label: 'Dosud ve slovníku' }, { k: 'st', w: 190, label: 'Stav' }] });
+        { k: 'cur', w: 200, label: 'Dosud ve slovníku' }, { k: 'src', w: 230, label: 'Soubor' }, { k: 'st', w: 190, label: 'Stav' }] });
       for (const r of rows) {
         t.tbody.append(h('tr', null, h('td', { class: 'center' }, h('input', { type: 'checkbox', checked: r.on, disabled: r.state === 'dynamic' || r.state === 'same',
           title: r.state === 'conflict' ? 'Přepíše jméno, které máš ve slovníku' : '', onchange: (e) => { r.on = e.target.checked; upd(); } })),
-          h('td', { class: 'mono' }, r.code), h('td', null, r.name || h('span', { class: 'muted' }, r.note)), h('td', { class: 'muted' }, r.current || '–'),
+          h('td', { class: 'mono' }, r.code), h('td', null, r.name || h('span', { class: 'muted' }, r.note)), h('td', { class: 'muted' }, r.current || '–'), h('td', { class: 'mono muted', style: { fontSize: '12px' } }, r.source),
           h('td', null, chip(STATE[r.state][1], STATE[r.state][0]), r.in_project ? null : h('span', { class: 'muted' }, '  (není v překladu)'))));
       }
       holder.replaceChildren(
-        data.missing?.length ? h('div', { class: 'notice warn' }, `V překladu je ${data.missing.length} kódů mluvčích, které characters.rpy nedefinuje (mohou být definované jinde, nebo jde o překlep): `, h('span', { class: 'mono' }, data.missing.slice(0, 25).join(', ') + (data.missing.length > 25 ? ' …' : ''))) : null,
+        h('div', { class: 'muted', style: { marginBottom: '6px' } }, `Načtené soubory (${data.files.length}): `, h('span', { class: 'mono' }, data.files.map((f) => f.split(/[\\/]/).slice(-3).join('/')).join('  ·  '))),
+        data.duplicates?.length ? h('div', { class: 'notice warn' }, 'Víckrát definované kódy (Ren\'Py použije poslední definici): ', h('span', { class: 'mono' }, data.duplicates.map((d) => `${d.code}: ${d.names.join(' → ')}`).join(';  '))) : null,
+        data.missing?.length ? h('div', { class: 'notice warn' }, `V překladu je ${data.missing.length} kódů mluvčích, které soubory characters*.rpy nedefinují (mohou být definované jinde, nebo jde o překlep): `, h('span', { class: 'mono' }, data.missing.slice(0, 25).join(', ') + (data.missing.length > 25 ? ' …' : ''))) : null,
         h('div', { class: 'tablewrap', style: { maxHeight: '48vh' } }, t.table));
       upd();
     }
@@ -1005,7 +1052,7 @@ async function viewGlossary() {
       } catch (e) { fail(e); }
     };
     dialog({ title: 'Import jmen z characters.rpy', body: h('div', null,
-      h('p', { class: 'muted' }, 'Soubor hry se jen čte. Zaškrtnuté řádky se zapíšou do slovníku; jména, která už ve slovníku máš a liší se, se přepíšou jen když je sám zaškrtneš.'),
+      h('p', { class: 'muted' }, 'Soubory hry (characters.rpy i season2/scripts/characters_season2.rpy…) se jen čtou. Zaškrtnuté řádky se zapíšou do slovníku; jména, která už ve slovníku máš a liší se, se přepíšou jen když je sám zaškrtneš.'),
       h('div', { class: 'row nowrap' }, pathIn, h('button', { class: 'btn', onclick: load }, 'Načíst')), holder),
       buttons: [{ label: 'Zavřít' }, { node: apply }] });
   }
@@ -1123,6 +1170,8 @@ async function viewSettings() {
     h('fieldset', null, h('legend', null, 'O aplikaci'), h('p', null, h('b', null, `BaDIK Translation Manager ${S.version || ''}`),
       ' – nástroj pro český překlad hry Being a DIK. Licence: viz soubor ', h('span', { class: 'mono' }, 'tools/translation-manager/LICENSE'),
       ' (osobní nekomerční použití; další šíření, úpravy a komerční použití jen s mým souhlasem).'),
+      h('p', { class: 'notice' }, h('b', null, 'Rozsah nástroje: '), 'vzniká hlavně pro mě. Funguje jen pro Being a DIK (1. a 2. sezóna) a má pouze české rozhraní. ',
+        'V plánu je nejdřív 3. sezóna, možná později přepracování pro víc Ren\'Py her a angličtinu (bez slibů a termínů).'),
       h('div', { class: 'row' }, ...[['kofi', 'Podpořit na Ko-fi'], ['github', 'GitHub'], ['repo', 'Repozitář překladu'], ['web', 'Web překladu']].map(([id, l]) =>
         h('button', { class: 'btn small', onclick: () => post('open-url', { id }).catch(fail) }, l)))),
     h('div', { class: 'row' }, h('button', { class: 'btn primary', onclick: save }, 'Uložit nastavení'),
@@ -1156,6 +1205,7 @@ document.addEventListener('keydown', (e) => {
   if (mod && e.key.toLowerCase() === 'f') { const s = $('#search'); if (s) { e.preventDefault(); s.focus(); s.select(); } return; }
   if (e.key === 'F5' || (mod && e.key.toLowerCase() === 'r')) { e.preventDefault(); doRefresh(); return; }
   if (e.altKey && /^[1-7]$/.test(e.key)) { e.preventDefault(); go(TABS[+e.key - 1][0]); return; }
+  if (e.target.closest?.('.splitter')) return;      // the divider uses the arrow keys itself
   if (typing) { if (e.key === 'Escape') e.target.blur(); return; }
   if (mod && e.key.toLowerCase() === 'z' && !e.shiftKey) { e.preventDefault(); doUndo(); return; }
   if (e.key === '?') { helpDialog(); return; }

@@ -167,8 +167,8 @@ tfoot td { position: sticky; bottom: 0; background: var(--panel-2); border-top: 
 
 /* ---------- split layouts */
 .split { display: grid; height: 100%; min-height: 0; }
-.split.cols { grid-template-columns: minmax(0, 1fr) var(--detail-w, 340px); }
-.split.rows { grid-template-rows: minmax(0, 1fr) var(--detail-h, 270px); }
+.split.cols { grid-template-columns: minmax(0, 1fr) 8px clamp(260px, var(--detail-w, 350px), 60%); }
+.split.rows { grid-template-rows: minmax(0, 1fr) 8px clamp(140px, var(--detail-h, 300px), 70%); }
 .pane { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 .pane-head { padding: 10px 18px 0; }
 .pane-body { flex: 1; min-height: 0; overflow: auto; padding: 0 18px 12px; }
@@ -233,8 +233,9 @@ td .reason { color: var(--muted); font-size: 12.5px; }
 
 @media (max-width: 1150px) {
   .split.cols { grid-template-columns: 1fr; grid-template-rows: minmax(0, 1fr) auto; }
+  .split.cols > .splitter { display: none; }
   .split.cols > .detail { border-left: 0; border-top: 1px solid var(--line); max-height: 36vh; }
-  .split.rows { grid-template-rows: minmax(0, 1fr) minmax(120px, 40vh); }
+  .split.rows { grid-template-rows: minmax(0, 1fr) 8px clamp(140px, var(--detail-h, 300px), 70%); }
   .search { width: 180px; }
 }
 
@@ -269,3 +270,15 @@ td .reason { color: var(--muted); font-size: 12.5px; }
 td input[type=text] { background: transparent; border-color: transparent; }
 td input[type=text]:hover { border-color: var(--line-2); }
 td input[type=text]:focus { background: var(--panel); }
+
+/* draggable divider of the detail panes */
+.splitter { background: var(--line); position: relative; z-index: 3; touch-action: none; }
+.splitter::after { content: ""; position: absolute; background: var(--faint); border-radius: 2px; opacity: .7; }
+.splitter.sp-v { cursor: row-resize; }
+.splitter.sp-v::after { left: calc(50% - 22px); right: calc(50% - 22px); top: 3px; height: 2px; }
+.splitter.sp-h { cursor: col-resize; }
+.splitter.sp-h::after { top: calc(50% - 22px); bottom: calc(50% - 22px); left: 3px; width: 2px; }
+.splitter:hover, .splitter.drag, .splitter:focus-visible { background: var(--accent); }
+.splitter:hover::after, .splitter.drag::after { background: #fff; opacity: .9; }
+.split.cols > .detail { border-left: 0; }
+td.whoname { font-size: 13px; color: var(--text); }

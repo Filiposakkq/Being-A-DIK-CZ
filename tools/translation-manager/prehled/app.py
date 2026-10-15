@@ -1,5 +1,6 @@
 """Application state and operations (no HTTP, no UI) — everything the server exposes lives here."""
 import json
+import os
 import re
 import shutil
 import threading
@@ -28,6 +29,10 @@ LINKS = {
 # define de = Character("Derek", color="#0066ff")      /      define mc = DynamicCharacter("name", ...)
 CHARACTER_RE = re.compile(r"""^\s*define\s+(\w+)\s*=\s*(Dynamic)?Character\(\s*(?:"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)')""")
 CHARACTERS_MAX_BYTES = 2 * 1024 * 1024
+# First words of Ren'Py screen statements that appear in translated UI blocks; they look like speakers but are not.
+SCREEN_KEYWORDS = {"text", "textbutton", "label", "tooltip", "hover", "idle", "insensitive", "timer", "key", "add",
+                   "bar", "vbar", "image", "imagebutton", "use", "frame", "window", "vbox", "hbox", "fixed", "grid",
+                   "mousearea", "input", "button", "action", "style"}
 PAGE_LIMIT = 500
 UI_PREF_MAX = 20000
 
@@ -357,7 +362,8 @@ class App:
                 if issues == "warning" and not any(i.severity == "warning" for i in shown):
                     continue
                 if ql and ql not in (e.target or "").lower() and ql not in (e.source or "").lower() \
-                        and ql not in e.who.lower() and ql not in rel.lower():
+                        and ql not in e.who.lower() and ql not in rel.lower() \
+                        and ql not in self.store.glossary.get(self.speaker_code(e.who), {}).get("n", "").lower():
                     continue
                 rows.append((rel, e, st, shown, pf))
         if sort == "kind":
@@ -445,7 +451,7 @@ class App:
         for rel in sorted(self.project.files, key=str.lower):
             for e in self.project.entries(rel):
                 code = self.speaker_code(e.who)
-                if e.unit == "dialogue" and code:
+                if e.unit == "dialogue" and code and code not in SCREEN_KEYWORDS:
                     f = found.setdefault(code, {"count": 0, "example": "", "file": rel, "line": e.line})
                     f["count"] += 1
                     if not f["example"] and e.source:
@@ -490,43 +496,74 @@ class App:
             self.store.change(f"Slovník ({len(clean)})", ("glossary",), go)
             return {"ok": True, **self.glossary_payload()}
 
-    def find_characters_file(self):
-        """characters.rpy of the game: the translation folder is usually <game>/game/tl/<lang>, so look upwards."""
+    def find_characters_files(self):
+        """All character definition files of the game: characters.rpy, season2/scripts/characters_season2.rpy ...
+        The translation folder is usually <game>/game/tl/<lang>, so the game folder is searched upwards."""
         root = self.project.root
         for base in (root.parent.parent, root.parent, root, root.parent.parent.parent):
-            cand = base / "characters.rpy"
-            if cand.is_file():
-                return cand
-        return None
+            if not base.is_dir():
+                continue
+            found = []
+            for dirpath, dirs, files in os.walk(base):
+                dirs[:] = [d for d in dirs if d.lower() not in ("tl", "cache", "saves", "_progress_data", ".git")]
+                found += [Path(dirpath) / f for f in files if f.lower().startswith("characters") and f.lower().endswith(".rpy")]
+            if found:
+                return sorted(found, key=lambda x: str(x).lower())      # Ren'Py loads files in path order
+        return []
 
     def glossary_import_preview(self, path=""):
-        """Read `define xx = Character("Name", ...)` lines of the game's characters.rpy and compare with the
-        glossary. Nothing is written. states: new | same | conflict (a different name is already stored) |
-        dynamic (the name comes from a variable, e.g. the player's name - nothing to import)."""
+        """Read `define xx = Character("Name", ...)` lines of the game's character files and compare with the
+        glossary. Nothing is written. `path` may be a file, a folder (all characters*.rpy below it) or empty
+        (found automatically). Ren'Py rule: a later definition of the same code replaces an earlier one, so the
+        last one wins; codes defined several times with different names are reported in `duplicates`.
+        states: new | same | conflict (another name is already stored) | dynamic (name comes from a variable)."""
         self._need_project()
-        found = Path(path).expanduser() if str(path).strip() else self.find_characters_file()
-        if found is None:
-            return {"path": "", "items": [], "message": "characters.rpy nebyl nalezen – zadej cestu ručně."}
-        found = Path(found)
-        if found.suffix.lower() != ".rpy":
-            raise AppError("Importovat lze jen soubor .rpy (characters.rpy).")
+        given = str(path).strip()
+        if given:
+            target = Path(given).expanduser()
+            if target.is_dir():
+                files = sorted((p for p in target.rglob("characters*.rpy") if "tl" not in p.relative_to(target).parts),
+                               key=lambda x: str(x).lower())
+            else:
+                files = [target]
+        else:
+            files = self.find_characters_files()
+        if not files:
+            return {"path": given, "files": [], "items": [], "missing": [], "duplicates": [],
+                    "message": "Soubory characters*.rpy nebyly nalezeny – zadej cestu k souboru nebo ke složce hry."}
+        defs = {}          # code -> list of (name, dynamic, file)
+        for f in files:
+            if f.suffix.lower() != ".rpy":
+                raise AppError("Importovat lze jen soubory .rpy (characters.rpy).")
+            try:
+                if not f.is_file():
+                    raise AppError(f"Soubor neexistuje: {f}")
+                if f.stat().st_size > CHARACTERS_MAX_BYTES:
+                    raise AppError(f"Soubor je příliš velký na seznam postav: {f.name}")
+                text = f.read_text(encoding="utf-8-sig", errors="replace")
+            except OSError as e:
+                raise AppError(f"Soubor nelze přečíst: {e.strerror or e}") from e
+            for line in text.splitlines():
+                m = CHARACTER_RE.match(line)
+                if m:
+                    name = (m.group(3) if m.group(3) is not None else m.group(4) or "").replace('\\"', '"').strip()
+                    defs.setdefault(m.group(1), []).append((name, bool(m.group(2)), f))
+        in_project = {self.speaker_code(e.who) for rel in self.project.files for e in self.project.entries(rel)
+                      if e.unit == "dialogue"} - SCREEN_KEYWORDS
+        game_dir = None
         try:
-            if not found.is_file():
-                raise AppError(f"Soubor neexistuje: {found}")
-            if found.stat().st_size > CHARACTERS_MAX_BYTES:
-                raise AppError("Soubor je příliš velký na characters.rpy.")
-            text = found.read_text(encoding="utf-8-sig", errors="replace")
-        except OSError as e:
-            raise AppError(f"Soubor nelze přečíst: {e.strerror or e}") from e
-        in_project = {self.speaker_code(e.who) for rel in self.project.files for e in self.project.entries(rel)}
-        items, seen = [], set()
-        for line in text.splitlines():
-            m = CHARACTER_RE.match(line)
-            if not m or m.group(1) in seen:
-                continue
-            code, dynamic = m.group(1), bool(m.group(2))
-            name = (m.group(3) if m.group(3) is not None else m.group(4) or "").replace('\\"', '"').strip()
-            seen.add(code)
+            game_dir = Path(os.path.commonpath([str(f.parent) for f in files]))
+        except ValueError:
+            pass
+        items, duplicates = [], []
+        for code, versions in defs.items():
+            name, dynamic, src = versions[-1]
+            names = []
+            for n, _d, _f in versions:
+                if n and n not in names:
+                    names.append(n)
+            if len(names) > 1:
+                duplicates.append({"code": code, "names": names, "used": name})
             cur = self.store.glossary.get(code, {}).get("n", "")
             if dynamic:
                 state, name = "dynamic", ""
@@ -538,10 +575,17 @@ class App:
                 state = "same"
             else:
                 state = "conflict"
+            try:
+                shown = str(src.relative_to(game_dir)) if game_dir else src.name
+            except ValueError:
+                shown = src.name
+            note = "jméno zadává hráč (DynamicCharacter)" if dynamic else (
+                f"definováno víckrát ({' / '.join(names)}), platí poslední" if len(names) > 1 else "")
             items.append({"code": code, "name": name, "current": cur, "state": state, "in_project": code in in_project,
-                          "note": "jméno zadává hráč (DynamicCharacter)" if dynamic else ""})
-        missing = sorted(c for c in in_project - seen if c)
-        return {"path": str(found), "items": items, "message": "", "missing": missing}
+                          "note": note, "source": shown})
+        missing = sorted(c for c in in_project - set(defs) if c)
+        return {"path": given or str(game_dir or files[0].parent), "files": [str(f) for f in files], "items": items,
+                "missing": missing, "duplicates": duplicates, "message": ""}
 
     def glossary_import_apply(self, items):
         """Store the reviewed names (a stored note is kept). One undo step."""

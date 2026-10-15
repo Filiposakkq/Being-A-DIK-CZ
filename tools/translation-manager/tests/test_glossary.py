@@ -127,10 +127,12 @@ class GlossaryImportTests(TempCase):
 
     def test_preview_parses_names_and_states_and_writes_nothing(self):
         pv = self.app.glossary_import_preview()
-        self.assertEqual(pv["path"], str(self.game / "characters.rpy"))        # found automatically
+        self.assertEqual(pv["files"], [str(self.game / "characters.rpy")])      # found automatically
         items = {i["code"]: i for i in pv["items"]}
         self.assertEqual(items["js"]["name"], "Josy")
-        self.assertEqual(items["de"]["name"], "Derek")                          # first definition wins
+        self.assertEqual(items["de"]["name"], "Duplicate Derek")                # Ren'Py: the last definition wins
+        self.assertEqual(pv["duplicates"], [{"code": "de", "names": ["Derek", "Duplicate Derek"], "used": "Duplicate Derek"}])
+        self.assertIn("víckrát", items["de"]["note"])
         self.assertEqual(items["bu"]["name"], "Professor Burke")                # single quotes
         self.assertEqual(items["kid"]["name"], "Kid")
         self.assertEqual(items["mc"]["state"], "dynamic")
@@ -172,7 +174,7 @@ class GlossaryImportTests(TempCase):
         (self.game / "characters.rpy").unlink()
         pv = self.app.glossary_import_preview()
         self.assertEqual(pv["items"], [])
-        self.assertIn("nebyl nalezen", pv["message"])
+        self.assertIn("nebyly nalezeny", pv["message"])
 
     def test_http_api(self):
         srv, sess, _ = server.start_server(self.app)
@@ -189,3 +191,64 @@ class GlossaryImportTests(TempCase):
         st, r = post("/api/glossary/import-apply", {"items": [{"code": "js", "name": "Josy"}]})
         self.assertEqual(r["names"], {"js": "Josy"})
         self.assertEqual(post("/api/glossary/import-preview", {"path": "C:\\nope\\x.rpy"})[0], 400)
+
+
+SEASON2 = '''define vi = Character("Vinny", color="#FF9C43")
+define js = Character("Josephine", color="#ff1c63")
+define bd = Character("Bardtender", color="#33FF11")
+define bd = Character("Buddy", color="#29662e")
+'''
+
+
+class GlossaryMultiFileTests(TempCase):
+    def setUp(self):
+        super().setUp()
+        self.game = self.tmp / "game"
+        self.root = self.game / "tl" / "czech"
+        self.root.mkdir(parents=True)
+        (self.game / "season2" / "scripts").mkdir(parents=True)
+        (self.game / "characters.rpy").write_text('define js = Character("Josy")\ndefine my = Character("Maya")\n', encoding="utf-8")
+        (self.game / "season2" / "scripts" / "characters_season2.rpy").write_text(SEASON2, encoding="utf-8")
+        (self.game / "tl" / "czech" / "characters_fake.rpy").write_text('define zz = Character("In translation folder")\n', encoding="utf-8")
+        self.write("a.rpy", dialog("a1", "vi", "Hi.", "Ahoj.") + dialog("a2", "bd", "Yo.", "Čau.") + dialog("a3", "qq", "Hey.", "Hej."))
+        self.app = self.new_app()
+
+    def test_all_character_files_are_found_in_load_order_but_not_the_translation_folder(self):
+        files = [p.name for p in self.app.find_characters_files()]
+        self.assertEqual(files, ["characters.rpy", "characters_season2.rpy"])
+
+    def test_names_from_both_files_are_merged_and_later_files_win(self):
+        pv = self.app.glossary_import_preview()
+        items = {i["code"]: i for i in pv["items"]}
+        self.assertEqual((items["my"]["name"], items["vi"]["name"]), ("Maya", "Vinny"))
+        self.assertEqual(items["js"]["name"], "Josephine")                    # season 2 redefines it
+        self.assertEqual(items["bd"]["name"], "Buddy")                        # defined twice in one file: last wins
+        self.assertNotIn("zz", items)
+        self.assertIn("season2", items["vi"]["source"])
+        self.assertEqual(items["my"]["source"], "characters.rpy")
+        dup = {d["code"]: d for d in pv["duplicates"]}
+        self.assertEqual(dup["bd"]["names"], ["Bardtender", "Buddy"])
+        self.assertEqual(dup["js"]["names"], ["Josy", "Josephine"])
+        self.assertEqual(pv["missing"], ["qq"])
+
+    def test_a_folder_path_reads_every_character_file_below_it(self):
+        pv = self.app.glossary_import_preview(str(self.game))
+        self.assertEqual(len(pv["files"]), 2)
+        self.assertNotIn("zz", {i["code"] for i in pv["items"]})
+
+    def test_a_single_file_path_reads_only_that_file(self):
+        pv = self.app.glossary_import_preview(str(self.game / "characters.rpy"))
+        self.assertEqual({i["code"] for i in pv["items"]}, {"js", "my"})
+
+    def test_rows_can_be_searched_by_the_speakers_full_name(self):
+        self.app.glossary_set([{"code": "vi", "name": "Vinny Testovič"}])
+        r = self.app.entries(status="all", q="testovič")
+        self.assertEqual([i["who"] for i in r["items"]], ["vi"])
+
+
+class ScreenKeywordTests(TempCase):
+    def test_screen_statements_are_not_listed_as_speakers(self):
+        block = "translate czech {id}:\n\n    # {kw} \"A\"\n    {kw} \"B\"\n\n"
+        self.write("s.rpy", block.format(id="x", kw="text") + block.format(id="y", kw="timer") + dialog("a1", "mc", "Hi.", "Ahoj."))
+        app = self.new_app()
+        self.assertEqual({i["code"] for i in app.glossary_payload()["items"]}, {"mc"})
