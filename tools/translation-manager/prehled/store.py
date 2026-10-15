@@ -5,6 +5,7 @@
   schvaleno.csv  soubor;blok;original                   manually approved pending lines
   epizody.csv    epizoda;stav                           hand-set episode status
   korektura_radky.csv  soubor;blok;original;stav;hash;poznamka;datum   per-line proofreading marks
+  ignorovano.csv soubor;blok;original;kod;hash;poznamka;datum   validator findings the translator chose to ignore
   slovnik.csv    kod;jmeno;typ;poznamka                glossary: speaker code -> full name (type "term" for later entries)
   historie.csv   see history.py
 
@@ -24,7 +25,7 @@ EP_STATES = [("none", "Nezačato"), ("wip", "Rozpracováno"), ("tr", "Přeložen
 YES_WORDS = {"ano", "a", "x", "hotovo", "ok", "yes", "y", "1x"}
 UNDO_LIMIT = 30
 
-KINDS = ("corr", "assign", "approved", "episodes", "proof", "glossary")
+KINDS = ("corr", "assign", "approved", "episodes", "proof", "glossary", "ignored")
 GLOSSARY_TYPES = ("speaker", "term")
 
 
@@ -96,6 +97,7 @@ class Store:
         self.episodes = {}   # episode number -> state key
         self.proof = {}      # name -> {(block, normalized source): {"s": "ok"|"fix", "h": hash, "n": note, "d": date}}
         self.glossary = {}   # code -> {"n": full name, "t": "speaker"|"term", "c": note}
+        self.ignored = {}    # name -> {(block, normalized source, issue code): {"h": translation hash, "n": note, "d": date}}
         self.undo_stack = []
         self.unsaved = set()  # kinds whose last save failed
         self.warnings = []
@@ -104,7 +106,8 @@ class Store:
     def path(self, kind):
         return self.dir / {"corr": "korekce.csv", "assign": "prirazeni.csv",
                            "approved": "schvaleno.csv", "episodes": "epizody.csv",
-                           "proof": "korektura_radky.csv", "glossary": "slovnik.csv"}[kind]
+                           "proof": "korektura_radky.csv", "glossary": "slovnik.csv",
+                           "ignored": "ignorovano.csv"}[kind]
 
     # ------------------------------------------------------------ load
     def load(self):
@@ -151,6 +154,13 @@ class Store:
             if len(r) >= 5 and r[0] and r[3] in ("ok", "fix"):
                 self.proof.setdefault(r[0], {})[(r[1], norm_ws(r[2]))] = {
                     "s": r[3], "h": r[4], "n": r[5] if len(r) > 5 else "", "d": r[6] if len(r) > 6 else ""}
+
+    def _load_ignored(self):
+        self.ignored = {}
+        for r in read_rows(self.path("ignored"))[1:]:
+            if len(r) >= 5 and r[0] and r[3]:
+                self.ignored.setdefault(r[0], {})[(r[1], norm_ws(r[2]), r[3])] = {
+                    "h": r[4], "n": r[5] if len(r) > 5 else "", "d": r[6] if len(r) > 6 else ""}
 
     def _load_episodes(self):
         names = {}
@@ -204,6 +214,13 @@ class Store:
             for (b, o), m in sorted(self.proof[f].items()):
                 rows.append([f, b, o, m["s"], m.get("h", ""), m.get("n", ""), m.get("d", "")])
         write_csv(self.path("proof"), rows, self.backups)
+
+    def _save_ignored(self):
+        rows = [["soubor", "blok", "original", "kod", "hash", "poznamka", "datum"]]
+        for f in sorted(self.ignored, key=str.lower):
+            for (b, o, code), m in sorted(self.ignored[f].items()):
+                rows.append([f, b, o, code, m.get("h", ""), m.get("n", ""), m.get("d", "")])
+        write_csv(self.path("ignored"), rows, self.backups)
 
     def _save_episodes(self):
         labels = dict(EP_STATES)

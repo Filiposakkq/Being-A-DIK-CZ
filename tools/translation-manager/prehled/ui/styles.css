@@ -1,4 +1,4 @@
-/* BaDIK Translation Manager 1.1 – design tokens first (dark default, light via [data-theme]); components use only tokens.
+/* BaDIK Translation Manager 1.3 – design tokens first (dark default, light via [data-theme]); components use only tokens.
    Every class used by app.js is styled here; nothing in the markup depends on the look. */
 :root {
   color-scheme: dark;
@@ -374,3 +374,45 @@ td.whoname { font-size: 13px; color: var(--text); }
 .editnote { font-size: 12px; margin: 2px 0 6px; }
 .editmsg { margin-top: 6px; }
 .editor .editbox:focus { background: var(--panel); }
+
+/* v1.2: side by side original / translation, snippets, ignored findings, compact density */
+.pair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); gap: 18px; margin-top: 10px; align-items: start; }
+@media (max-width: 1000px) { .pair { grid-template-columns: 1fr; } }
+.pair .editor { margin: 0; }
+.pair .textbox { max-height: 220px; min-height: 76px; }
+.snips { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin: 6px 0 2px; font-size: 12.5px; }
+.snip { font-family: var(--mono); padding: 1px 8px; }
+.issue.ignored { opacity: .6; border-style: dashed; }
+:root[data-density="compact"] table.data td { padding: 3px 10px; font-size: 13px; }
+:root[data-density="compact"] table.data th { padding: 6px 10px; }
+:root[data-density="compact"] .ep-row { padding-top: 5px; padding-bottom: 5px; }
+:root[data-density="compact"] .list li { padding-top: 4px; padding-bottom: 4px; }
+.btn.icon { min-width: 34px; justify-content: center; }
+
+/* v1.3: filter bar shared by all lists – labelled groups, status pills with counts, active-filter chips */
+.filterbar { display: grid; gap: 10px; padding: 12px 14px; margin-bottom: 14px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
+.toolbar.filterbar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; }
+.pane-head .filterbar { margin: 0 0 12px; }
+.frow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.frow:empty, .fchips:empty { display: none; }
+.fgroup { display: inline-flex; align-items: center; gap: 7px; cursor: default; }
+.flabel { font-size: 11px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--faint); white-space: nowrap; }
+.fmore { padding-top: 10px; border-top: 1px dashed var(--line-2); gap: 10px 22px; }
+.pills { gap: 6px; }
+.pill { display: inline-flex; align-items: center; gap: 8px; padding: 4px 6px 4px 13px; border: 1px solid var(--line-2); border-radius: 999px; background: var(--panel-2); color: var(--muted); font-weight: 500; transition: background .15s, color .15s, border-color .15s; }
+.pill:not(:has(.pc)) { padding-right: 13px; }
+.pill:hover { color: var(--text); border-color: var(--accent); }
+.pill.on { background: var(--accent-bg); color: var(--accent); border-color: var(--accent); font-weight: 650; }
+.pill.zero { opacity: .55; }
+.pc { min-width: 22px; padding: 0 7px; border-radius: 999px; background: var(--raise); color: var(--muted); font-size: 11.5px; font-weight: 600; text-align: center; font-variant-numeric: tabular-nums; }
+.pill.on .pc { background: var(--accent); color: var(--on-accent); }
+.fchips { gap: 6px; padding-top: 2px; }
+.fchip { display: inline-flex; align-items: center; gap: 4px; padding: 1px 4px 1px 10px; border-radius: 999px; background: var(--accent-bg); color: var(--text); font-size: 12.5px; border: 1px solid var(--accent-bg); }
+.fchip button { border: 0; background: none; color: var(--muted); padding: 0 5px; border-radius: 99px; line-height: 1.4; }
+.fchip button:hover { color: var(--bad); background: var(--bad-bg); }
+/* one table row per line with all its findings */
+.finding { display: flex; align-items: flex-start; flex-wrap: wrap; gap: 6px 10px; padding: 5px 0; border-bottom: 1px dashed var(--line); }
+.finding:last-of-type { border-bottom: 0; }
+.finding .fmsg { flex: 1 1 260px; min-width: 0; }
+.finding .fact { display: inline-flex; gap: 4px; margin-left: auto; }
+.fall { padding-top: 4px; }

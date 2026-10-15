@@ -213,7 +213,7 @@ class App:
         self._spell_cache = (key, obj)
         return obj
 
-    def _issues(self, rel):
+    def _raw_issues(self, rel):
         fi = self.project.files[rel]
         terms = self._terms()
         spell = self._spell()
@@ -225,6 +225,105 @@ class App:
         res = validator.check_parsed(fi.parsed, self._length_cfg(), terms, spell, tb)
         self._val_cache[rel] = (fi.parsed, sig, res)
         return res
+
+    # ------------------------------------------------------------ ignored findings
+    def _ignored_mark(self, rel, e, iss):
+        """The stored ignore of this finding if it still applies (same code, same translation text), else None."""
+        if e is None:
+            return None
+        marks = self.store.ignored.get(rel)
+        if not marks:
+            return None
+        m = marks.get((e.block, norm_ws(e.source if e.source is not None else e.target), iss.code))
+        return m if m and m["h"] == text_hash(e.target) else None
+
+    def _issues(self, rel, ignored=False):
+        """Findings of a file; by default without the ones the translator ignored (ignored=True: only those)."""
+        raw = self._raw_issues(rel)
+        if not self.store.ignored.get(rel):
+            return [] if ignored else raw
+        return [r for r in raw if bool(self._ignored_mark(rel, r[2], r[1])) == ignored]
+
+    def ignore_set(self, items, on=True, note=""):
+        """Ignore (on=True) or stop ignoring findings. Items: [{file, line, code}] (or {file, key, code} to stop ignoring
+        a finding whose line no longer exists). An ignore is bound to the current translation text: when the text
+        changes the finding shows up again. One undo step. Returns {changed, skipped}."""
+        self._need_project()
+        with self.lock:
+            plan, skipped = [], []
+            for it in items:
+                rel, code = it.get("file"), str(it.get("code", ""))
+                if rel not in self.project.files:
+                    skipped.append((rel, "neznámý soubor"))
+                    continue
+                ents = self.project.entries(rel)
+                e = None
+                if it.get("line"):
+                    e = next((x for x in ents if x.line == int(it["line"])), None)
+                    key = None if e is None else (e.block, norm_ws(e.source if e.source is not None else e.target), code)
+                else:
+                    k = it.get("key") or ["", ""]
+                    key = (str(k[0]), norm_ws(str(k[1])), code)
+                    e = next((x for x in ents if (x.block, norm_ws(x.source if x.source is not None else x.target)) == key[:2]), None)
+                if key is None:
+                    skipped.append((rel, "řádek se v souboru změnil – obnov soubory"))
+                elif on and not any(r[2] is e and r[1].code == code for r in self._raw_issues(rel)):
+                    skipped.append((rel, "tenhle nález už neexistuje"))
+                else:
+                    plan.append((rel, key, e))
+            changed = 0
+            clean_note = str(note or "").strip()[:300]
+
+            def go():
+                nonlocal changed
+                today = date.today().isoformat()
+                for rel, key, e in plan:
+                    marks = self.store.ignored.setdefault(rel, {})
+                    if on:
+                        new = {"h": text_hash(e.target), "n": clean_note, "d": today}
+                        if marks.get(key) != new:
+                            marks[key] = new
+                            changed += 1
+                    elif marks.pop(key, None) is not None:
+                        changed += 1
+                    if not marks:
+                        self.store.ignored.pop(rel, None)
+            self.store.change("Ignorování nálezů" if on else "Zrušení ignorování", ("ignored",), go)
+            out = self._changed("ignore")
+            out.update(changed=changed, skipped=skipped)
+            return out
+
+    def ignored_list(self):
+        """Everything the translator chose to ignore, with its current state:
+        active (still hidden), expired (the translation changed, the finding is shown again),
+        resolved (the finding no longer occurs) or gone (the line no longer exists)."""
+        self._need_project()
+        out = []
+        for rel in sorted(self.store.ignored, key=str.lower):
+            if rel not in self.project.files:
+                for (blk, src, code), m in sorted(self.store.ignored[rel].items()):
+                    out.append({"file": rel, "line": 0, "key": [blk, src], "code": code, "note": m["n"], "date": m["d"],
+                                "state": "gone", "message": "", "severity": "", "source": src, "target": ""})
+                continue
+            ents = self.project.entries(rel)
+            raw = self._raw_issues(rel)
+            for (blk, src, code), m in sorted(self.store.ignored[rel].items()):
+                e = next((x for x in ents if (x.block, norm_ws(x.source if x.source is not None else x.target)) == (blk, src)), None)
+                rec = {"file": rel, "line": e.line if e else 0, "key": [blk, src], "code": code, "note": m["n"], "date": m["d"],
+                       "message": "", "severity": "", "source": (e.source if e and e.source is not None else src),
+                       "target": e.target if e else ""}
+                if e is None:
+                    rec["state"] = "gone"
+                elif m["h"] != text_hash(e.target):
+                    rec["state"] = "expired"
+                else:
+                    hit = next((r[1] for r in raw if r[2] is e and r[1].code == code), None)
+                    rec["state"] = "active" if hit else "resolved"
+                    if hit:
+                        rec["message"], rec["severity"] = hit.message, hit.severity
+                out.append(rec)
+        return {"items": out, "counts": {s: sum(1 for r in out if r["state"] == s)
+                                         for s in ("active", "expired", "resolved", "gone")}}
 
     def _all_issues(self):
         if not self.config.get("validation.enabled", True):
@@ -254,42 +353,71 @@ class App:
                 counts[iss.severity] += 1
                 c[iss.severity] += 1
             per_file[rel] = c
+        show_info = self.config.get("validation.show_info", False)
+        counts["ignored"] = sum(1 for rel in self.project.files for _l, i, _e in self._issues(rel, True)
+                               if i.severity != "info" or show_info) if self.config.get("validation.enabled", True) else 0
         dups = self._duplicate_ids() if self.config.get("validation.enabled", True) else []
         counts["error"] += len(dups)
         for rel, _l, _w in dups:
             per_file.setdefault(rel, {"error": 0, "warning": 0, "info": 0})["error"] += 1
         return counts, per_file
 
-    def validation_list(self, severity="", category="", file="", q="", offset=0, limit=200):
+    def validation_list(self, severity="", category="", file="", q="", offset=0, limit=200, ignored="hide", group=""):
+        """Findings. ignored: "hide" (default) | "only" (just the ignored ones) | "all".
+        group="line": one item per line with all its (matching) findings in `issues`; total counts lines."""
         self._need_project()
         out = []
         show_info = self.config.get("validation.show_info", False)
-        for rel, items in self._all_issues().items():
+        enabled = self.config.get("validation.enabled", True)
+        sev_counts = {"error": 0, "warning": 0, "info": 0}     # for the filter pills: every filter except the severity
+        for rel in sorted(self.project.files) if enabled else []:
             if file and rel != file:
                 continue
-            for line, iss, e in items:
-                if severity and iss.severity != severity:
-                    continue
-                if not severity and iss.severity == "info" and not show_info:
-                    continue
+            rows = []
+            if ignored in ("hide", "all"):
+                rows += [(r, False) for r in self._issues(rel)]
+            if ignored in ("only", "all"):
+                rows += [(r, True) for r in self._issues(rel, True)]
+            for (line, iss, e), is_ign in rows:
                 if category and iss.category != category:
                     continue
                 if q and q.lower() not in (iss.message + " " + rel + " " + (e.target if e else "")).lower():
+                    continue
+                sev_counts[iss.severity] += 1
+                if severity and iss.severity != severity:
+                    continue
+                if not severity and iss.severity == "info" and not show_info:
                     continue
                 out.append({"file": rel, "line": line, "severity": iss.severity, "code": iss.code,
                             "category": iss.category, "message": iss.message,
                             "source": e.source if e else "", "target": e.target if e else "",
                             "who": e.who if e else "", "extra": iss.extra,
-                            "src_who": e.src_who if e else ""})
-        if (not severity or severity == "error") and not category and not q:
+                            "src_who": e.src_who if e else "", "ignored": is_ign,
+                            "ignore_note": (self._ignored_mark(rel, e, iss) or {}).get("n", "") if is_ign else ""})
+        if not category and not q and ignored != "only":
             for rel, line, first in self._duplicate_ids():
                 if not file or rel == file:
+                    sev_counts["error"] += 1
+                    if severity and severity != "error":
+                        continue
                     out.append({"file": rel, "line": line, "severity": "error", "code": "duplicate-id",
                                 "category": "structure", "message": f"Blok translate se stejným identifikátorem už existuje ({first}); Ren'Py ho odmítne.",
                                 "source": "", "target": "", "who": "", "extra": {}})
         order = {"error": 0, "warning": 1, "info": 2}
         out.sort(key=lambda r: (order[r["severity"]], r["file"].lower(), r["line"]))
-        return {"total": len(out), "items": out[offset:offset + limit]}
+        if group == "line":
+            lines = {}
+            for r in out:                                   # `out` is sorted by severity, so the first finding is the worst
+                g = lines.get((r["file"], r["line"]))
+                if g is None:
+                    g = lines[(r["file"], r["line"])] = {"file": r["file"], "line": r["line"], "severity": r["severity"],
+                                                          "source": r["source"], "target": r["target"], "who": r["who"],
+                                                          "src_who": r.get("src_who", ""), "issues": []}
+                g["issues"].append({k: r[k] for k in ("severity", "code", "category", "message", "extra", "ignored", "ignore_note")
+                                    if k in r})
+            grouped = sorted(lines.values(), key=lambda g: (order[g["severity"]], g["file"].lower(), g["line"]))
+            return {"total": len(grouped), "findings": len(out), "sev_counts": sev_counts, "items": grouped[offset:offset + limit]}
+        return {"total": len(out), "sev_counts": sev_counts, "items": out[offset:offset + limit]}
 
     # ------------------------------------------------------------ overview / files
     def estimate(self):
@@ -386,24 +514,14 @@ class App:
                 for line, iss, _e in self._issues(rel):
                     iss_by.setdefault((rel, line), []).append(iss)
         rows = []
+        counts = {k: 0 for k in ("all", "todo", "approved", "translated", "review", "proofed", "fix", "stale")}
         for rel in files:
             for e in self.project.entries(rel):
                 st = self._entry_row(rel, e)
-                if status == "todo" and st != "todo":
-                    continue
-                if status == "approved" and st != "approved":
-                    continue
-                if status == "translated" and st != "translated":
-                    continue
                 pf = self.project.proof_state(rel, e) if st != "todo" else ""
-                if status == "review" and (st == "todo" or pf in ("ok", "fix")):
-                    continue
-                if status == "proofed" and pf != "ok":
-                    continue
-                if status == "fix" and pf != "fix":
-                    continue
-                if status == "stale" and pf != "stale":
-                    continue
+                member = {"all": True, "todo": st == "todo", "approved": st == "approved", "translated": st == "translated",
+                          "review": st != "todo" and pf not in ("ok", "fix"), "proofed": pf == "ok", "fix": pf == "fix",
+                          "stale": pf == "stale"}
                 kinds = rpy.KIND_CODE.get(e.category, "")
                 if kind and kinds != kind:
                     continue
@@ -421,6 +539,11 @@ class App:
                         and ql not in e.who.lower() and ql not in rel.lower() \
                         and ql not in self.store.glossary.get(self.speaker_code(e.who), {}).get("n", "").lower():
                     continue
+                for k, v in member.items():            # counts for the status pills: every filter except the status itself
+                    if v:
+                        counts[k] += 1
+                if status in member and not member[status]:
+                    continue
                 rows.append((rel, e, st, shown, pf))
         if sort == "kind":
             rows.sort(key=lambda r: (rpy.KIND_RANK.get(r[1].category, 9), r[0].lower(), r[1].line))
@@ -434,7 +557,7 @@ class App:
             if idx is not None:
                 offset = max(0, idx - 30)
         page = rows[offset:offset + limit]
-        return {"total": total, "offset": offset, "items": [{
+        return {"total": total, "offset": offset, "counts": counts, "items": [{
             "file": rel, "line": e.line, "src_line": e.src_line, "block": e.block, "who": e.who,
             "source": e.source, "target": e.target, "status": st,
             "kind": rpy.KIND_CODE.get(e.category, ""), "proof": pf, "unit": e.unit, "ref": e.ref,
@@ -450,7 +573,9 @@ class App:
         if idx is None:
             raise AppError("Řádek už v souboru není – obnov soubory.")
         e = ents[idx]
-        iss = [i for ln, i, _e in self._issues(rel) if ln == line] if self.config.get("validation.enabled", True) else []
+        on = self.config.get("validation.enabled", True)
+        iss = [i for ln, i, _e in self._issues(rel) if ln == line] if on else []
+        ign = [(i, self._ignored_mark(rel, e, i)) for ln, i, _e in self._issues(rel, True) if ln == line] if on else []
 
         def brief(x):
             return {"line": x.line, "who": x.who, "source": x.source, "target": x.target,
@@ -464,7 +589,10 @@ class App:
                 "proof_note": self.store.proof.get(rel, {}).get(e.key, {}).get("n", ""),
                 "proof_date": self.store.proof.get(rel, {}).get(e.key, {}).get("d", ""),
                 "kind_label": e.category, "key": [e.block, norm_ws(e.source if e.source is not None else e.target)],
-                "issues": [i.to_dict() for i in iss],
+                "terms": [{"en": en, "cz": cz, "used": validator.term_used(e.target, cz)} for en, cz in self._terms().items()
+                          if e.source is not None and validator.term_in_text(e.source, en)],
+                "issues": [dict(i.to_dict(), ignored=False) for i in iss]
+                          + [dict(i.to_dict(), ignored=True, ignore_note=(m or {}).get("n", "")) for i, m in ign],
                 "before": [brief(x) for x in ents[max(0, idx - 2):idx]],
                 "after": [brief(x) for x in ents[idx + 1:idx + 3]]}
 
