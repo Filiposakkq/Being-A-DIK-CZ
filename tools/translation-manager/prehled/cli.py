@@ -19,6 +19,7 @@ import time
 import webbrowser
 from pathlib import Path
 
+from . import __version__
 from .app import App, AppError
 from .config import Config, config_dir
 from .project import check_project_dir, totals_of
@@ -64,7 +65,7 @@ def run_desktop(url):
         print("(pywebview není nainstalovaný: py -m pip install pywebview)")
         return False
     try:
-        webview.create_window("BaDIK Translation Manager 1.0", url, width=1560, height=940, min_size=(1000, 620),
+        webview.create_window(f"BaDIK Translation Manager {__version__}", url, width=1560, height=940, min_size=(1000, 620),
                               background_color="#0f1319")
         if sys.platform.startswith("win"):
             webview.start(gui="edgechromium")

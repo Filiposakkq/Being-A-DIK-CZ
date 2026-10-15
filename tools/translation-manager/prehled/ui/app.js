@@ -259,14 +259,49 @@ function buildTable({ key, cols, sort, onSort, className = '' }) {
 
 /* ---------------------------------------------------------------- tabs */
 const TABS = [['overview', 'Přehled'], ['files', 'Soubory'], ['entries', 'Řádky'], ['validation', 'Kontrola'], ['glossary', 'Slovník'], ['publish', 'Publikace'], ['settings', 'Nastavení']];
+/* Small stroke icons for the tabs (24x24, drawn here so no icon font or file is needed). */
+const TAB_ICONS = {
+  overview: '<rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/>',
+  files: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+  entries: '<path d="M8 6h13M8 12h13M8 18h13"/><circle cx="3.5" cy="6" r="1"/><circle cx="3.5" cy="12" r="1"/><circle cx="3.5" cy="18" r="1"/>',
+  validation: '<path d="M12 3l8 3v6c0 4.5-3.2 8-8 9-4.8-1-8-4.5-8-9V6z"/><path d="m8.5 12 2.5 2.5 4.5-5"/>',
+  glossary: '<path d="M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3z"/><path d="M5 17a3 3 0 0 1 3-3h11"/>',
+  publish: '<path d="M12 16V4"/><path d="m7 9 5-5 5 5"/><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/>',
+  settings: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9 7 7M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/>',
+};
+function tabIcon(k) {
+  const el = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  el.setAttribute('viewBox', '0 0 24 24'); el.setAttribute('fill', 'none'); el.setAttribute('stroke', 'currentColor');
+  el.setAttribute('stroke-width', '1.8'); el.setAttribute('stroke-linecap', 'round'); el.setAttribute('stroke-linejoin', 'round'); el.setAttribute('aria-hidden', 'true');
+  el.innerHTML = TAB_ICONS[k] || '';
+  return el;
+}
 function renderTabs() {
   const nav = $('#tabs');
   nav.replaceChildren(...TABS.map(([k, label], i) => {
     const bad = k === 'validation' && S.overview ? S.overview.validation.error : 0;
     return h('button', { class: 'tab', role: 'tab', 'aria-selected': String(S.view === k), title: `Alt+${i + 1}`, onclick: () => go(k) },
-      label, bad ? h('span', { class: 'badge' }, fmtN(bad)) : null);
+      tabIcon(k), label, bad ? h('span', { class: 'badge' }, fmtN(bad)) : null);
   }));
 }
+
+/* Look: automatic (follows the system) / dark / light. Stored as a preference, applied through the data-theme attribute. */
+const THEME_ICON = { auto: '◐', dark: '☾', light: '☀' };
+const THEME_LABEL = { auto: 'automaticky podle systému', dark: 'tmavý', light: 'světlý' };
+function applyTheme() {
+  const t = ['auto', 'dark', 'light'].includes(pref('ui.theme', 'auto')) ? pref('ui.theme', 'auto') : 'auto';
+  const light = t === 'light' || (t === 'auto' && window.matchMedia?.('(prefers-color-scheme: light)').matches);
+  document.documentElement.dataset.theme = light ? 'light' : 'dark';
+  const b = $('#themeBtn');
+  if (b) { b.textContent = THEME_ICON[t]; b.title = `Vzhled: ${THEME_LABEL[t]} (klik přepne)`; }
+}
+function cycleTheme() {
+  const order = ['auto', 'dark', 'light'];
+  setPref('ui.theme', order[(order.indexOf(pref('ui.theme', 'auto')) + 1) % 3]);
+  applyTheme();
+  toast(`Vzhled: ${THEME_LABEL[pref('ui.theme', 'auto')]}`, 'ok', 1600);
+}
+window.matchMedia?.('(prefers-color-scheme: light)').addEventListener?.('change', () => applyTheme());
 function go(view, opts) {
   S.view = view; setPref('view', view);
   S.goOpts = opts || null;
@@ -697,7 +732,7 @@ async function viewEntries() {
   }
   const files = S.files || (S.files = (await get('files')).files);
   const e = pref('entries', {});
-  const root = h('div', { class: 'split rows', style: { '--detail-h': pref('entries.detailh', 300) + 'px' } });
+  const root = h('div', { class: 'split rows', style: { '--detail-h': pref('entries.detailh', 380) + 'px' } });
   const main = h('div', { class: 'pane' });
   const detail = h('div', { class: 'detail', id: 'entryDetail' });
   const counter = h('span', { class: 'muted' });
@@ -713,11 +748,11 @@ async function viewEntries() {
     sel('kind', '', [['', 'Všechny druhy'], ['english', 'Anglicky'], ['same', 'Shodné, možná OK'], ['symbols', 'Jen znaky'], ['empty', 'Prázdné']], 'Druh nepřeloženého řádku'),
     sel('issues', '', [['', 'Kontrola: vše'], ['any', 'S problémem'], ['error', 'S chybou'], ['warning', 'S varováním']], 'Filtr podle kontroly'),
     sel('sort', 'line', [['line', 'Řadit: řádek'], ['file', 'Řadit: soubor'], ['kind', 'Řadit: druh'], ['issues', 'Řadit: problémy']], 'Řazení'),
-    speakerModeSelect(() => render()), search, h('button', { class: 'btn', title: 'Hromadně schválí řádky, které se překládat nemusí (jen znaky, citoslovce, jména)', onclick: () => ruleApproveDialog(async () => { S.files = null; await refreshHeader(); load(true); }) }, 'Schválit podle pravidla…'),
+    speakerModeSelect(() => render()), search, h('button', { class: 'btn', title: 'Hromadně schválí řádky, které se překládat nemusí (jen znaky, citoslovce, jména)', onclick: () => ruleApproveDialog(async () => { S.files = null; await refreshHeader(); load(true); }, S.fl.picked.size ? [...S.fl.picked] : (pref('entries.file', '') ? [pref('entries.file', '')] : [])) }, 'Schválit podle pravidla…'),
     h('span', { class: 'spacer' }), counter)));
   const wrap = h('div', { class: 'pane-body' });
   main.append(wrap);
-  root.append(main, makeSplitter(root, 'v', { key: 'entries.detailh', def: 300, min: 140, maxFrac: 0.7 }), detail);
+  root.append(main, makeSplitter(root, 'v', { key: 'entries.detailh', def: 380, min: 140, maxFrac: 0.7 }), detail);
   let timer;
   const debounceLoad = () => { clearTimeout(timer); timer = setTimeout(() => load(true), 250); };
   let tbody;
@@ -772,6 +807,8 @@ async function viewEntries() {
   }
   async function select(i) {
     if (i < 0 || i >= S.ent.items.length) return;
+    const open = $('#editTarget');
+    if (open?.dataset.dirty === '1' && !(await confirmDialog('Neuložený překlad', 'Text tohoto řádku jsi změnil a neuložil. Zahodit změny?', 'Zahodit změny'))) return;
     tbody.querySelector('tr.sel')?.classList.remove('sel');
     S.ent.sel = i;
     const tr = tbody.children[i];
@@ -805,12 +842,69 @@ async function viewEntries() {
       h('div', { class: 'ctx' }, 'Blok: ', h('b', { class: 'mono' }, d.block), d.who ? ['  ·  mluvčí: ', h('b', { class: 'mono' }, speakerFull(d.who))] : null, d.src_line ? `  ·  originál na řádku ${d.src_line}` : null),
       scriptContext(d),
       h('h4', { style: { marginTop: '10px' } }, 'Originál'), h('div', { class: 'textbox' }, fmtText(d.source ?? '(zdroj nenalezen)')),
-      h('h4', null, 'Překlad'), h('div', { class: 'textbox' }, fmtText(d.target)),
+      translationEditor(d),
       d.issues.length ? h('div', null, h('h4', null, 'Kontrola'), d.issues.map((x) => h('div', { class: 'issue ' + x.severity }, chip(x.severity, SEV_LABEL[x.severity]), ' ', x.message,
         x.fixable ? h('div', null, h('button', { class: 'btn small primary', onclick: () => fixDialog({ items: [{ file: d.file, line: d.line }] }, () => { load(true); }) }, 'Opravit podle originálu')) : null,
         x.ratio ? h('div', { class: 'muted' }, `Délka: originál ${x.source_len}, překlad ${x.target_len} znaků (poměr ${String(x.ratio).replace('.', ',')}). Rozhodni sám, jestli je to záměr.`) : null))) : null,
       (d.before.length || d.after.length) ? h('div', null, h('h4', { style: { marginTop: '10px' } }, 'Okolí v souboru'),
         d.before.map((x) => ctxLine(x)), h('div', { class: 'ctx' }, h('b', null, `▶ ${d.line}`)), d.after.map((x) => ctxLine(x))) : null);
+  }
+  function translationEditor(d) {
+    const ta = h('textarea', { id: 'editTarget', class: 'ed editbox', rows: 3, spellcheck: 'true', lang: 'cs', 'aria-label': 'Překlad' });
+    ta.value = d.target;
+    const msg = h('div', { class: 'editmsg' });
+    const save = h('button', { class: 'btn small primary', disabled: true, title: 'Zapíše text do souboru .rpy (před zápisem se udělá záloha)' }, 'Uložit do souboru (Ctrl+Enter)');
+    let timer, seq = 0;
+    const dirty = () => ta.value !== d.target;
+    const sync = () => { if (dirty()) ta.dataset.dirty = '1'; else delete ta.dataset.dirty; save.disabled = !dirty(); };
+    async function check() {
+      const my = ++seq;
+      if (!dirty()) { msg.replaceChildren(); return; }
+      try {
+        const r = await post('entry/check', { file: d.file, line: d.line, text: ta.value });
+        if (my !== seq) return;
+        msg.replaceChildren(h('h4', null, 'Kontrola upraveného textu'),
+          r.literal_error ? h('div', { class: 'issue error' }, chip('error', 'Nelze uložit'), ' ', r.literal_error) : null,
+          ...r.issues.map((x) => h('div', { class: 'issue ' + x.severity }, chip(x.severity, SEV_LABEL[x.severity]), ' ', x.message)),
+          !r.literal_error && !r.issues.length ? h('div', { class: 'muted' }, 'Bez nálezů.') : null);
+        save.disabled = !dirty() || !!r.literal_error;
+      } catch { /* the live check is only a hint */ }
+    }
+    async function doSave(advance) {
+      if (!dirty() || save.disabled) return;
+      save.disabled = true;
+      try { await post('entry/save', { file: d.file, line: d.line, text: ta.value }); }
+      catch (err) { save.disabled = false; return fail(err); }
+      delete ta.dataset.dirty;
+      S.files = null; refreshHeader();
+      const i = S.ent.sel, it = S.ent.items[i];
+      try {
+        const nd = await get('entry', { file: d.file, line: d.line });
+        if (it) { Object.assign(it, { target: nd.target, status: nd.status, proof: nd.proof, kind: nd.kind, issues: nd.issues.filter((x) => x.severity !== 'info').map((x) => ({ severity: x.severity, code: x.code })) }); refreshRow(i); }
+        toast('Uloženo do souboru ✓', 'ok', 1800);
+        if (advance) {
+          let k = i + 1;
+          while (k < S.ent.items.length && S.ent.items[k].status !== 'todo') k++;
+          S.ent.focusEdit = true;
+          select(k < S.ent.items.length ? k : Math.min(i + 1, S.ent.items.length - 1));
+        } else select(i);
+      } catch (err) { fail(err); }
+    }
+    ta.addEventListener('input', () => { sync(); clearTimeout(timer); timer = setTimeout(check, 300); });
+    ta.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); doSave(true); }
+      else if (e.key === 'Escape') { ta.value = d.target; sync(); check(); ta.blur(); }
+    });
+    save.onclick = () => doSave(false);
+    const reset = h('button', { class: 'btn small', onclick: () => { ta.value = d.target; sync(); check(); } }, 'Vrátit text');
+    const copySrc = h('button', { class: 'btn small', title: 'Vloží text originálu (hodí se jako základ s už správnými značkami)', onclick: () => { ta.value = d.source ?? ''; sync(); check(); ta.focus(); } }, 'Kopírovat originál');
+    const undoLast = h('button', { class: 'btn small ghost', title: 'Vrátí poslední změnu souboru .rpy provedenou touto aplikací (úprava textu nebo oprava mluvčích) ze zálohy', onclick: async () => {
+      try { const r = await post('fix/undo'); toast(`Vráceno: ${r.label || 'poslední změna'}`, 'ok'); S.files = null; refreshHeader(); load(true); } catch (err) { fail(err); }
+    } }, '↶ Vrátit poslední změnu souboru');
+    if (S.ent.focusEdit) { S.ent.focusEdit = false; setTimeout(() => { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }, 0); }
+    return h('div', { class: 'editor' }, h('h4', null, 'Překlad ', h('span', { class: 'muted', style: { textTransform: 'none', letterSpacing: 0 } }, '– upravuje se přímo v souboru')), ta,
+      h('div', { class: 'actions' }, save, reset, copySrc, undoLast),
+      h('div', { class: 'muted editnote' }, 'Nový řádek zapiš jako \\n, uvozovku jako \\". Značky {i}…{/i} a [proměnné] nech jako v originálu.'), msg);
   }
   function scriptContext(d) {
     if (!d.ref) return null;
@@ -983,17 +1077,21 @@ async function fixDialog({ items = [], file = '' }, done) {
 }
 
 /* Approve lines by a simple rule (symbols only, interjections, names from the glossary). Goes through the normal approval. */
-async function ruleApproveDialog(done) {
+async function ruleApproveDialog(done, preselected = []) {
   const rules = { symbols: true, interjections: true, names: true };
+  const allFiles = (S.files || []).map((x) => x.name);
+  const chosen = new Set(preselected.filter((n) => allFiles.includes(n)));
+  let scope = chosen.size ? 'chosen' : 'all';
   let data = null, armed = false;
   const sel = new Set();
-  const body = h('div'), info = h('span', { class: 'grow' });
+  const scopeBox = h('div'), results = h('div'), body = h('div', null, scopeBox, results), info = h('span', { class: 'grow' });
   const foot = h('button', { class: 'btn primary', disabled: true });
   const RULE_LABEL = { symbols: 'jen znaky', interjections: 'citoslovce', names: 'jméno' };
   async function load() {
-    body.replaceChildren(loading());
-    try { data = await post('approve/rules', { rules: Object.keys(rules).filter((k) => rules[k]) }); }
-    catch (e) { return body.replaceChildren(h('div', { class: 'notice bad' }, e.message)); }
+    if (scope === 'chosen' && !chosen.size) { data = null; results.replaceChildren(empty('Vyber soubory', 'Zaškrtni aspoň jeden soubor, nebo přepni na „Všechny soubory“.')); foot.disabled = true; info.textContent = ''; return; }
+    results.replaceChildren(loading());
+    try { data = await post('approve/rules', { rules: Object.keys(rules).filter((k) => rules[k]), files: scope === 'chosen' ? [...chosen] : [] }); }
+    catch (e) { return results.replaceChildren(h('div', { class: 'notice bad' }, e.message)); }
     sel.clear(); data.items.forEach((it, i) => { if (it.selected) sel.add(i); });
     armed = false; paint();
   }
@@ -1007,7 +1105,7 @@ async function ruleApproveDialog(done) {
     const t = h('table', { class: 'data' }, h('colgroup', null, [40, 100, 250, 110, 280, 100].map((w) => h('col', { style: { width: w + 'px' } }))),
       h('thead', null, h('tr', null, ['', 'Pravidlo', 'Kde', 'Mluvčí', 'Text', ''].map((x) => h('th', null, x)))), h('tbody', null, rows));
     t.style.width = '880px';
-    body.replaceChildren(
+    results.replaceChildren(
       h('p', { class: 'muted' }, 'Řádky, které se překládat nemusí, protože jsou v češtině stejné. Nic se nemění, dokud nepotvrdíš. Schválení lze vrátit přes Ctrl+Z. Jména se berou ze Slovníku – čím víc jmen tam máš, tím víc řádků pravidlo najde.'),
       h('div', null, checks),
       data.items.length > 500 ? h('p', { class: 'muted' }, `Zobrazeno prvních 500 z ${data.items.length}; schválí se jen zobrazené.`) : null,
@@ -1030,6 +1128,24 @@ async function ruleApproveDialog(done) {
       return false;
     };
   }
+  function paintScope() {
+    const segBtn = (k, l) => h('button', { class: scope === k ? 'on' : '', onclick: () => { scope = k; paintScope(); load(); } }, l);
+    const list = h('div', { class: 'filepick' });
+    const q = h('input', { type: 'search', class: 'search', placeholder: 'Hledat soubor…', style: { maxWidth: '260px' } });
+    const fill = () => {
+      const t = q.value.toLowerCase();
+      list.replaceChildren(...allFiles.filter((n) => !t || n.toLowerCase().includes(t)).map((n) => h('label', { class: 'check' },
+        h('input', { type: 'checkbox', checked: chosen.has(n), onchange: (e) => { e.target.checked ? chosen.add(n) : chosen.delete(n); count.textContent = `vybráno ${chosen.size}`; clearTimeout(S.ruleTimer); S.ruleTimer = setTimeout(load, 350); } }), ' ', n)));
+    };
+    const count = h('span', { class: 'muted' }, `vybráno ${chosen.size}`);
+    q.oninput = fill;
+    const setAll = (on) => { allFiles.filter((n) => !q.value || n.toLowerCase().includes(q.value.toLowerCase())).forEach((n) => (on ? chosen.add(n) : chosen.delete(n))); fill(); count.textContent = `vybráno ${chosen.size}`; load(); };
+    scopeBox.replaceChildren(h('div', { class: 'toolbar' }, h('b', null, 'Kde hledat:'), h('div', { class: 'seg' }, segBtn('all', `Všechny soubory (${allFiles.length})`), segBtn('chosen', 'Jen vybrané soubory')),
+      scope === 'chosen' ? [count, h('button', { class: 'btn small', onclick: () => setAll(true) }, 'Vše zobrazené'), h('button', { class: 'btn small', onclick: () => setAll(false) }, 'Nic'), q] : null),
+      scope === 'chosen' ? list : null);
+    if (scope === 'chosen') fill();
+  }
+  paintScope();
   S.dlgDirty = true;
   const close = dialog({ title: 'Schválit podle pravidla', body, buttons: [{ label: 'Zrušit' }, { node: h('span', { style: { display: 'contents' } }, info, foot) }] });
   load();
@@ -1083,7 +1199,7 @@ async function viewValidation() {
     try {
       const r = await get('fix/last');
       undoFix.style.display = r.last ? '' : 'none';
-      if (r.last) { undoFix.textContent = `Vrátit poslední opravu (${r.last.lines} řádků)`; undoFix.title = `Provedeno ${r.last.time.replace('T', ' ')}. Soubory se vrátí ze zálohy, ale jen když se od opravy neměnily.`; }
+      if (r.last) { undoFix.textContent = `↶ Vrátit: ${r.last.label || 'poslední změnu'}`; undoFix.title = `Provedeno ${r.last.time.replace('T', ' ')}. Soubory se vrátí ze zálohy, ale jen když se od opravy neměnily.`; }
     } catch { undoFix.style.display = 'none'; }
   }
   undoFix.onclick = async () => {
@@ -1354,7 +1470,7 @@ async function viewSettings() {
 /* ================================================================ keyboard */
 function helpDialog() {
   const rows = [['Ctrl+F nebo /', 'Hledat v aktuální sekci'], ['↑ ↓  (J K)', 'Předchozí / další řádek'], ['PgUp PgDn', 'Skok o stránku'], ['A', 'Schválit / zrušit schválení řádku'], ['Shift+A', 'Schválit všechny shodné… (s náhledem)'], ['P', 'Korektura: zkontrolováno (a skok na další)'], ['F', 'Korektura: označit k opravě + poznámka'], ['Shift+P', 'Korektura: zkontrolováno vše až po tento řádek'],
-    ['E nebo Enter', 'Otevřít řádek v editoru'], ['Ctrl+Z', 'Vrátit poslední změnu (mimo textová pole)'], ['F5 nebo Ctrl+R', 'Obnovit soubory'], ['Alt+1 … Alt+7', 'Přepnout sekci'], ['?', 'Tato nápověda']];
+    ['E nebo Enter', 'Otevřít řádek v externím editoru'], ['Ctrl+Enter', 'V poli překladu: uložit do souboru a přejít na další nepřeložený řádek'], ['Esc', 'V poli překladu: zahodit změny'], ['Ctrl+Z', 'Vrátit poslední změnu (mimo textová pole)'], ['F5 nebo Ctrl+R', 'Obnovit soubory'], ['Alt+1 … Alt+7', 'Přepnout sekci'], ['?', 'Tato nápověda']];
   dialog({ title: 'Klávesové zkratky', narrow: true, body: h('dl', { class: 'kv' }, rows.flatMap(([k, d]) => [h('dt', null, h('kbd', null, k)), h('dd', { style: { textAlign: 'left' } }, d)])), buttons: [{ label: 'Zavřít', kind: 'primary' }] });
 }
 document.addEventListener('keydown', (e) => {
@@ -1392,6 +1508,7 @@ document.addEventListener('keydown', (e) => {
 /* ================================================================ boot */
 $('#refreshBtn').addEventListener('click', () => doRefresh());
 $('#undoBtn').addEventListener('click', doUndo);
+$('#themeBtn').addEventListener('click', cycleTheme);
 $('#changeProject').addEventListener('click', pickProject);
 document.querySelectorAll('[data-link]').forEach((b) => b.addEventListener('click', () => post('open-url', { id: b.dataset.link }).catch(fail)));
 
@@ -1399,7 +1516,8 @@ document.querySelectorAll('[data-link]').forEach((b) => b.addEventListener('clic
   renderTabs();
   try {
     const st = await get('state');
-    S.ready = st.ready; S.version = st.version; S.prefs = st.prefs || {}; S.notices = st.notices || []; S.projectDir = st.project_dir || '';
+    S.ready = st.ready; S.version = st.version; S.prefs = st.prefs || {};
+    applyTheme(); $('#brandText').textContent = `BaDIK Translation Manager ${S.version || ''}`.trim(); S.notices = st.notices || []; S.projectDir = st.project_dir || '';
     if (st.config_error) S.notices.push(st.config_error);
     S.view = pref('view', 'overview');
     if (!TABS.some(([k]) => k === S.view)) S.view = 'overview';

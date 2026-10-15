@@ -5,6 +5,7 @@ import re
 import shutil
 import threading
 import webbrowser
+from dataclasses import replace
 from datetime import date, datetime
 from pathlib import Path
 
@@ -802,9 +803,13 @@ class App:
         except ValueError as e:
             raise AppError(str(e)) from e
 
-    def rule_preview(self, rules, file=""):
+    def rule_preview(self, rules, files=None):
         self._need_project()
-        return bulk.rule_candidates(self.project, self.store.glossary, list(rules or []), file or None)
+        files = [str(f) for f in (files or [])]
+        unknown = [f for f in files if f not in self.project.files]
+        if unknown:
+            raise AppError("Neznámý soubor: " + unknown[0])
+        return bulk.rule_candidates(self.project, self.store.glossary, list(rules or []), files or None)
 
     def glossary_occurrences(self, code, only_missing=False, limit=400):
         """Every line whose original contains the glossary term `code`, with whether the Czech form is used."""
@@ -923,6 +928,40 @@ class App:
                 self._val_cache.clear()
             self.store.ensure_files([r.name for r in self.project.rows()])
             out = self._changed("fix")
+            out.update(res)
+            return out
+
+    def entry_check(self, rel, line, text):
+        """Validator result for a text the translator is typing (nothing is written)."""
+        self._need_project()
+        with self.lock:
+            ent = next((e for e in self.project.entries(rel) if e.line == line), None) if rel in self.project.files else None
+            if ent is None:
+                raise AppError("Řádek už v souboru není – obnov soubory.")
+            try:
+                fixes.check_literal(text)
+                literal = ""
+            except fixes.FixError as e:
+                literal = str(e)
+            probe = replace(ent, target=text, category="")
+            issues = [i.to_dict() for i in validator.check_entry(
+                probe, self._length_cfg(), self._terms(), self._spell(), self.config.get("validation.textbox", {}))
+                if i.severity != "info" or self.config.get("validation.show_info", False)]
+            return {"literal_error": literal, "issues": issues}
+
+    def entry_save(self, rel, line, text):
+        """Write a new translation of one line into the .rpy file (backup, atomic, verified, undoable)."""
+        self._need_project()
+        with self.lock:
+            try:
+                res = fixes.edit_translation(self.project, self.data_dir, rel, int(line), str(text))
+            except fixes.FixError as e:
+                raise AppError(str(e)) from e
+            finally:
+                self.project.refresh(force=True)
+                self._val_cache.clear()
+            self.store.ensure_files([r.name for r in self.project.rows()])
+            out = self._changed("edit")
             out.update(res)
             return out
 
