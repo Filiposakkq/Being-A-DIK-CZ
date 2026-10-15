@@ -185,19 +185,19 @@ the string literal (a bare `"`, a lone `\`) is skipped.
   says which picture and which script line it used. Without the game folder next to the translation (or with only `.rpyc` files) you get the box alone.
   The game's own font is not used, so wrapping is an estimate.
 
-## More windows
+## Detail window (second window)
 
-**⧉** in the top bar (or *Více → Otevřít v novém okně* in the line detail, or the palette) opens **another window of the app** on the same project. Each window
-has its own list, filter and selected line, so you can read the scene or the file list next to the editor, or compare two files. The first window keeps the saved
-preferences (the others do not write them, so they never overwrite each other); the app quits when the **last** window is closed. A change made in one window is
-picked up by the other when it gets the focus back (counters and the open line refresh). In the desktop window this opens another native window, in the browser
-mode an app window, and as a last resort a browser tab.
+**⧉** in the top bar (or *Více → Otevřít v druhém okně* in the line detail, or the palette) opens a **window with nothing but the line detail**: the scene
+picture with the dialogue box, the translation editor and the tabs *Kontrola / Korektura / Scéna / Paměť / Historie / Skript* - no list, no sections, no
+settings. It **follows the line you select in the main window** (the main window announces it at once, in about 30 ms; windows that do not share a
+browser process get it from the server, which answers as soon as the line changes). *Sledovat hlavní okno* turns following off; an unsaved text in the
+detail window is never replaced. **Scéna přes celé okno** makes the picture fill the window (scaled to fit) with the editor under it. Edits go to the same
+files as in the main window (one app, one project); only the first window saves preferences. The app quits when the **last** window is closed; a change
+made in one window is picked up by the other when it gets the focus back. In the desktop window this opens another native window, in the browser mode
+an app window, and as a last resort a browser tab.
 
-**Detail in a second window (companion)**: *Více → Detail ve druhém okně* opens a window with **only the line detail** (the *Scéna* tab first: picture, box,
-editor) that **follows the line you select in the main window** (the main window publishes it, the companion checks once a second; an unsaved text in the
-companion is never replaced; the *Sledovat…* box turns following off). Edits made there go to the same files. For one monitor, **◫ Detail vpravo** in *Řádky*
-puts the detail beside the list instead of under it (automatic on screens 1500 px wide and more; the choice is remembered), and the scene picture is scaled
-to fit the height too, so the picture and the editor are visible without scrolling.
+For one monitor, **◫ Detail vpravo** in *Řádky* puts the detail beside the list instead of under it (automatic on screens 1500 px wide and more; the
+choice is remembered), and the scene picture is scaled to fit the height too, so the picture and the editor are visible without scrolling.
 
 ## Shortcuts, command palette, scene view
 
@@ -207,7 +207,7 @@ to fit the height too, so the picture and the editor are visible without scrolli
 * **Command palette** (`Ctrl+K`): type to find any action (without diacritics: *nastaveni* finds *Nastavení*) or a file; arrows and Enter. Every action is in it, also
   those without a key (find & replace, approve by rule, fix, consistency, ignored, lint, snapshot, theme, density, change folder).
 * **Scéna kolem řádku** (in the line detail): ±3 / 6 / 10 / 15 neighbouring lines with the **original next to the translation**, the current line marked; a click
-  on a row jumps to it. A second window is in *More windows* above.
+  on a row jumps to it. The second window is described in *Detail window* above.
 
 ## Machine translation (optional, experimental)
 

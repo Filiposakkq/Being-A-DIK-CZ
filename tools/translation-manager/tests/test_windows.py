@@ -95,6 +95,25 @@ class WindowTests(TempCase):
         self.assertEqual(self.call("GET", "/api/focus")[1], {"ok": True, "seq": 2, "file": "a.rpy", "line": 0})
         self.assertEqual(self.call("POST", "/api/focus", {"file": "a.rpy"}, token=False)[0], 403)
 
+    def test_the_focus_can_be_waited_for_so_the_companion_follows_at_once(self):
+        import threading
+        got = {}
+
+        def waiter():
+            t0 = time.time()
+            got["res"] = self.call("GET", "/api/focus?after=0&wait=1")[1]
+            got["took"] = time.time() - t0
+        th = threading.Thread(target=waiter)
+        th.start()
+        time.sleep(0.3)
+        self.call("POST", "/api/focus", {"file": "a.rpy", "line": 5})
+        th.join(10)
+        self.assertEqual((got["res"]["seq"], got["res"]["line"]), (1, 5))
+        self.assertLess(got["took"], 5)                               # answered by the change, not by the 20 s timeout
+        t0 = time.time()
+        self.call("GET", "/api/focus?after=-1&wait=1")                # already newer than "-1": no waiting
+        self.assertLess(time.time() - t0, 2)
+
     def test_without_an_opener_the_page_is_told_to_fall_back(self):
         status, res = self.call("POST", "/api/window/open", {"view": "entries"})
         self.assertEqual((res["ok"], res["fallback"]), (False, True))

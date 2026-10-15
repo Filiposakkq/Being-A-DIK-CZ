@@ -47,6 +47,7 @@ class Session:
         self.open_window = None        # set by cli: callable(url) that opens one more app window
         self.base_url = ""
         self.focus = {"seq": 0, "file": "", "line": 0}   # the line open in the main window; companion windows follow it
+        self.focus_cv = threading.Condition()
 
 
 def make_handler(sess):
@@ -149,7 +150,11 @@ def make_handler(sess):
             if not p.startswith("/api/"):
                 return self._send(404, "not found", "text/plain")
             r = p[5:]
-            if r == "focus":
+            if r == "focus":                   # with ?after=N&wait=1 it answers as soon as the focus changes (or after 20 s)
+                after = q1(q, "after")
+                if q1(q, "wait") == "1" and after.lstrip("-").isdigit():
+                    with sess.focus_cv:
+                        sess.focus_cv.wait_for(lambda: sess.focus["seq"] > int(after), timeout=20)
                 return self._json({"ok": True, **sess.focus})
             if r == "ping":
                 wid = q1(q, "w")
@@ -276,7 +281,9 @@ def make_handler(sess):
 
             def set_focus():
                 line = d.get("line", 0)
-                sess.focus = {"seq": sess.focus["seq"] + 1, "file": str(d.get("file", ""))[:500], "line": int(line) if str(line).isdigit() else 0}
+                with sess.focus_cv:
+                    sess.focus = {"seq": sess.focus["seq"] + 1, "file": str(d.get("file", ""))[:500], "line": int(line) if str(line).isdigit() else 0}
+                    sess.focus_cv.notify_all()
                 return {"ok": True, **sess.focus}
 
             def open_window():

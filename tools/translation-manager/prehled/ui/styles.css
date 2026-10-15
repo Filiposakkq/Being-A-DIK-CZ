@@ -365,7 +365,10 @@ td input[type=text]:focus { background: var(--panel); }
 .split.companion { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
 .split.companion > .pane, .split.companion > .splitter { display: none; }
 .split.companion > .detail { border: 0; }
-.followbar { display: flex; gap: 10px; align-items: center; margin: 0 0 10px; padding: 6px 10px; border: 1px dashed var(--line-2); border-radius: 8px; font-size: 13px; }
+.followbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 0 0 10px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2, transparent); font-size: 13px; }
+/* the detail window: nothing but the line detail */
+body.companion .topbar, body.companion .tabs, body.companion .statusbar { display: none; }
+body.companion #app { grid-template-rows: 1fr; }
 .dhead .menu { left: auto; right: 0; }
 .detail { overflow-x: hidden; }
 td.whoname { font-size: 13px; color: var(--text); }
@@ -440,11 +443,11 @@ details.memory > summary, details.gamepreview > summary, details.texthistory > s
 .memsrc { flex-basis: 100%; }
 .gwin { margin: 8px auto 4px; overflow: hidden; border-radius: 8px; background: linear-gradient(180deg, #1c2536, #0f1522); border: 1px solid var(--line-2); }
 .gwin.over { border-color: var(--bad); box-shadow: 0 0 0 2px var(--bad-bg); }
-.gbox { position: absolute; color: #f2f4f8; line-height: 1.3; padding: 0; font-family: "Segoe UI", system-ui, sans-serif; word-wrap: break-word; }
+.gbox { position: absolute; color: #fff; line-height: 1.3; padding: 0; font-family: inherit; word-wrap: break-word; text-shadow: 0 0 4px #000, 1px 1px 2px #000, -1px -1px 2px #000; }
 .gstage { position: relative; transform-origin: top left; overflow: hidden; background: #0f1522; font-family: "Segoe UI", system-ui, sans-serif; }
 .gstage .gbg { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-.gtextbox { position: absolute; left: 0; right: 0; bottom: 0; background: rgba(8, 12, 22, .72); }
-.gname { position: absolute; color: #fff; background: rgba(8, 12, 22, .72); padding: 0 .5em; line-height: 1.3; }
+.gtextbox { position: absolute; left: 0; right: 0; bottom: 0; background: linear-gradient(180deg, rgba(0, 0, 0, .12), rgba(0, 0, 0, .4)); }
+.gname { position: absolute; color: #fff; padding: 0 .3em; line-height: 1.3; font-family: inherit; text-shadow: 0 0 4px #000, 1px 1px 2px #000, -1px -1px 2px #000; }
 .ginfo { font-size: 12px; }
 .variant { padding: 6px 0; border-bottom: 1px dashed var(--line); }
 .variant:last-child { border-bottom: 0; }

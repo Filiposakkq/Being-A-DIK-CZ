@@ -816,18 +816,34 @@ async function openWindow(opts = {}) {
 }
 /* Companion window: follows the line open in the main window (polls the shared focus once a second; edits stay safe: an unsaved text is never replaced). */
 function startFollowing() {
-  let seen = -1;
-  setInterval(async () => {
-    if (S.follow === false || S.view !== 'entries' || document.hidden) return;
-    try {
-      const f = await get('focus');
-      if (f.seq === seen) return;
-      if ($('#editTarget')?.dataset.dirty === '1') return;      // keep what is being typed; try again on the next tick
-      seen = f.seq;
-      const cur = S.ent?.items?.[S.ent.sel];
-      if (f.file && !(cur && cur.file === f.file && cur.line === f.line)) go('entries', { file: f.file, line: f.line, status: 'all', select: true });
-    } catch { /* the main window may be restarting */ }
-  }, 1000);
+  let seen = -1, pending = null;
+  const apply = (f) => {
+    if (!f || !f.file) return;
+    S.lastFocus = f;
+    if (S.follow === false || S.view !== 'entries') return;
+    if ($('#editTarget')?.dataset.dirty === '1') { pending = f; return; }       // keep what is being typed; retried below
+    pending = null;
+    const cur = S.ent?.items?.[S.ent.sel];
+    if (!(cur && cur.file === f.file && cur.line === f.line)) go('entries', { file: f.file, line: f.line, status: 'all', select: true });
+  };
+  S.followApply = apply;
+  if (FOCUS_BC) FOCUS_BC.onmessage = (e) => apply(e.data);                      // instant, when the windows share a browser process
+  (async function loop() {                                                      // otherwise the server answers as soon as the focus changes
+    for (;;) {
+      try { const f = await get('focus', { after: seen, wait: 1 }); if (f.seq !== seen) { seen = f.seq; apply(f); } } catch { await new Promise((r) => setTimeout(r, 1500)); }
+    }
+  })();
+  setInterval(() => { if (pending && $('#editTarget')?.dataset.dirty !== '1') apply(pending); }, 800);
+}
+const FOCUS_BC = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('badik-focus') : null;
+function announceFocus(it) {
+  FOCUS_BC?.postMessage({ file: it.file, line: it.line });
+  post('focus', { file: it.file, line: it.line }).catch(() => {});
+}
+/* The only extra window: the line detail alone (scene, check, proofreading…), following the line chosen in the main window. */
+function openDetailWindow() {
+  const cur = S.ent?.items?.[S.ent.sel];
+  openWindow({ view: 'entries', companion: '1', tab: 'scene', status: 'all', ...(cur ? { file: cur.file, line: cur.line } : {}) });
 }
 async function openEditor(file, line) {
   try { const r = await post('open-editor', { file, line }); toast(r.message, r.ok ? 'ok' : 'bad', 7000); } catch (e) { fail(e); }
@@ -1014,8 +1030,9 @@ async function viewEntries() {
     tr?.classList.add('sel');
     tr?.scrollIntoView({ block: 'nearest' });
     const it = S.ent.items[i];
+    if (!COMPANION) announceFocus(it);
     try { S.ent.detail = await get('entry', { file: it.file, line: it.line }); } catch (err) { S.ent.detail = null; drawDetail(null, err.message); return; }
-    if (S.ent.sel === i) { drawDetail(S.ent.detail); if (!COMPANION) { clearTimeout(S.focusT); S.focusT = setTimeout(() => post('focus', { file: it.file, line: it.line }).catch(() => {}), 120); } }
+    if (S.ent.sel === i) drawDetail(S.ent.detail);
     if (i >= S.ent.items.length - 15 && S.ent.start + S.ent.items.length < S.ent.total) load(false);
   }
   function drawDetail(d, err) {
@@ -1023,7 +1040,7 @@ async function viewEntries() {
     const canApprove = d.status !== 'translated' && d.kind !== 'empty';
     const ed = translationEditor(d);
     detail.replaceChildren(
-      COMPANION ? h('div', { class: 'followbar' }, h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: S.follow !== false, onchange: (e) => { S.follow = e.target.checked; } }), ' Sledovat řádek vybraný v hlavním okně'), h('span', { class: 'muted' }, 'Druhé okno: změny se zapisují do stejných souborů.')) : null,
+      COMPANION ? companionBar() : null,
       h('div', { class: 'dhead' },
         h('span', { class: 'path', title: d.ref ? `původní skript: ${d.ref}` : '' }, `${d.file}:${d.line}`),
         d.unit === 'string' ? chip('choice', 'Volba') : chip('none', 'Dialog'),
@@ -1033,17 +1050,28 @@ async function viewEntries() {
         h('button', { class: 'btn small', title: 'Otevře soubor na tomhle řádku v externím editoru', onclick: () => openEditor(d.file, d.line) }, 'Editor (E)'),
         menuButton('Více', [
           ...(canApprove ? [{ label: 'Schválit všechny shodné…', hint: 'Shift+A', run: () => globalApprove() }] : []),
-          ...(COMPANION ? [] : [{ label: 'Detail ve druhém okně', hint: 'sleduje výběr tady', run: () => openWindow({ view: 'entries', companion: '1', tab: 'scene', file: d.file, line: d.line, status: 'all' }) }]),
-          { label: 'Otevřít v novém okně', hint: 'samostatný seznam', run: () => openWindow({ view: 'entries', file: d.file, line: d.line, status: 'all' }) },
+          ...(COMPANION ? [] : [{ label: 'Otevřít v druhém okně', hint: 'scéna, kontrola, korektura…', run: () => openDetailWindow() }]),
           { label: 'Kopírovat cestu', run: () => copy(`${d.path}:${d.line}`) },
         ], { title: 'Další akce s řádkem' })),
-      h('div', { class: 'pair' },
+      ...(COMPANION && S.compFull ? [inPane(gamePreview(d, ed.ta)), ed] : [h('div', { class: 'pair' },
         h('div', null, h('div', { class: 'row', style: { justifyContent: 'space-between' } }, h('h4', { style: { margin: 0 } }, 'Originál'),
           h('span', { class: 'row' }, h('button', { class: 'btn small ghost', title: 'Zkopíruje text originálu do schránky', onclick: () => copy(d.source ?? '') }, '⧉ Originál'),
             h('button', { class: 'btn small ghost', title: 'Zkopíruje originál a překlad pod sebe', onclick: () => copy(`${d.source ?? ''}\n${$('#editTarget') ? $('#editTarget').value : d.target}`) }, '⧉ Oboje'))),
           h('div', { class: 'textbox', style: { marginTop: '6px' } }, fmtText(d.source ?? '(zdroj nenalezen)'))),
-        ed),
-      detailTabs(d, ed));
+        ed), detailTabs(d, ed)]));
+  }
+  /* Detail window: follows the main window; the scene can take the whole window (the editor stays under it). */
+  function companionBar() {
+    const setFull = (v) => {
+      S.compFull = v;
+      const ta = $('#editTarget'), keep = ta && ta.dataset.dirty === '1' ? ta.value : null;
+      drawDetail(S.ent.detail);
+      if (keep !== null) { const n = $('#editTarget'); n.value = keep; n.dispatchEvent(new Event('input')); }
+    };
+    return h('div', { class: 'followbar' },
+      h('label', { class: 'check', title: 'Okno ukazuje řádek, na který kliknu v hlavním okně' }, h('input', { type: 'checkbox', checked: S.follow !== false, onchange: (e) => { S.follow = e.target.checked; if (S.follow) S.followApply?.(S.lastFocus || {}); } }), ' Sledovat hlavní okno'),
+      h('span', { class: 'spacer' }),
+      h('div', { class: 'seg' }, h('button', { class: S.compFull ? '' : 'on', onclick: () => setFull(false) }, 'Scéna a detail'), h('button', { class: S.compFull ? 'on' : '', onclick: () => setFull(true) }, 'Scéna přes celé okno')));
   }
   /* Secondary panels of the line detail live in tabs: only the chosen one is built (and fetches its data). */
   const inPane = (el) => { el.open = true; el.classList.add('inpane'); return el; };
@@ -1250,7 +1278,7 @@ async function viewEntries() {
     const mode = h('select', { title: 'Který text ukázat v okně hry', onchange: () => draw() },
       h('option', { value: 'target' }, 'Překlad'), h('option', { value: 'source' }, 'Originál'));
     box.append(sum, h('div', { class: 'toolbar', style: { margin: '6px 0' } }, mode), outer, info);
-    box.open = !!pref('ui.gamepreview', true);
+    box.open = COMPANION || !!pref('ui.gamepreview', true);
     box.addEventListener('toggle', () => { setPref('ui.gamepreview', box.open); if (box.open) draw(); });
     let gui = S.gui, scene = null, imgOk = true;
     const fallbackName = speakerLabel(d.who) || '';
@@ -1277,7 +1305,8 @@ async function viewEntries() {
       tb.append(...(nm ? [nm] : []), dlg);
       stage.append(tb);
       outer.replaceChildren(stage);
-      const k = Math.min(1, ((box.clientWidth - 2) || W) / W, Math.max(200, innerHeight * 0.45) / H);
+      const maxH = COMPANION ? (S.compFull ? innerHeight - 250 : innerHeight * 0.55) : innerHeight * 0.45;
+      const k = Math.min(1, ((box.clientWidth - 2) || W) / W, Math.max(200, maxH) / H);
       stage.style.transform = `scale(${k})`;
       outer.style.height = Math.ceil(H * k) + 'px'; outer.style.width = Math.ceil(W * k) + 'px';
       const lines = Math.max(1, Math.round(dlg.offsetHeight / (g.text_size * 1.3)));
@@ -1294,6 +1323,8 @@ async function viewEntries() {
     }
     ta.addEventListener('input', () => { clearTimeout(box._t); box._t = setTimeout(draw, 150); });
     setTimeout(draw, 0);
+    const onResize = () => { if (!box.isConnected) removeEventListener('resize', onResize); else { clearTimeout(box._r); box._r = setTimeout(draw, 80); } };
+    addEventListener('resize', onResize);
     return box;
   }
   /* A font file of the game (found in its folder or archives) made available to the page as a FontFace; its family name, or '' when it cannot be had. */
@@ -2460,7 +2491,7 @@ const ACTIONS = [
   { id: 'snapshot', label: 'Vytvořit zálohu souborů překladu teď', keys: [], run: async () => { try { const r = await post('snapshots/create'); toast(`Záloha vytvořena (${r.snapshot.files} souborů, ${fmtSize(r.snapshot.bytes)}).`); } catch (e) { fail(e); } } },
   { id: 'theme', label: 'Přepnout vzhled (automaticky / tmavý / světlý)', keys: [], run: () => cycleTheme() },
   { id: 'density', label: 'Přepnout hustotu tabulek', keys: [], run: () => toggleDensity() },
-  { id: 'new_window', label: 'Otevřít další okno aplikace', keys: [], run: () => openWindow() },
+  { id: 'new_window', label: 'Otevřít druhé okno s detailem řádku', keys: [], run: () => openDetailWindow() },
   { id: 'change_project', label: 'Změnit složku s překladem…', keys: [], run: () => pickProject() },
 ];
 const keysOf = (a) => { const o = pref('keys', {}); return Array.isArray(o[a.id]) ? o[a.id] : a.keys; };
@@ -2580,7 +2611,7 @@ function keysPanel() {
 $('#refreshBtn').addEventListener('click', () => doRefresh());
 $('#undoBtn').addEventListener('click', doUndo);
 $('#themeBtn').addEventListener('click', cycleTheme);
-$('#newWinBtn').addEventListener('click', () => openWindow());
+$('#newWinBtn').addEventListener('click', () => openDetailWindow());
 /* A change made in another window: when this one gets the focus back, refresh the counters and the open line. */
 window.addEventListener('focus', () => {
   if (!S.ready || document.querySelector('#dlg[open]')) return;
@@ -2605,6 +2636,7 @@ if (new URLSearchParams(location.search).has('selftest')) {      // UI self-test
     S.view = pref('view', 'overview');
     if (SECONDARY) {
       document.title += COMPANION ? ' – detail' : ' – okno 2';
+      if (COMPANION) document.body.classList.add('companion');
       if (COMPANION) { S.prefs.ui = { ...(S.prefs.ui || {}), detailTab: URL_Q.get('tab') || 'scene' }; startFollowing(); }
       const v = URL_Q.get('view');
       if (v && TABS.some(([k]) => k === v)) S.view = v;
