@@ -917,7 +917,8 @@ async function viewEntries() {
         h('div', { class: 'actions' },
           h('button', { class: 'btn small ' + (d.proof === 'ok' ? '' : 'primary'), onclick: () => toggleProof() }, d.proof === 'ok' ? 'Zrušit označení (P)' : '✓ Zkontrolováno (P)'),
           h('button', { class: 'btn small', onclick: () => flagFix() }, d.proof === 'fix' ? 'Zrušit „k opravě“ (F)' : '⚑ K opravě (F)'),
-          h('button', { class: 'btn small', title: 'Označí jako zkontrolované všechny přeložené řádky tohoto souboru až po tento řádek (lze vrátit Ctrl+Z)', onclick: () => proofUpto() }, 'Zkontrolováno vše až sem (Shift+P)')),
+          h('button', { class: 'btn small', title: 'Označí jako zkontrolované všechny přeložené řádky tohoto souboru od začátku až po tento řádek. Řádky označené „k opravě“ se nemění. Jde vrátit (Ctrl+Z).', onclick: () => proofUpto('ok') }, '✓ Zkontrolovat vše až sem (Shift+P)'),
+          h('button', { class: 'btn small', title: 'Odebere značku „zkontrolováno“ všem řádkům tohoto souboru od začátku až po tento řádek. Řádky označené „k opravě“ zůstanou. Jde vrátit (Ctrl+Z).', onclick: () => proofUpto('') }, '↺ Zrušit zkontrolování až sem (Shift+U)')),
         h('textarea', { id: 'proofNote', rows: 2, placeholder: 'Poznámka ke korektuře (co opravit)…', value: d.proof_note || '', style: { width: '100%' },
           onchange: (ev) => saveNote(ev.target.value) })) : null,
       h('div', { class: 'ctx' }, 'Blok: ', h('b', { class: 'mono' }, d.block), d.who ? ['  ·  mluvčí: ', h('b', { class: 'mono' }, speakerFull(d.who))] : null, d.src_line ? `  ·  originál na řádku ${d.src_line}` : null),
@@ -1084,20 +1085,26 @@ async function viewEntries() {
     if (!state) return;
     if (await setProof(state, text)) { toast('Poznámka uložena ✓', 'ok', 1500); await select(S.ent.sel); }
   }
-  async function proofUpto() {
+  async function proofUpto(state = 'ok') {
     const d = S.ent.detail; if (!d) return;
+    const undo = state === '';
+    if (undo && !await confirmDialog('Zrušit zkontrolování až sem?', `U všech řádků souboru ${d.file.split(/[\\/]/).pop()} od začátku po řádek ${d.line} se zruší označení „zkontrolováno“. Řádky označené „k opravě“ zůstanou. Jde to vrátit přes Ctrl+Z.`, 'Zrušit zkontrolování')) return;
     try {
-      const r = await post('proof/upto', { file: d.file, line: d.line });
-      S.ent.items.forEach((x, i) => { if (x.file === d.file && x.line <= d.line && x.status !== 'todo' && ['', 'stale'].includes(x.proof)) { x.proof = 'ok'; refreshRow(i); } });
+      const r = await post('proof/upto', { file: d.file, line: d.line, state });
+      S.ent.items.forEach((x, i) => {
+        if (x.file !== d.file || x.line > d.line || x.status === 'todo') return;
+        if (!undo && ['', 'stale'].includes(x.proof)) { x.proof = 'ok'; refreshRow(i); }
+        if (undo && ['ok', 'stale'].includes(x.proof)) { x.proof = ''; refreshRow(i); }
+      });
       S.files = null; await refreshHeader(); await select(S.ent.sel);
-      toast(r.changed ? `Zkontrolováno ${r.changed} řádků ✓  (Ctrl+Z vrátí)` : 'Nebylo co označit.', 'ok', 3000);
+      toast(r.changed ? (undo ? `Zkontrolování zrušeno u ${r.changed} řádků  (Ctrl+Z vrátí)` : `Zkontrolováno ${r.changed} řádků ✓  (Ctrl+Z vrátí)`) : (undo ? 'Nebylo co rušit.' : 'Nebylo co označit.'), 'ok', 3000);
     } catch (err) { fail(err); }
   }
   async function globalApprove() {
     const d = S.ent.detail; if (!d || d.status === 'translated') return;
     await globalApproveDialog(d, async () => { S.files = null; await refreshHeader(); load(true); });
   }
-  S.ent.api = { select, toggleApprove, toggleProof, flagFix, proofUpto, globalApprove, load, tbody: () => tbody, reload: () => load(true) };
+  S.ent.api = { select, toggleApprove, toggleProof, flagFix, proofUpto, unproofUpto: () => proofUpto(''), globalApprove, load, tbody: () => tbody, reload: () => load(true) };
   root.afterMount = () => { load(true); drawDetail(null); };
   return root;
 }
@@ -1662,7 +1669,7 @@ async function viewSettings() {
 
 /* ================================================================ keyboard */
 function helpDialog() {
-  const rows = [['Ctrl+F nebo /', 'Hledat v aktuální sekci'], ['↑ ↓  (J K)', 'Předchozí / další řádek'], ['PgUp PgDn', 'Skok o stránku'], ['A', 'Schválit / zrušit schválení řádku'], ['Shift+A', 'Schválit všechny shodné… (s náhledem)'], ['P', 'Korektura: zkontrolováno (a skok na další)'], ['F', 'Korektura: označit k opravě + poznámka'], ['Shift+P', 'Korektura: zkontrolováno vše až po tento řádek'],
+  const rows = [['Ctrl+F nebo /', 'Hledat v aktuální sekci'], ['↑ ↓  (J K)', 'Předchozí / další řádek'], ['PgUp PgDn', 'Skok o stránku'], ['A', 'Schválit / zrušit schválení řádku'], ['Shift+A', 'Schválit všechny shodné… (s náhledem)'], ['P', 'Korektura: zkontrolováno (a skok na další)'], ['F', 'Korektura: označit k opravě + poznámka'], ['Shift+P', 'Korektura: zkontrolovat vše až po tento řádek'], ['Shift+U', 'Korektura: zrušit zkontrolování až po tento řádek'],
     ['E nebo Enter', 'Otevřít řádek v externím editoru'], ['Ctrl+Enter', 'V poli překladu: uložit do souboru a přejít na další nepřeložený řádek'], ['Esc', 'V poli překladu: zahodit změny'], ['Ctrl+Z', 'Vrátit poslední změnu (mimo textová pole)'], ['Ctrl+Z', 'Vrátit poslední změnu (mimo textová pole)'], ['F5 nebo Ctrl+R', 'Obnovit soubory'], ['Alt+1 … Alt+7', 'Přepnout sekci'], ['?', 'Tato nápověda']];
   dialog({ title: 'Klávesové zkratky', narrow: true, body: h('dl', { class: 'kv' }, rows.flatMap(([k, d]) => [h('dt', null, h('kbd', null, k)), h('dd', { style: { textAlign: 'left' } }, d)])), buttons: [{ label: 'Zavřít', kind: 'primary' }] });
 }
@@ -1692,6 +1699,7 @@ document.addEventListener('keydown', (e) => {
     case 'A': e.preventDefault(); api.globalApprove(); break;
     case 'p': e.preventDefault(); api.toggleProof(); break;
     case 'P': e.preventDefault(); api.proofUpto(); break;
+    case 'U': e.preventDefault(); api.unproofUpto(); break;
     case 'f': e.preventDefault(); api.flagFix(); break;
     case 'e': case 'Enter': { const it = S.ent.items[i]; if (it) { e.preventDefault(); openEditor(it.file, it.line); } break; }
     default:

@@ -250,7 +250,7 @@ def make_handler(sess):
                 "glossary/delete": lambda: app.glossary_delete(list(d.get("codes") or [])),
                 "proof/set": lambda: app.proof_set(list(d.get("items") or []), str(d.get("state", "ok")),
                                                    d.get("note")),
-                "proof/upto": lambda: app.proof_upto(str(d["file"]), ints(d["line"])),
+                "proof/upto": lambda: app.proof_upto(str(d["file"]), ints(d["line"]), str(d.get("state", "ok"))),
                 "proof/clear-file": lambda: app.proof_clear_file(str(d["file"])),
                 "open-url": lambda: app.open_link(str(d.get("id", ""))),
                 "fix/preview": lambda: {"ok": True, **app.fix_preview(list(d.get("items") or []), str(d.get("file", "")))},

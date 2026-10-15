@@ -842,14 +842,19 @@ class App:
             return out
 
     def proof_upto(self, rel, line, state="ok"):
-        """Mark every translated, not yet proofread / flagged line of a file up to `line` (inclusive)."""
+        """Every line of a file up to `line` (inclusive):
+        state "ok"  - mark translated lines that are not yet proofread (or whose proofreading went stale) as proofread;
+        state ""    - take the "proofread" mark away again (also stale ones). Lines flagged "to fix" are left alone."""
         self._need_project()
+        if state not in ("ok", ""):
+            raise AppError("Neplatný stav korektury.")
         with self.lock:
             if rel not in self.project.files:
                 raise AppError("Neznámý soubor.")
+            wanted = ("", "stale") if state == "ok" else ("ok", "stale")
             items = [{"file": rel, "key": list(e.key)} for e in self.project.entries(rel)
                      if e.line <= line and self.project.is_translated(rel, e)
-                     and self.project.proof_state(rel, e) in ("", "stale")]
+                     and self.project.proof_state(rel, e) in wanted]
             if not items:
                 return {"ok": True, "changed": 0, "skipped": [], "problems": []}
             return self.proof_set(items, state)
