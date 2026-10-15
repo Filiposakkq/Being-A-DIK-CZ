@@ -87,10 +87,20 @@ class Memory:
                               "file": r["file"], "line": r["line"], "who": r["who"]}
         return sorted(found.values(), key=lambda x: (-x["ratio"], x["target"]))[:limit]
 
-    def groups(self, limit=500):
-        """Originals that were translated in more than one way: [{key, source, total, variants:[{target, count, lines}]}]."""
+    def groups(self, limit=500, loose=False, by_speaker=False):
+        """Originals that were translated in more than one way: [{key, source, total, variants:[{target, count, lines}]}].
+
+        By default the original must be EXACTLY the same text (case, punctuation and tags included): "Yeah.", "Yeah!" and
+        "YEAH!!!" are different lines that are rightly translated differently ("Jo.", "Jo!", "JOOO!"), so they are never put
+        together. `loose` compares only the words (the old behaviour, to find near duplicates); `by_speaker` keeps lines of
+        different speakers apart (the same word can be said by a man and a woman, or in another tone)."""
+        buckets = defaultdict(list)
+        for i, r in enumerate(self.rows):
+            base = " ".join(r["tokens"]) if loose else "=" + norm_ws(r["source"])
+            who = (r["who"] or "").split()[0] if by_speaker and r["who"] else ""
+            buckets[base + ("|" + who if by_speaker else "")].append(i)
         out = []
-        for key, ids in self.exact.items():
+        for key, ids in buckets.items():
             if len(ids) < 2:
                 continue
             rows = [self.rows[i] for i in ids]
@@ -102,6 +112,7 @@ class Memory:
             if len(variants) < 2:
                 continue
             vs = sorted(variants.values(), key=lambda v: (-v["count"], v["target"]))
-            out.append({"key": " ".join(key), "source": rows[0]["source"], "total": len(rows), "variants": vs})
+            out.append({"key": key, "source": rows[0]["source"], "total": len(rows), "variants": vs,
+                        "sources": sorted({norm_ws(r["source"]) for r in rows})})
         out.sort(key=lambda g: (-g["total"], g["key"]))
         return out[:limit]

@@ -1089,17 +1089,18 @@ class App:
         similar = [mark(x, x["source"]) for x in mem.similar(ent.source, skip)]
         return {"exact": exact, "similar": similar}
 
-    def consistency(self):
-        """Originals translated in several different ways."""
+    def consistency(self, loose=False, by_speaker=False):
+        """Originals translated in several different ways (exactly the same original text; see Memory.groups)."""
         self._need_project()
-        groups = self._memory().groups()
+        groups = self._memory().groups(loose=bool(loose), by_speaker=bool(by_speaker))
         return {"groups": groups, "total": len(groups), "lines": sum(g["total"] for g in groups)}
 
-    def consistency_unify(self, key, target, lines=None):
-        """Give every line of one original the same chosen translation (one undoable step)."""
+    def consistency_unify(self, key, target, lines=None, loose=False, by_speaker=False):
+        """Give the chosen lines of one original the same chosen translation (one undoable step).
+        `lines` = [{file, line}] picks exactly which lines change; without it every line of the group does."""
         self._need_project()
         with self.lock:
-            group = next((g for g in self._memory().groups(10 ** 6) if g["key"] == str(key)), None)
+            group = next((g for g in self._memory().groups(10 ** 6, bool(loose), bool(by_speaker)) if g["key"] == str(key)), None)
             if group is None:
                 raise AppError("Skupina se mezitím změnila – obnov soubory a zkus to znovu.")
             target = str(target)

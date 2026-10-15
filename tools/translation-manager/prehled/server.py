@@ -176,7 +176,7 @@ def make_handler(sess):
                 "lint/status": lambda: {"ok": True, **app.lint_status()},
                 "entry/history": lambda: {"ok": True, **app.entry_history(q1(q, "file"), int(q1(q, "line", "0")))},
                 "entry/memory": lambda: {"ok": True, **app.entry_memory(q1(q, "file"), int(q1(q, "line", "0")))},
-                "consistency": lambda: {"ok": True, **app.consistency()},
+                "consistency": lambda: {"ok": True, **app.consistency(q1(q, "loose") == "1", q1(q, "by_speaker") == "1")},
                 "entry/context": lambda: {"ok": True, **app.entry_context(q1(q, "file"), int(q1(q, "line", "0")))},
                 "glossary/occurrences": lambda: {"ok": True, **app.glossary_occurrences(
                     q1(q, "code"), q1(q, "missing") == "1")},
@@ -272,7 +272,7 @@ def make_handler(sess):
                 "snapshots/restore": lambda: app.snapshot_restore(str(d.get("name", "")), d.get("files")),
                 "snapshots/delete": lambda: app.snapshot_delete(str(d.get("name", ""))),
                 "lint/start": lambda: app.lint_start(),
-                "consistency/unify": lambda: app.consistency_unify(str(d.get("key", "")), str(d.get("target", "")), d.get("lines")),
+                "consistency/unify": lambda: app.consistency_unify(str(d.get("key", "")), str(d.get("target", "")), d.get("lines"), bool(d.get("loose")), bool(d.get("by_speaker"))),
                 "ignore/set": lambda: app.ignore_set(list(d.get("items") or []), bool(d.get("on", True)), str(d.get("note", ""))),
                 "entry/check": lambda: {"ok": True, **app.entry_check(str(d["file"]), ints(d["line"]), str(d.get("text", "")))},
                 "entry/save": lambda: app.entry_save(str(d["file"]), ints(d["line"]), str(d.get("text", ""))),
