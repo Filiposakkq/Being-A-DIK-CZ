@@ -8,7 +8,7 @@ import webbrowser
 from datetime import date, datetime
 from pathlib import Path
 
-from . import bulk, editor, export, history as hist, publish as pub, rpy, validator
+from . import bulk, editor, export, fixes, history as hist, publish as pub, rpy, validator
 from .config import Config, migrate_web_json
 from .project import (DATA_DIR_NAME, STATUS_LABELS, STATUS_ORDER, Project, ProjectUnavailable,
                       check_project_dir, file_status, totals_of)
@@ -166,13 +166,18 @@ class App:
     def _length_cfg(self):
         return self.config.get("validation.length", {})
 
+    def _terms(self):
+        """Glossary terms {English: Czech} used by the term-consistency check."""
+        return {c: g["n"] for c, g in self.store.glossary.items() if g["t"] == "term" and g["n"]}
+
     def _issues(self, rel):
         fi = self.project.files[rel]
-        sig = json.dumps(self._length_cfg(), sort_keys=True)
+        terms = self._terms()
+        sig = json.dumps([self._length_cfg(), terms], sort_keys=True)
         hit = self._val_cache.get(rel)
         if hit and hit[0] is fi.parsed and hit[1] == sig:
             return hit[2]
-        res = validator.check_parsed(fi.parsed, self._length_cfg())
+        res = validator.check_parsed(fi.parsed, self._length_cfg(), terms)
         self._val_cache[rel] = (fi.parsed, sig, res)
         return res
 
@@ -229,7 +234,8 @@ class App:
                 out.append({"file": rel, "line": line, "severity": iss.severity, "code": iss.code,
                             "category": iss.category, "message": iss.message,
                             "source": e.source if e else "", "target": e.target if e else "",
-                            "who": e.who if e else "", "extra": iss.extra})
+                            "who": e.who if e else "", "extra": iss.extra,
+                            "src_who": e.src_who if e else ""})
         if (not severity or severity == "error") and not category and not q:
             for rel, line, first in self._duplicate_ids():
                 if not file or rel == file:
@@ -764,6 +770,32 @@ class App:
             self._val_cache.clear()
             out = self._changed("undo")
             out["undone"] = label
+            return out
+
+    # ------------------------------------------------------------ fixing structure errors in the .rpy files
+    def fix_preview(self, items=None, file=""):
+        self._need_project()
+        with self.lock:
+            planned = fixes.plan(self.project, items, file)
+            return {"items": planned, "total": len(planned), "fixable": sum(1 for p in planned if not p["skip"])}
+
+    def fix_apply(self, items=None, file=""):
+        """Copy speaker / attributes / trailing code from the original into the translation lines."""
+        self._need_project()
+        with self.lock:
+            planned = fixes.plan(self.project, items, file)
+            if not planned:
+                raise AppError("Není co opravovat.")
+            try:
+                res = fixes.apply(self.project, self.data_dir, planned)
+            except fixes.FixError as e:
+                raise AppError(str(e)) from e
+            finally:
+                self.project.refresh(force=True)
+                self._val_cache.clear()
+            self.store.ensure_files([r.name for r in self.project.rows()])
+            out = self._changed("fix")
+            out.update(res)
             return out
 
     def open_link(self, link_id, opener=None):

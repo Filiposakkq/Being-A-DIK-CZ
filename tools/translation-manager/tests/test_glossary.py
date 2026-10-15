@@ -1,6 +1,7 @@
 """Glossary of speaker names (slovnik.csv)."""
 import http.client
 import json
+from pathlib import Path
 
 from helpers import TempCase, dialog
 
@@ -127,7 +128,8 @@ class GlossaryImportTests(TempCase):
 
     def test_preview_parses_names_and_states_and_writes_nothing(self):
         pv = self.app.glossary_import_preview()
-        self.assertEqual(pv["files"], [str(self.game / "characters.rpy")])      # found automatically
+        self.assertEqual([str(Path(f).resolve()) for f in pv["files"]],
+                         [str((self.game / "characters.rpy").resolve())])      # found automatically
         items = {i["code"]: i for i in pv["items"]}
         self.assertEqual(items["js"]["name"], "Josy")
         self.assertEqual(items["de"]["name"], "Duplicate Derek")                # Ren'Py: the last definition wins
