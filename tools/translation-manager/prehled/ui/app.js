@@ -112,6 +112,7 @@ const ICONS = {
   focus: [['rect', { x: 4, y: 5, width: 16, height: 14, rx: 2 }], ['path', { d: 'M9 10h6v4H9z' }]],
   layout: [['rect', { x: 3, y: 4, width: 18, height: 16, rx: 2 }], ['path', { d: 'M3 14h18' }]],
   undo: [['path', { d: 'M9 7L4 12l5 5M4 12h11a5 5 0 0 1 0 10h-3' }]],
+  empty: [['path', { d: 'M4 13l2-7h12l2 7v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z' }], ['path', { d: 'M4 13h5l1 2h4l1-2h5' }]],
 };
 function icon(name, size = 16) {
   const NS = 'http://www.w3.org/2000/svg';
@@ -338,7 +339,7 @@ const proofChip = (p) => (p === 'ok' ? chip('proof', '✓ zkontrolováno') : p =
   : p === 'stale' ? chip('info', '↻ změněno po korektuře') : null);
 const chip = (cls, text) => h('span', { class: 'chip ' + cls }, text);
 function bar(pct, cls = '') { return h('div', { class: 'bar ' + cls }, h('i', { style: { width: clamp01(pct) + '%' } })); }
-function empty(title, text) { return h('div', { class: 'empty' }, h('b', null, title), text); }
+function empty(title, text) { return h('div', { class: 'empty' }, h('div', { class: 'empty-ico' }, icon('empty', 28)), h('b', null, title), text); }
 function loading(text = 'Načítám…') { return h('div', { class: 'loading' }, h('span', { class: 'spin' }), ' ' + text); }
 const isTyping = (t) => t && (['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName) || t.isContentEditable);
 
@@ -643,6 +644,7 @@ async function viewOverview() {
   if (o.unsaved.length) root.append(h('div', { class: 'notice warn' }, `Nepodařilo se uložit: ${o.unsaved.join(', ')} (soubor je možná otevřený v Excelu). Zavři ho a klikni na Obnovit soubory.`));
   if (o.last_save_error) root.append(h('div', { class: 'notice warn' }, o.last_save_error));
   if (o.lock_lost) root.append(h('div', { class: 'notice warn' }, 'Projekt mezitím převzala jiná kopie aplikace. Neukládej tady další změny: zavři tuto kopii, nebo projekt otevři znovu (Změnit složku).'));
+  if (t.total) root.append(overviewHero(o, S.files || (S.files = (await get('files')).files)));
   root.append(h('div', { class: 'grid cards' },
     h('div', { class: 'panel stat' }, h('div', { class: 'label' }, 'Překlad'),
       h('div', { class: 'value' }, fmtPct(t.percent)), bar(t.percent),
@@ -696,6 +698,42 @@ async function viewOverview() {
   return root;
 }
 /* This week's goal for translating and proofreading. Automatic goals come from the recent weekly pace (+10 %); a goal set in Nastavení wins. */
+/* Two concentric rings: the outer one translation, the inner one proofreading. */
+function ringChart(translated, proofread, size = 132) {
+  const NS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(NS, 'svg');
+  svg.setAttribute('viewBox', '0 0 100 100'); svg.setAttribute('width', size); svg.setAttribute('height', size); svg.setAttribute('role', 'img');
+  svg.setAttribute('aria-label', `Překlad ${fmtPct(translated)}, korektura ${fmtPct(proofread)}`);
+  const ring = (r, pct, color, w) => {
+    const c = 2 * Math.PI * r;
+    for (const [stroke, len] of [['var(--raise)', c], [color, c * Math.max(0, Math.min(100, pct)) / 100]]) {
+      const el = document.createElementNS(NS, 'circle');
+      for (const [k, v] of Object.entries({ cx: 50, cy: 50, r, fill: 'none', stroke, 'stroke-width': w, 'stroke-linecap': 'round', 'stroke-dasharray': `${len} ${c}`, transform: 'rotate(-90 50 50)' })) el.setAttribute(k, v);
+      svg.append(el);
+    }
+  };
+  ring(42, translated, 'var(--accent)', 9); ring(30, proofread, 'var(--proof)', 7);
+  return svg;
+}
+/* The top of the overview: where you are, and one click to carry on. */
+function overviewHero(o, files) {
+  const t = o.totals, e = o.estimate || {};
+  const last = pref('ui.last', null);
+  const near = (files || []).filter((f) => f.todo > 0 && f.done > 0).sort((a, b) => a.todo - b.todo)[0];
+  const resume = () => (last && last.file ? go('entries', { file: last.file, line: last.line, status: 'all', select: true }) : go('entries', { file: '', status: 'todo', select: true }));
+  return h('div', { class: 'panel hero' },
+    h('div', { class: 'hero-ring' }, ringChart(t.percent, t.proofread_percent), h('div', { class: 'hero-pct' }, h('b', null, fmtPct(t.percent)), h('span', { class: 'muted' }, 'přeloženo'))),
+    h('div', { class: 'hero-body' },
+      h('h2', null, t.remaining ? `Zbývá ${fmtN(t.remaining)} ${plural(t.remaining, 'řádek', 'řádky', 'řádků')}` : 'Vše je přeloženo'),
+      h('div', { class: 'muted' }, [
+        e.pace_per_day ? `tempo ≈ ${fmtN(Math.round(e.pace_per_day))} řádků za den` : '',
+        e.status === 'ok' && e.eta ? `odhad dokončení ${dateCz(e.eta)}` : '',
+        `korektura ${fmtPct(t.proofread_percent)}`].filter(Boolean).join(' · ')),
+      h('div', { class: 'row', style: { marginTop: '12px', flexWrap: 'wrap' } },
+        h('button', { class: 'btn primary', onclick: resume }, last && last.file ? `Pokračovat: ${last.file.split(/[\\/]/).pop()}:${last.line}` : 'Začít překládat'),
+        h('button', { class: 'btn', title: 'Scéna a editor přes celou obrazovku, jen nepřeložené řádky', onclick: () => enterQuick() }, 'Rychle překládat'),
+        near ? h('button', { class: 'btn ghost', title: `Soubor s nejmenším zbytkem: ${near.name}`, onclick: () => go('entries', { file: near.name, status: 'todo', select: true }) }, `Nejblíž dokončení: ${near.name.split(/[\\/]/).pop()} (zbývá ${fmtN(near.todo)})`) : null)));
+}
 function goalsPanel(g) {
   const row = (label, p, cls) => {
     if (!p.goal) return h('div', { class: 'goalrow' }, h('b', null, label), h('span', { class: 'muted' }, `tento týden ${fmtN(p.done)} ${plural(p.done, 'řádek', 'řádky', 'řádků')} · cíl zatím nejde odvodit z tempa (málo historie) – nastav ho v Nastavení`));
@@ -1178,7 +1216,7 @@ async function viewEntries() {
     tr?.classList.add('sel');
     tr?.scrollIntoView({ block: 'nearest' });
     const it = S.ent.items[i];
-    if (!COMPANION) announceFocus(it);
+    if (!COMPANION) { announceFocus(it); setPref('ui.last', { file: it.file, line: it.line }); }
     const tab = pref('ui.detailTab', 'scene');
     const pre = (COMPANION ? (S.compFull || tab === 'scene') : (tab === 'scene' && !(S.companionOpen && pref('ui.slimMain', true)))) ? prefetchScene(it.file, it.line).catch(() => {}) : null;
     try { S.ent.detail = await get('entry', { file: it.file, line: it.line }); } catch (err) { S.ent.detail = null; drawDetail(null, err.message); return; }

@@ -1,4 +1,4 @@
-/* BaDIK Translation Manager 1.5 – design tokens first (dark default, light via [data-theme]); components use only tokens.
+/* BaDIK Translation Manager 1.6 – design tokens first (dark default, light via [data-theme]); components use only tokens.
    Every class used by app.js is styled here; nothing in the markup depends on the look. */
 :root {
   color-scheme: dark;
@@ -11,7 +11,7 @@
   --line-2: #2f3b4e;
   --text: #e8ecf3;
   --muted: #95a1b5;
-  --faint: #5f6b7e;
+  --faint: #7d899d;
   --accent: #7aa7ff;
   --accent-2: #a58bff;
   --accent-bg: rgba(122, 167, 255, 0.15);
@@ -54,13 +54,13 @@
   --line-2: #cdd5e2;
   --text: #1a2231;
   --muted: #566277;
-  --faint: #8a95a8;
+  --faint: #6b778b;
   --accent: #3563e9;
   --accent-2: #7048d6;
   --accent-bg: rgba(53, 99, 233, 0.11);
   --accent-bg-soft: rgba(53, 99, 233, 0.05);
   --on-accent: #ffffff;
-  --good: #14895a;
+  --good: #0f7a50;
   --good-bg: rgba(20, 137, 90, 0.11);
   --good-line: rgba(20, 137, 90, 0.4);
   --info: #0b7a91;
@@ -540,3 +540,16 @@ body.focus .pane-head { padding-right: 330px; }
 .bubble .bwho { display: flex; align-items: center; gap: 6px; font-size: 12.5px; margin-bottom: 3px; }
 .bubble .btxt { font-size: 15px; }
 .bubble .bsrc { font-size: 12.5px; margin-top: 3px; }
+
+/* ---- v1.6: overview hero, empty states, motion */
+.hero { display: flex; gap: 24px; align-items: center; padding: 18px 22px; margin-bottom: 14px; flex-wrap: wrap; background: linear-gradient(135deg, var(--accent-bg-soft), transparent 60%), var(--panel); }
+.hero-ring { position: relative; flex: none; }
+.hero-pct { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1.1; }
+.hero-pct b { font-size: 22px; }
+.hero-pct span { font-size: 11px; }
+.hero-body { min-width: 260px; flex: 1; }
+.hero-body h2 { margin: 0 0 4px; font-size: 22px; }
+.empty-ico { color: var(--faint); margin-bottom: 6px; }
+@keyframes viewin { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+#view > * { animation: viewin .16s ease-out; }
+@media (prefers-reduced-motion: reduce) { #view > *, .fcard, .bubble { animation: none; transition: none; } }

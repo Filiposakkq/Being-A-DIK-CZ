@@ -56,6 +56,7 @@
     await openView('overview');
     ok('Přehled ukazuje týdenní cíl', document.querySelector('#view .goalrow'), 'chybí panel cíle');
     ok('Přehled má karty', document.querySelectorAll('#view .stat').length >= 4, `karet: ${document.querySelectorAll('#view .stat').length}`);
+    ok('Přehled má hlavní panel s kruhovým grafem a tlačítky', !!document.querySelector('#view .hero svg circle') && [...document.querySelectorAll('#view .hero button')].length >= 2, 'chybí panel');
   });
   await step('Soubory', async () => {
     await openView('files');
