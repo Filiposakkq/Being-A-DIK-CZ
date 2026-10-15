@@ -63,7 +63,8 @@ async function request(method, path, body) {
   return data;
 }
 const get = (p, q) => request('GET', p, q);
-const post = (p, b) => request('POST', p, b);
+const clearCtx = () => { S.ctxCache?.clear(); S.ctxDone?.clear(); };
+const post = (p, b) => { if (p !== 'focus' && p !== 'prefs' && p !== 'entry/check') clearCtx(); return request('POST', p, b); };   // a write may change the neighbouring lines
 
 /* ---------------------------------------------------------------- state & prefs */
 const S = {
@@ -102,6 +103,12 @@ function speakerModeSelect(onchange) {
   return h('select', { title: 'Jak zobrazovat mluvčí', onchange: (ev) => { setPref('display.speaker', ev.target.value); onchange?.(); } },
     ...[['both', 'Mluvčí: kód i jméno (2 sloupce)'], ['code', 'Mluvčí: jen kód'], ['name', 'Mluvčí: jen jméno']].map(([v, l]) => h('option', { value: v, selected: speakerMode() === v }, l)));
 }
+/* Several windows can be open at once (each has its own list / filter state). Only the first one saves preferences, so the
+   windows never overwrite each other's settings; the app quits when the last window is closed. */
+const WIN_ID = Math.random().toString(36).slice(2, 10);
+const URL_Q = new URLSearchParams(location.search);
+const SECONDARY = URL_Q.has('win');
+const COMPANION = SECONDARY && URL_Q.get('companion') === '1';      // detail-only window that follows the line open in the main window
 let prefTimer = null;
 const pref = (path, def) => path.split('.').reduce((o, k) => (o && o[k] !== undefined ? o[k] : undefined), S.prefs) ?? def;
 function setPref(path, value) {
@@ -109,6 +116,7 @@ function setPref(path, value) {
   let o = S.prefs;
   for (const k of parts.slice(0, -1)) o = o[k] = o[k] || {};
   o[parts.at(-1)] = value;
+  if (SECONDARY) return;
   clearTimeout(prefTimer);
   prefTimer = setTimeout(() => post('prefs', S.prefs).catch(() => {}), 500);
 }
@@ -285,6 +293,26 @@ function buildTable({ key, cols, sort, onSort, className = '' }) {
   table.append(colgroup, h('thead', null, head), tbody, tfoot);
   fit();
   return { table, tbody, tfoot };
+}
+
+/* A button that opens a small menu of actions (keeps toolbars short). items: [{ label, hint?, run }] */
+function menuButton(label, items, { primary = false, title = '' } = {}) {
+  const wrap = h('span', { class: 'menuwrap' });
+  const btn = h('button', { class: 'btn small' + (primary ? ' primary' : ''), 'aria-haspopup': 'menu', 'aria-expanded': 'false', title }, label, ' ▾');
+  const menu = h('div', { class: 'menu', role: 'menu' });
+  menu.hidden = true;
+  const onDoc = (e) => { if (!wrap.contains(e.target)) close(); };
+  function close() { menu.hidden = true; btn.setAttribute('aria-expanded', 'false'); document.removeEventListener('mousedown', onDoc, true); }
+  btn.onclick = (e) => {
+    e.stopPropagation();
+    if (!menu.hidden) return close();
+    menu.replaceChildren(...items.map((it) => h('button', { class: 'menuitem', role: 'menuitem', onclick: () => { close(); it.run(); } }, h('span', null, it.label), it.hint ? h('span', { class: 'muted' }, it.hint) : null)));
+    menu.hidden = false; btn.setAttribute('aria-expanded', 'true');
+    document.addEventListener('mousedown', onDoc, true);
+  };
+  wrap.addEventListener('keydown', (e) => { if (e.key === 'Escape') { close(); btn.focus(); } });
+  wrap.append(btn, menu);
+  return wrap;
 }
 
 /* ---------------------------------------------------------------- filter bar pieces (shared by all tabs) */
@@ -776,6 +804,60 @@ async function bulkAssignDialog(names) {
     buttons: [{ label: 'Zrušit' }, { node: applyBtn }] });
 }
 const optLabel = (opts, v) => (opts.find((o) => o.value === v) || { label: v }).label;
+/* Another window of the app on the same project (e.g. the scene or the file list next to the editor). Falls back to a browser window. */
+async function openWindow(opts = {}) {
+  const q = { view: S.view, ...opts };
+  try {
+    const r = await post('window/open', q);
+    if (!r.ok) throw new Error(r.error || 'Okno se nepodařilo otevřít.');
+  } catch (e) {
+    const u = new URLSearchParams({ win: '2', ...Object.fromEntries(Object.entries(q).filter(([, v]) => v !== undefined && v !== '')) });
+    if (!window.open(`${location.origin}/?${u}`, '_blank')) fail(e);
+  }
+}
+/* Companion window: follows the line open in the main window (polls the shared focus once a second; edits stay safe: an unsaved text is never replaced). */
+function startFollowing() {
+  let seen = -1, pending = null;
+  const apply = (f) => {
+    if (!f || !f.file) return;
+    S.lastFocus = f;
+    if (S.follow === false || S.view !== 'entries') return;
+    pending = null;
+    if (typeof f.text !== 'string' && $('#editTarget')?.dataset.dirty === '1') { pending = f; return; }   // keep what is being typed here; retried below
+    const cur = S.ent?.items?.[S.ent.sel];
+    if (cur && cur.file === f.file && cur.line === f.line && typeof f.text === 'string') { S.compDraft?.(f.text); return; }     // same line, only the typed text changed (a plain re-announcement, e.g. after saving, reloads it)
+    const key = f.file + '	' + f.line;
+    if (S.followTarget === key && Date.now() - S.followAt < 500) { if (typeof f.text === 'string') S.compDraft?.(f.text); return; }      // the channel and the server both announce a change: draw it once
+    if (!S.ent?.api) { pending = f; return; }
+    S.followTarget = key; S.followAt = Date.now();
+    S.ent.api.follow(f.file, f.line);
+  };
+  S.followApply = apply;
+  if (FOCUS_BC) FOCUS_BC.onmessage = (e) => apply(e.data);                      // instant, when the windows share a browser process
+  (async function loop() {                                                      // otherwise the server answers as soon as the focus changes
+    for (;;) {
+      try { const f = await get('focus', { after: seen, wait: 1 }); if (f.seq !== seen) { seen = f.seq; apply(f); } } catch { await new Promise((r) => setTimeout(r, 1500)); }
+    }
+  })();
+  setInterval(() => { if (pending && $('#editTarget')?.dataset.dirty !== '1') apply(pending); }, 800);
+}
+const FOCUS_BC = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('badik-focus') : null;
+function announceFocus(it) {
+  FOCUS_BC?.postMessage({ file: it.file, line: it.line, text: null });
+  post('focus', { file: it.file, line: it.line }).catch(() => {});
+}
+/* What is typed in the main editor goes to the detail window's preview (debounced for the server path, at once through the channel). */
+function announceDraft(d, text) {
+  FOCUS_BC?.postMessage({ file: d.file, line: d.line, text });
+  clearTimeout(S.draftT);
+  S.draftT = setTimeout(() => post('focus', { file: d.file, line: d.line, text }).catch(() => {}), 150);
+}
+/* The only extra window: the line detail alone (scene, check, proofreading…), following the line chosen in the main window. */
+function openDetailWindow() {
+  const cur = S.ent?.items?.[S.ent.sel];
+  if (!COMPANION) { S.companionOpen = true; S.ent?.api?.redraw?.(); }       // the next ping corrects it when the window did not open
+  openWindow({ view: 'entries', companion: '1', tab: 'scene', status: 'all', ...(cur ? { file: cur.file, line: cur.line } : {}) });
+}
 async function openEditor(file, line) {
   try { const r = await post('open-editor', { file, line }); toast(r.message, r.ok ? 'ok' : 'bad', 7000); } catch (e) { fail(e); }
 }
@@ -808,7 +890,9 @@ async function viewEntries() {
   }
   const files = S.files || (S.files = (await get('files')).files);
   const e = pref('entries', {});
-  const root = h('div', { class: 'split rows', style: { '--detail-h': pref('entries.detailh', 380) + 'px' } });
+  const layoutPref = pref('entries.layout', 'auto');
+  const sideBySide = !COMPANION && (layoutPref === 'cols' || (layoutPref === 'auto' && innerWidth >= 1500));
+  const root = h('div', { class: 'split ' + (COMPANION ? 'companion' : sideBySide ? 'cols ecols' : 'rows'), style: { '--detail-h': pref('entries.detailh', 380) + 'px', '--detail-w': pref('entries.detailw', 620) + 'px' } });
   const main = h('div', { class: 'pane' });
   const detail = h('div', { class: 'detail', id: 'entryDetail' });
   const counter = h('span', { class: 'muted' });
@@ -857,16 +941,22 @@ async function viewEntries() {
     moreBtn.textContent = `${open ? '▾' : '▸'} Další filtry${extraCount() ? ` (${extraCount()})` : ''}`;
     moreBox.style.display = open ? '' : 'none';
   }
+  const pickInfo = h('span', { class: 'pickinfo' });
   main.append(h('div', { class: 'pane-head' }, h('div', { class: 'filterbar' },
     h('div', { class: 'frow' }, search, filterGroup('Soubor', fileSel), moreBtn,
-      h('button', { class: 'btn small', title: 'Hledat a nahrazovat v přeloženém textu (celý projekt nebo vybrané soubory)', onclick: () => replaceDialog(async () => { S.files = null; await refreshHeader(); load(true); }, S.fl.picked.size ? [...S.fl.picked] : (pref('entries.file', '') ? [pref('entries.file', '')] : [])) }, 'Najít a nahradit…'),
-      h('button', { class: 'btn small', title: 'Hromadně schválí řádky, které se překládat nemusí (jen znaky, citoslovce, jména)', onclick: () => ruleApproveDialog(async () => { S.files = null; await refreshHeader(); load(true); }, S.fl.picked.size ? [...S.fl.picked] : (pref('entries.file', '') ? [pref('entries.file', '')] : [])) }, 'Schválit podle pravidla…'),
-      h('span', { class: 'spacer' }), counter),
+      menuButton('Nástroje', [
+        { label: 'Najít a nahradit…', hint: 'v překladech', run: () => replaceDialog(async () => { S.files = null; await refreshHeader(); load(true); }, S.fl.picked.size ? [...S.fl.picked] : (pref('entries.file', '') ? [pref('entries.file', '')] : [])) },
+        { label: 'Schválit podle pravidla…', hint: 'jména, citoslovce', run: () => ruleApproveDialog(async () => { S.files = null; await refreshHeader(); load(true); }, S.fl.picked.size ? [...S.fl.picked] : (pref('entries.file', '') ? [pref('entries.file', '')] : [])) },
+        { label: 'Opravit…', hint: 'mluvčí, mezery, překlepy', run: () => fixDialog({ file: pref('entries.file', '') }, async () => { S.files = null; await refreshHeader(); load(true); }) },
+        { label: 'Přeložit strojem…', hint: 'vybrané řádky, scéna, soubor', run: () => openMtDialog() },
+      ], { title: 'Hromadné úpravy překladů' }),
+      pickInfo, h('span', { class: 'spacer' }), counter,
+      h('button', { class: 'btn small ghost', title: sideBySide ? 'Detail dát pod seznam' : 'Detail dát vedle seznamu (hodí se na širokém monitoru: scéna a editor bez posouvání)', onclick: () => { setPref('entries.layout', sideBySide ? 'rows' : 'cols'); render(); } }, sideBySide ? '▤ Detail dole' : '◫ Detail vpravo')),
     pillsBox, moreBox, chipsBox)));
   paintFilters();
   const wrap = h('div', { class: 'pane-body' });
   main.append(wrap);
-  root.append(main, makeSplitter(root, 'v', { key: 'entries.detailh', def: 380, min: 140, maxFrac: 0.7 }), detail);
+  root.append(main, sideBySide ? makeSplitter(root, 'h', { key: 'entries.detailw', def: 620, min: 320, maxFrac: 0.72 }) : makeSplitter(root, 'v', { key: 'entries.detailh', def: 380, min: 140, maxFrac: 0.7 }), detail);
   let timer;
   const debounceLoad = () => { clearTimeout(timer); timer = setTimeout(() => load(true), 250); };
   let tbody;
@@ -881,10 +971,34 @@ async function viewEntries() {
     wrap.replaceChildren(h('div', { class: 'tablewrap' }, t.table), more);
     S.ent.more = more; S.ent.showFile = showFile;
   }
+  const pickKey = (it) => it.file + '\t' + it.line;
+  const picked = () => (S.ent.picked ||= new Set());
+  function paintPicks() {
+    [...tbody.children].forEach((tr) => { const it = S.ent.items[+tr.dataset.i]; tr.classList.toggle('picked', !!it && picked().has(pickKey(it))); });
+    const n = picked().size;
+    pickInfo.replaceChildren(...(n ? [`Vybráno ${n} ${plural(n, 'řádek', 'řádky', 'řádků')} `, h('button', { class: 'btn small ghost', onclick: () => { picked().clear(); paintPicks(); } }, 'Zrušit výběr'),
+      h('button', { class: 'btn small', onclick: () => openMtDialog() }, 'Přeložit strojem…')] : []));
+  }
+  function rowClick(ev, i, it) {
+    if (ev.ctrlKey || ev.metaKey) { const k = pickKey(it); picked().has(k) ? picked().delete(k) : picked().add(k); paintPicks(); return; }
+    if (ev.shiftKey && S.ent.sel >= 0) {
+      const [a, b] = [Math.min(S.ent.sel, i), Math.max(S.ent.sel, i)];
+      for (let j = a; j <= b; j++) picked().add(pickKey(S.ent.items[j]));
+      paintPicks(); return;
+    }
+    if (picked().size) { picked().clear(); paintPicks(); }
+    select(i);
+  }
+  /* Machine translation of the picked lines, the lines around the open one, the file in the filter, or everything. */
+  function openMtDialog() {
+    const cur = S.ent.items[S.ent.sel];
+    mtDialog({ picked: [...picked()].map((k) => { const [file, line] = k.split('\t'); return { file, line: +line }; }),
+      anchor: cur ? { file: cur.file, line: cur.line } : null, file: pref('entries.file', '') }, async () => { picked().clear(); S.files = null; await refreshHeader(); load(true); });
+  }
   function rowFor(it, i) {
     const hasErr = it.issues.some((x) => x.severity === 'error');
     const sev = hasErr ? 'error' : it.issues.length ? 'warning' : '';
-    return h('tr', { class: `status-${it.status} ${hasErr ? 'has-error' : ''} ${S.ent.sel === i ? 'sel' : ''}`, dataset: { i }, onclick: () => select(i), ondblclick: () => openEditor(it.file, it.line) },
+    return h('tr', { class: `status-${it.status} ${hasErr ? 'has-error' : ''} ${S.ent.sel === i ? 'sel' : ''} ${picked().has(pickKey(it)) ? 'picked' : ''}`, dataset: { i }, onclick: (ev) => rowClick(ev, i, it), ondblclick: () => openEditor(it.file, it.line) },
       S.ent.showFile ? h('td', null, fname(it.file)) : null,
       h('td', { class: 'num' }, it.line), h('td', { class: 'mono muted', style: { fontSize: '12px' } }, it.ref ? it.ref.replace(/^game\//, '') : '–'),
       h('td', null, it.unit === 'string' ? h('span', { class: 'chip choice', title: 'Text z „translate strings“ – většinou volba v menu nebo text rozhraní' }, 'Volba') : h('span', { class: 'muted' }, 'Dialog')),
@@ -895,7 +1009,20 @@ async function viewEntries() {
       h('td', { class: 'txt entry-source' }, fmtText(it.source ?? '')), h('td', { class: 'txt entry-target' }, fmtText(it.target)),
       h('td', null, sev ? chip(sev, `${it.issues.length}×`) : null));
   }
+  /* Detail window: there is no list, only the one line it follows (loading a whole list for every change was slow and racy). */
+  async function followLine(file, line) {
+    let d;
+    clearCtx();                                         // the main window may have changed neighbouring lines
+    prefetchScene(file, line).catch(() => {});          // starts at once, in parallel with the detail
+    try { d = await get('entry', { file, line }); } catch (err) { S.ent.items = [{ file, line }]; S.ent.detail = null; return drawDetail(null, err.message); }
+    const it = { file, line, key: d.key, status: d.status, proof: d.proof, kind: d.kind, unit: d.unit, who: d.who, ref: d.ref, source: d.source, target: d.target,
+      issues: d.issues.filter((x) => x.severity !== 'info').map((x) => ({ severity: x.severity, code: x.code })) };
+    S.ent.items = [it]; S.ent.sel = -1; S.ent.total = 1; S.ent.start = 0;
+    tbody.replaceChildren(rowFor(it, 0));
+    await select(0);
+  }
   async function load(reset) {
+    if (COMPANION) { const cur = S.ent.items[0]; return cur ? followLine(cur.file, cur.line) : drawDetail(null); }
     if (S.ent.loading) return;
     S.ent.loading = true;
     try {
@@ -929,34 +1056,78 @@ async function viewEntries() {
     tr?.classList.add('sel');
     tr?.scrollIntoView({ block: 'nearest' });
     const it = S.ent.items[i];
+    if (!COMPANION) announceFocus(it);
+    const tab = pref('ui.detailTab', 'scene');
+    const pre = (COMPANION ? (S.compFull || tab === 'scene') : (tab === 'scene' && !(S.companionOpen && pref('ui.slimMain', true)))) ? prefetchScene(it.file, it.line).catch(() => {}) : null;
     try { S.ent.detail = await get('entry', { file: it.file, line: it.line }); } catch (err) { S.ent.detail = null; drawDetail(null, err.message); return; }
-    if (S.ent.sel === i) drawDetail(S.ent.detail);
+    if (pre) await pre;
+    if (S.ent.sel === i) { const top = detail.scrollTop; drawDetail(S.ent.detail); detail.scrollTop = top; requestAnimationFrame(() => { if (S.ent.sel === i) detail.scrollTop = top; }); }
     if (i >= S.ent.items.length - 15 && S.ent.start + S.ent.items.length < S.ent.total) load(false);
   }
   function drawDetail(d, err) {
     if (!d) return detail.replaceChildren(h('h4', null, 'Detail řádku'), err ? h('div', { class: 'notice bad' }, err) : h('p', { class: 'muted' }, 'Vyber řádek. Šipky ↑ ↓ procházejí řádky, ', h('kbd', null, 'A'), ' schválí, ', h('kbd', null, 'E'), ' otevře editor, ', h('kbd', null, '?'), ' ukáže všechny zkratky.'));
     const canApprove = d.status !== 'translated' && d.kind !== 'empty';
-    detail.replaceChildren(h('div', { class: 'row', style: { justifyContent: 'space-between' } }, h('h4', null, 'Detail řádku'), chip(d.status, ENTRY_LABEL[d.status] + (d.kind_label && d.status !== 'translated' ? ` · ${d.kind_label}` : ''))),
-      h('div', { class: 'path' }, `${d.file}:${d.line}`),
-      h('div', { class: 'ctx' }, d.unit === 'string' ? chip('choice', 'Volba / řetězec') : chip('none', 'Dialog'), d.ref ? ['  původní skript: ', h('b', { class: 'mono' }, d.ref)] : null),
-      h('div', { class: 'actions' },
-        canApprove ? h('button', { class: 'btn small primary', onclick: () => toggleApprove() }, d.status === 'approved' ? 'Zrušit schválení (A)' : 'Schválit řádek (A)') : null,
-        canApprove ? h('button', { class: 'btn small', onclick: () => globalApprove() }, 'Schválit všechny shodné… (Shift+A)') : null,
-        h('button', { class: 'btn small', onclick: () => openEditor(d.file, d.line) }, 'Otevřít v editoru (E)'),
-        h('button', { class: 'btn small ghost', onclick: () => copy(`${d.path}:${d.line}`) }, 'Kopírovat cestu')),
-      h('div', { class: 'pair' },
+    const ed = translationEditor(d);
+    detail.replaceChildren(
+      COMPANION ? companionBar() : null,
+      h('div', { class: 'dhead' },
+        h('span', { class: 'path', title: d.ref ? `původní skript: ${d.ref}` : '' }, `${d.file}:${d.line}`),
+        d.unit === 'string' ? chip('choice', 'Volba') : chip('none', 'Dialog'),
+        chip(d.status, ENTRY_LABEL[d.status] + (d.kind_label && d.status !== 'translated' ? ` · ${d.kind_label}` : '')),
+        h('span', { class: 'spacer' }),
+        canApprove ? h('button', { class: 'btn small primary', onclick: () => toggleApprove() }, d.status === 'approved' ? 'Zrušit schválení (A)' : 'Schválit (A)') : null,
+        h('button', { class: 'btn small', title: 'Otevře soubor na tomhle řádku v externím editoru', onclick: () => openEditor(d.file, d.line) }, 'Editor (E)'),
+        menuButton('Více', [
+          ...(canApprove ? [{ label: 'Schválit všechny shodné…', hint: 'Shift+A', run: () => globalApprove() }] : []),
+          ...(!COMPANION && S.companionOpen ? [{ label: pref('ui.slimMain', true) ? 'Záložky ukázat i v tomto okně' : 'Záložky jen v druhém okně', run: () => { setPref('ui.slimMain', !pref('ui.slimMain', true)); drawDetail(S.ent.detail); } }] : []),
+          { label: 'Kopírovat cestu', run: () => copy(`${d.path}:${d.line}`) },
+        ], { title: 'Další akce s řádkem' })),
+      ...layoutParts(d, ed, h('div', { class: 'pair' },
         h('div', null, h('div', { class: 'row', style: { justifyContent: 'space-between' } }, h('h4', { style: { margin: 0 } }, 'Originál'),
           h('span', { class: 'row' }, h('button', { class: 'btn small ghost', title: 'Zkopíruje text originálu do schránky', onclick: () => copy(d.source ?? '') }, '⧉ Originál'),
             h('button', { class: 'btn small ghost', title: 'Zkopíruje originál a překlad pod sebe', onclick: () => copy(`${d.source ?? ''}\n${$('#editTarget') ? $('#editTarget').value : d.target}`) }, '⧉ Oboje'))),
           h('div', { class: 'textbox', style: { marginTop: '6px' } }, fmtText(d.source ?? '(zdroj nenalezen)'))),
-        translationEditor(d)),
-      d.issues.length ? h('div', null, h('h4', null, 'Kontrola'), d.issues.map((x) => h('div', { class: 'issue ' + x.severity + (x.ignored ? ' ignored' : '') }, x.ignored ? chip('none', 'ignorováno') : chip(x.severity, SEV_LABEL[x.severity]), ' ', x.message,
+        ed), () => detailTabs(d, ed)));
+  }
+  /* With a detail window open the main window keeps the translating (original + editor) and hands the tabs (scene, check, proofreading…) to it;
+     the detail window can show the editor as well. */
+  function layoutParts(d, ed, pair, tabsFn) {
+    if (COMPANION) {
+      S.compDraft = (t) => { if (!S.compEditor) { ed.ta.value = t; ed.ta.dispatchEvent(new Event('draft')); } };
+      const editor = S.compEditor ? pair : null;
+      return (S.compFull ? [inPane(gamePreview(d, ed.ta)), editor] : [editor, tabsFn()]).filter(Boolean);
+    }
+    if (S.companionOpen && pref('ui.slimMain', true)) {
+      return [pair, h('div', { class: 'slimnote muted' }, 'Scéna, kontrola, korektura a další záložky jsou v druhém okně. ',
+        h('button', { class: 'btn small ghost', onclick: () => { setPref('ui.slimMain', false); drawDetail(S.ent.detail); } }, 'Ukázat je i tady'))];
+    }
+    return [pair, tabsFn()];
+  }
+  /* Detail window: follows the main window; the scene can take the whole window (the editor stays under it). */
+  function companionBar() {
+    const setFull = (v) => {
+      S.compFull = v;
+      const ta = $('#editTarget'), keep = ta && ta.dataset.dirty === '1' ? ta.value : null;
+      drawDetail(S.ent.detail);
+      if (keep !== null) { const n = $('#editTarget'); n.value = keep; n.dispatchEvent(new Event('input')); }
+    };
+    return h('div', { class: 'followbar' },
+      h('label', { class: 'check', title: 'Okno ukazuje řádek, na který kliknu v hlavním okně' }, h('input', { type: 'checkbox', checked: S.follow !== false, onchange: (e) => { S.follow = e.target.checked; S.followTarget = ''; if (S.follow) S.followApply?.(S.lastFocus || {}); } }), ' Sledovat hlavní okno'),
+      h('span', { class: 'spacer' }),
+      h('label', { class: 'check', title: 'Překládat i v tomhle okně (jinak se překládá v hlavním a tohle okno ukazuje scénu a kontroly)' }, h('input', { type: 'checkbox', checked: !!S.compEditor, onchange: (e) => { S.compEditor = e.target.checked; drawDetail(S.ent.detail); } }), ' Editor i tady'),
+      h('div', { class: 'seg' }, h('button', { class: S.compFull ? '' : 'on', onclick: () => setFull(false) }, 'Scéna a detail'), h('button', { class: S.compFull ? 'on' : '', onclick: () => setFull(true) }, 'Scéna přes celé okno')));
+  }
+  /* Secondary panels of the line detail live in tabs: only the chosen one is built (and fetches its data). */
+  const inPane = (el) => { if (!el.dataset.keep) el.open = true; el.classList.add('inpane'); return el; };
+  const issuesPane = (d) => (
+        d.issues.length ? h('div', null, d.issues.map((x) => h('div', { class: 'issue ' + x.severity + (x.ignored ? ' ignored' : '') }, x.ignored ? chip('none', 'ignorováno') : chip(x.severity, SEV_LABEL[x.severity]), ' ', x.message,
         x.ignored ? h('span', { class: 'muted' }, x.ignore_note ? ` – ${x.ignore_note}` : '') : null,
         h('div', null, x.ignored ? h('button', { class: 'btn small ghost', onclick: () => unignore([{ file: d.file, line: d.line, code: x.code }], () => { S.ent.api.reload(); }) }, 'Přestat ignorovat')
           : h('button', { class: 'btn small ghost', title: 'Schová tenhle nález u tohoto řádku (jde vrátit)', onclick: () => ignoreDialog(d.issues.filter((y) => !y.ignored).map((y) => ({ file: d.file, line: d.line, code: y.code, severity: y.severity, message: y.message })).sort((a, b) => (a.code === x.code ? -1 : b.code === x.code ? 1 : 0)), () => { S.ent.api.reload(); }) }, 'Ignorovat…')),
         x.fixable ? h('div', null, h('button', { class: 'btn small primary', onclick: () => fixDialog({ items: [{ file: d.file, line: d.line }], kinds: [x.kind || 'speaker'] }, () => { load(true); }) }, x.kind === 'speaker' || !x.kind ? 'Opravit podle originálu' : 'Opravit…')) : null,
-        x.ratio ? h('div', { class: 'muted' }, `Délka: originál ${x.source_len}, překlad ${x.target_len} znaků (poměr ${String(x.ratio).replace('.', ',')}). Rozhodni sám, jestli je to záměr.`) : null))) : null,
-      d.status !== 'todo' ? h('div', { class: 'proofbox' },
+        x.ratio ? h('div', { class: 'muted' }, `Délka: originál ${x.source_len}, překlad ${x.target_len} znaků (poměr ${String(x.ratio).replace('.', ',')}). Rozhodni sám, jestli je to záměr.`) : null))) : h('div', { class: 'muted' }, 'Řádek nemá žádné nálezy.'));
+  const proofPane = (d) => (
+        d.status !== 'todo' ? h('div', { class: 'proofbox' },
         h('div', { class: 'row' }, h('h4', { style: { margin: 0 } }, 'Korektura'), proofChip(d.proof) || h('span', { class: 'muted' }, 'zatím nezkontrolováno'),
           d.proof_date && d.proof === 'ok' ? h('span', { class: 'muted' }, d.proof_date) : null),
         h('div', { class: 'actions' },
@@ -965,10 +1136,32 @@ async function viewEntries() {
           h('button', { class: 'btn small', title: 'Označí jako zkontrolované všechny přeložené řádky tohoto souboru od začátku až po tento řádek. Řádky označené „k opravě“ se nemění. Jde vrátit (Ctrl+Z).', onclick: () => proofUpto('ok') }, '✓ Zkontrolovat vše až sem (Shift+P)'),
           h('button', { class: 'btn small', title: 'Odebere značku „zkontrolováno“ všem řádkům tohoto souboru od začátku až po tento řádek. Řádky označené „k opravě“ zůstanou. Jde vrátit (Ctrl+Z).', onclick: () => proofUpto('') }, '↺ Zrušit zkontrolování až sem (Shift+U)')),
         h('textarea', { id: 'proofNote', rows: 2, placeholder: 'Poznámka ke korektuře (co opravit)…', value: d.proof_note || '', style: { width: '100%' },
-          onchange: (ev) => saveNote(ev.target.value) })) : null,
+          onchange: (ev) => saveNote(ev.target.value) })) : h('div', { class: 'muted' }, 'Řádek ještě není přeložený – korektura se dělá až po překladu.'));
+  const scriptPane = (d) => h('div', null,
       h('div', { class: 'ctx' }, 'Blok: ', h('b', { class: 'mono' }, d.block), d.who ? ['  ·  mluvčí: ', h('b', { class: 'mono' }, speakerFull(d.who))] : null, d.src_line ? `  ·  originál na řádku ${d.src_line}` : null),
-      scriptContext(d),
-      sceneBox(d));
+    scriptContext(d));
+  function detailTabs(d, ed) {
+    const nIssues = d.issues.filter((x) => !x.ignored).length;
+    const needsEditor = new Set(['memory', 'history']);
+    const defs0 = [
+      ['check', nIssues ? `Kontrola (${nIssues})` : 'Kontrola', () => issuesPane(d)],
+      ['proof', 'Korektura', () => proofPane(d)],
+      ['scene', 'Scéna', () => h('div', null, inPane(gamePreview(d, ed.ta)), inPane(sceneBox(d)))],
+      ['memory', 'Paměť', () => inPane(memoryPanel(d, ed.ta, ed.insert))],
+      ['history', 'Historie', () => inPane(historyPanel(d, ed.ta))],
+      ['script', 'Skript', () => scriptPane(d)],
+    ];
+    const defs = COMPANION && !S.compEditor ? defs0.filter(([k]) => !needsEditor.has(k)) : defs0;
+    let cur = pref('ui.detailTab', nIssues ? 'check' : 'scene');
+    if (!defs.some(([k]) => k === cur)) cur = 'scene';
+    const bar = h('div', { class: 'dtabs', role: 'tablist' }), pane = h('div', { class: 'dpane' });
+    function show(k) {
+      cur = k; setPref('ui.detailTab', k);
+      bar.replaceChildren(...defs.map(([key, label]) => h('button', { class: 'dtab' + (key === k ? ' on' : '') + (key === 'check' && nIssues ? ' warn' : ''), role: 'tab', 'aria-selected': String(key === k), onclick: () => show(key) }, label)));
+      pane.replaceChildren(defs.find(([key]) => key === k)[2]());
+    }
+    show(cur);
+    return h('div', { class: 'dtabswrap' }, bar, pane);
   }
   function translationEditor(d) {
     const ta = h('textarea', { id: 'editTarget', class: 'ed editbox', rows: 3, spellcheck: 'true', lang: 'cs', 'aria-label': 'Překlad' });
@@ -1011,7 +1204,7 @@ async function viewEntries() {
         } else select(i);
       } catch (err) { fail(err); }
     }
-    ta.addEventListener('input', () => { sync(); clearTimeout(timer); timer = setTimeout(check, 300); });
+    ta.addEventListener('input', () => { sync(); clearTimeout(timer); timer = setTimeout(check, 300); if (S.companionOpen && !COMPANION) announceDraft(d, ta.value); });
     ta.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); doSave(true); }
       else if (e.key === 'Escape') { ta.value = d.target; sync(); check(); ta.blur(); }
@@ -1067,11 +1260,12 @@ async function viewEntries() {
     };
     (async () => { try { if (S.mtOn === undefined) { const st = await get('settings'); S.mtOn = !!(st.mt?.provider && st.mt.consent && (st.mt.has_key || st.mt.base_url)); } mtBtn.style.display = S.mtOn ? '' : 'none'; } catch { /* the button just stays hidden */ } })();
     if (S.ent.focusEdit) { S.ent.focusEdit = false; setTimeout(() => { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }, 0); }
-    return h('div', { class: 'editor' }, h('h4', null, 'Překlad ', h('span', { class: 'muted', style: { textTransform: 'none', letterSpacing: 0 } }, '– upravuje se přímo v souboru')), ta,
+    const node = h('div', { class: 'editor' }, h('h4', null, 'Překlad ', h('span', { class: 'muted', style: { textTransform: 'none', letterSpacing: 0 } }, '– upravuje se přímo v souboru')), ta,
       tagBar, missing, terms,
-      h('div', { class: 'actions' }, save, reset, copySrc, copyTgt, mtBtn, undoLast), mtBox,
-      h('div', { class: 'muted editnote' }, 'Nový řádek zapiš jako \\n, uvozovku jako \\". Značky {i}…{/i} a [proměnné] nech jako v originálu.'), msg,
-      gamePreview(d, ta), memoryPanel(d, ta, insert), historyPanel(d, ta));
+      h('div', { class: 'actions' }, save, reset, mtBtn, menuButton('Více', [{ label: 'Originál do pole', hint: 'jako základ', run: () => copySrc.click() }, { label: '⧉ Kopírovat překlad', run: () => copyTgt.click() }, { label: '↶ Vrátit poslední změnu souboru', run: () => undoLast.click() }], { title: 'Další akce' })), mtBox,
+      h('div', { class: 'muted editnote' }, 'Nový řádek zapiš jako \\n, uvozovku jako \\". Značky {i}…{/i} a [proměnné] nech jako v originálu.'), msg);
+    node.ta = ta; node.insert = insert;
+    return node;
   }
   /* "Translation memory": the same / a similar original that was already translated. The match is made on the English original,
      so Czech endings do not matter for finding it – but they do for reusing it, hence the reminder. */
@@ -1120,34 +1314,147 @@ async function viewEntries() {
     }).catch(() => sum.replaceChildren('Historie textu ', h('span', { class: 'muted' }, '(nedostupná)')));
     return box;
   }
-  /* Approximate look of the line in the game's dialogue box: the game's own text size and text width (from gui.rpy), so
-     you can see where it wraps and how many lines it needs. The real font is not used, so it is an estimate. */
+  /* The line as the player sees it: the picture of the scene (found in the game's archives by following the game script upwards
+     to the last `scene` / `show`) with the dialogue box drawn over it, sized by the game's own gui.rpy values. Without the game
+     folder it is the box alone. The real font is not used, so wrapping is an estimate. */
   function gamePreview(d, ta) {
-    const box = h('details', { class: 'gamepreview' });
-    const sum = h('summary', null, 'Náhled v okně hry ', h('span', { class: 'muted' }, ''));
+    const box = h('details', { class: 'gamepreview', dataset: { keep: '1' } });
+    const sum = h('summary', null, 'Náhled scény ', h('span', { class: 'muted' }, ''));
     const outer = h('div', { class: 'gwin' }), info = h('div', { class: 'muted ginfo' });
-    box.append(sum, outer, info);
-    box.open = !!pref('ui.gamepreview', false);
+    if (S.gwinH) { outer.style.height = S.gwinH + 'px'; outer.style.width = S.gwinW + 'px'; }     // keep the size of the previous picture until this one is drawn (no jump)
+    const mode = h('select', { title: 'Který text ukázat v okně hry', onchange: () => draw() },
+      h('option', { value: 'target' }, 'Překlad'), h('option', { value: 'source' }, 'Originál'));
+    box.append(sum, h('div', { class: 'toolbar', style: { margin: '6px 0' } }, mode), outer, info);
+    box.open = !!pref('ui.gamepreview', true);
     box.addEventListener('toggle', () => { setPref('ui.gamepreview', box.open); if (box.open) draw(); });
-    let gui = S.gui;
+    let gui = S.gui, scene = null, imgOk = true;
+    const fallbackName = speakerLabel(d.who) || '';
+    async function load() {
+      if (!gui) { try { const st = await get('settings'); gui = S.gui = { ...st.game_gui, max_lines: st.validation.textbox.max_lines }; } catch { gui = { text_size: 33, dialogue_width: 1116, textbox_height: 278, max_lines: 4, source: 'výchozí hodnoty' }; } }
+      if (!scene) scene = await prefetchScene(d.file, d.line);
+    }
+    const fontsReady = () => [scene.fonts_text, scene.fonts_name].every((f) => !f || !f.url || (S.fontRes && f.file in S.fontRes && S.metRes && f.file in S.metRes));
+    function ready() { gui = gui || S.gui; scene = scene || S.sceneDone?.get(d.file + '\t' + d.line); return !!(gui && scene && fontsReady()); }
+    /* When the prefetch already has everything, the picture is drawn in the same task as the rest of the detail (no await in between), so the
+       view is complete before the browser paints and the scroll position can be kept. */
     async function draw() {
       if (!box.open) return;
-      if (!gui) { try { const st = await get('settings'); gui = S.gui = { ...st.game_gui, max_lines: st.validation.textbox.max_lines }; } catch { gui = { text_size: 33, dialogue_width: 1116, textbox_height: 278, max_lines: 4, source: 'výchozí hodnoty' }; } }
-      const inner = h('div', { class: 'gbox', style: { width: gui.dialogue_width + 'px', fontSize: gui.text_size + 'px' } });
-      inner.append(gameText(ta.value));
-      outer.replaceChildren(inner);
-      const k = Math.min(1, (outer.clientWidth || gui.dialogue_width) / gui.dialogue_width);
-      inner.style.transform = `scale(${k})`;
-      outer.style.height = Math.ceil(inner.offsetHeight * k) + 'px';
-      const lines = Math.max(1, Math.round(inner.offsetHeight / (gui.text_size * 1.3)));
-      const over = lines > gui.max_lines;
+      if (!ready()) await load();
+      paint();
+    }
+    function paint() {
+      const g = { ...gui, ...(scene.gui || {}) };
+      const fam = (scene.fonts_text && S.fontRes?.[scene.fonts_text.file]) || '', nfam = (scene.fonts_name && S.fontRes?.[scene.fonts_name.file]) || '';
+      const mText = fam ? S.metRes?.[scene.fonts_text.file] || null : null, mName = nfam ? S.metRes?.[scene.fonts_name.file] || null : null;
+      const sp = scene.speaker;                      // the game's own Character(...) name and colour, not the app's speaker names
+      const speaker = sp ? sp.name : fallbackName;
+      const W = g.screen_width || 1920, H = g.screen_height || 1080;
+      const text = mode.value === 'source' ? (d.source ?? '') : ta.value;
+      const stage = h('div', { class: 'gstage', style: { width: W + 'px', height: H + 'px', fontSize: g.text_size + 'px', ...(fam ? { fontFamily: `"${fam}", sans-serif` } : {}) } });
+      if (scene.flat) stage.style.background = scene.flat;
+      else if (scene.url && imgOk) stage.append(h('img', { class: 'gbg', src: scene.url, alt: '', onerror: () => { imgOk = false; draw(); } }));
+      const tb = h('div', { class: 'gtextbox', style: { height: g.textbox_height + 'px' } });
+      const nm = speaker ? h('div', { class: 'gname', style: { left: g.name_xpos + 'px', top: '-' + Math.round(g.name_text_size * 0.9) + 'px', fontSize: g.name_text_size + 'px', ...(nfam ? { fontFamily: `"${nfam}", sans-serif` } : {}), ...(sp?.color ? { color: sp.color } : {}) } }, speaker) : null;
+      const dlg = h('div', { class: 'gbox', style: { left: g.dialogue_xpos + 'px', top: g.dialogue_ypos + 'px', width: g.dialogue_width + 'px' } });
+      dlg.append(gameText(text));
+      placeChars(dlg, mText, g.text_size);
+      if (nm) placeChars(nm, mName, g.name_text_size);
+      tb.append(...(nm ? [nm] : []), dlg);
+      stage.append(tb);
+      outer.replaceChildren(stage);
+      const maxH = COMPANION ? (S.compFull ? innerHeight - 250 : innerHeight * 0.55) : innerHeight * 0.45;
+      const fit = Math.max(200, maxH) / H;
+      const k = box.isConnected && box.clientWidth ? Math.min(1, (box.clientWidth - 2) / W, fit) : (S.gwinK ?? Math.min(1, fit));       // not attached yet: the previous scale
+      if (box.isConnected && box.clientWidth) S.gwinK = k;
+      stage.style.transform = `scale(${k})`;
+      outer.style.height = Math.ceil(H * k) + 'px'; outer.style.width = Math.ceil(W * k) + 'px';
+      S.gwinH = Math.ceil(H * k); S.gwinW = Math.ceil(W * k);
+      const lines = Math.max(1, Math.round(dlg.offsetHeight / (g.text_size * 1.3)));
+      const over = lines > g.max_lines || g.dialogue_ypos + dlg.offsetHeight > g.textbox_height;
       sum.lastChild.textContent = `(≈ ${lines} ${plural(lines, 'řádek', 'řádky', 'řádků')}${over ? ' – moc!' : ''})`;
       outer.classList.toggle('over', over);
-      info.textContent = `Okno ${gui.dialogue_width} px, písmo ${gui.text_size} px (${gui.source}); limit ${gui.max_lines} ${plural(gui.max_lines, 'řádek', 'řádky', 'řádků')}. Odhad bez písma hry.`;
+      let where;
+      if (!scene.available) where = scene.reason || 'Obrázek scény není k dispozici.';
+      else if (scene.flat) where = `Pozadí: ${scene.image} (${scene.script}).`;
+      else if (scene.url && imgOk) where = `Obrázek: ${scene.image} (podle ${scene.script}) – odhad podle skriptu hry.`;
+      else where = scene.reason || (scene.found ? 'Obrázek se nepodařilo načíst.' : 'Obrázek scény se nepodařilo dohledat.');
+      const fontNote = !scene.available ? '' : fam ? ` Písmo hry: ${scene.fonts_text.file}.` : ' Písmo hry se nepodařilo načíst, ukázané je náhradní.';
+      info.textContent = `${where}${fontNote} Okno ${g.screen_width}×${g.screen_height}, písmo ${g.text_size} px (${g.source}); limit ${g.max_lines} ${plural(g.max_lines, 'řádek', 'řádky', 'řádků')}.`;
     }
     ta.addEventListener('input', () => { clearTimeout(box._t); box._t = setTimeout(draw, 150); });
-    setTimeout(draw, 0);
+    ta.addEventListener('draft', () => draw());
+    draw();
+    requestAnimationFrame(() => draw());       // again once attached, with the real width
+    const onResize = () => { if (!box.isConnected) removeEventListener('resize', onResize); else { clearTimeout(box._r); box._r = setTimeout(draw, 80); } };
+    addEventListener('resize', onResize);
     return box;
+  }
+  async function loadGameMetrics(f) {
+    if (!f || !f.file) return null;
+    S.metricCache ||= {};
+    S.metricCache[f.file] ||= get('game/fontmetrics', { k: f.file }).catch(() => null).then((r) => { (S.metRes ||= {})[f.file] = r; return r; });
+    return S.metricCache[f.file];
+  }
+  /* Every character goes into a box as wide as the font's own advance (hmtx), which is what Ren'Py uses. A browser may take the advance from the
+     font's CFF charstring instead, and some patched fonts get a gap after each accented letter that way. Words stay unbreakable, spaces break. */
+  function placeChars(el, m, px) {
+    if (!m) return;
+    const w = (ch) => { const a = m.adv[ch.codePointAt(0)]; return a === undefined ? null : (a * px) / m.upm; };
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT), nodes = [];
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) nodes.push(n);
+    for (const node of nodes) {
+      const frag = document.createDocumentFragment();
+      for (const part of node.nodeValue.split(/( +)/)) {
+        if (!part) continue;
+        if (part[0] === ' ') { for (let k = 0; k < part.length; k++) frag.append(h('span', { class: 'gch', style: { width: (w(' ') ?? px * 0.25) + 'px' } }), document.createElement('wbr')); continue; }
+        const word = h('span', { class: 'gw' });
+        for (const ch of part) { const cw = w(ch); word.append(cw === null ? ch : h('span', { class: 'gch', style: { width: cw + 'px' } }, ch)); }
+        frag.append(word);
+      }
+      node.replaceWith(frag);
+    }
+  }
+  /* Everything the scene preview of one line needs (scene info, the picture decoded, the fonts and their widths), fetched ahead of drawing so
+     that choosing a new line swaps the whole view at once instead of showing it piece by piece. Cached per line. */
+  const ctxKey = (file, line, radius) => `${file}\t${line}\t${radius}`;
+  function contextFor(file, line, radius) {
+    S.ctxCache ||= new Map();
+    const key = ctxKey(file, line, radius);
+    if (!S.ctxCache.has(key)) {
+      S.ctxCache.set(key, get('entry/scene', { file, line, radius }).then((r) => { (S.ctxDone ||= new Map()).set(key, r); return r; }));
+      if (S.ctxCache.size > 60) S.ctxCache.delete(S.ctxCache.keys().next().value);
+    }
+    return S.ctxCache.get(key).catch((e) => { S.ctxCache.delete(key); throw e; });
+  }
+  async function prefetchScene(file, line) {
+    S.sceneCache ||= new Map();
+    const key = file + '\t' + line;
+    if (!S.sceneCache.has(key)) {
+      S.sceneCache.set(key, get('game/scene', { file, line }).catch((e) => ({ available: false, reason: e.message })));
+      if (S.sceneCache.size > 80) S.sceneCache.delete(S.sceneCache.keys().next().value);
+    }
+    const sc = await S.sceneCache.get(key);
+    const jobs = [loadGameFont(sc.fonts_text), loadGameFont(sc.fonts_name), loadGameMetrics(sc.fonts_text), loadGameMetrics(sc.fonts_name),
+      contextFor(file, line, pref('ui.sceneRadius', 6)).catch(() => {})];
+    if (sc.url) {
+      S.imgCache ||= new Map();
+      if (!S.imgCache.has(sc.url)) { const im = new Image(); im.src = sc.url; S.imgCache.set(sc.url, im.decode().catch(() => {})); if (S.imgCache.size > 12) S.imgCache.delete(S.imgCache.keys().next().value); }
+      jobs.push(S.imgCache.get(sc.url));
+    }
+    await Promise.all(jobs);
+    S.sceneDone ||= new Map();
+    S.sceneDone.set(key, sc);
+    if (S.sceneDone.size > 80) S.sceneDone.delete(S.sceneDone.keys().next().value);
+    return sc;
+  }
+  /* A font file of the game (found in its folder or archives) made available to the page as a FontFace; its family name, or '' when it cannot be had. */
+  async function loadGameFont(f) {
+    if (!f || !f.url) return '';
+    S.fontCache ||= {};
+    S.fontCache[f.file] ||= (async () => {
+      try { const face = new FontFace('game-' + f.file, `url("${f.url}")`); await face.load(); document.fonts.add(face); return 'game-' + f.file; } catch { return ''; }
+    })().then((r) => { (S.fontRes ||= {})[f.file] = r; return r; });
+    return S.fontCache[f.file];
   }
   function scriptContext(d) {
     if (!d.ref) return null;
@@ -1167,28 +1474,29 @@ async function viewEntries() {
   }
   /* The scene around the line: original next to translation, the current line marked; click a row to jump to it. */
   function sceneBox(d) {
-    const box = h('details', { class: 'scene' });
+    const box = h('details', { class: 'scene', dataset: { keep: '1' } });
     box.open = !!pref('ui.sceneOpen', true);
     const sum = h('summary', null, 'Scéna kolem řádku ', h('span', { class: 'muted' }, '(originál vedle překladu)'));
     const body = h('div');
     const radius = h('select', { title: 'Kolik řádků okolo ukázat', onchange: (ev) => { setPref('ui.sceneRadius', +ev.target.value); fill(); } },
       [3, 6, 10, 15].map((n) => h('option', { value: n, selected: n === pref('ui.sceneRadius', 6) }, `±${n} řádků`)));
-    box.append(sum, h('div', { class: 'toolbar', style: { margin: '6px 0' } }, radius), body);
+    const mtScene = h('button', { class: 'btn small', title: 'Přeloží strojem nepřeložené řádky okolo tohoto (±15). Návrhy si před zápisem prohlédneš.', onclick: () => mtDialog({ picked: [], anchor: { file: d.file, line: d.line }, file: d.file, scope: 'scene' }, async () => { S.files = null; await refreshHeader(); select(S.ent.sel); }) }, 'Přeložit scénu strojem…');
+    box.append(sum, h('div', { class: 'toolbar', style: { margin: '6px 0' } }, radius, mtScene), body);
     async function fill() {
       if (!box.open) return;
-      body.replaceChildren(loading());
+      const peek = S.ctxDone?.get(ctxKey(d.file, d.line, pref('ui.sceneRadius', 6)));
+      if (!peek) body.replaceChildren(loading());
       try {
-        const r = await get('entry/scene', { file: d.file, line: d.line, radius: pref('ui.sceneRadius', 6) });
+        const r = peek || await contextFor(d.file, d.line, pref('ui.sceneRadius', 6));
         const rows = r.items.map((it) => h('tr', { class: it.current ? 'cur' : '', onclick: () => { const i = S.ent.items.findIndex((x) => x.file === d.file && x.line === it.line); if (i >= 0) select(i); else go('entries', { file: d.file, line: it.line, status: 'all' }); } },
           h('td', { class: 'num muted' }, it.line), h('td', { class: 'who' }, speakerLabel(it.who) || ''), h('td', { class: 'txt' }, fmtText(it.source ?? '')),
           h('td', { class: 'txt' }, it.status === 'todo' ? h('span', { class: 'muted' }, 'nepřeloženo') : fmtText(it.target))));
         body.replaceChildren(h('div', { class: 'tablewrap' }, h('table', { class: 'data scene-table' }, h('colgroup', null, [60, 100, 'auto', 'auto'].map((w) => h('col', { style: w === 'auto' ? {} : { width: w + 'px' } }))),
           h('thead', null, h('tr', null, ['Řádek', 'Mluvčí', 'Originál', 'Překlad'].map((x) => h('th', null, x)))), h('tbody', null, rows))));
-        body.querySelector('tr.cur')?.scrollIntoView({ block: 'nearest' });
       } catch (e) { body.replaceChildren(h('div', { class: 'notice bad' }, e.message)); }
     }
     box.addEventListener('toggle', () => { setPref('ui.sceneOpen', box.open); fill(); });
-    setTimeout(fill, 0);
+    fill();
     return box;
   }
   const ctxLine = (x) => h('div', { class: 'ctx' }, `${x.line}  `, x.who ? h('span', { class: 'mono' }, speakerLabel(x.who) + ' ') : null, fmtText(x.target));
@@ -1239,6 +1547,7 @@ async function viewEntries() {
     const d = S.ent.detail; if (!d) return;
     const on = d.proof !== 'fix';
     if (await setProof(on ? 'fix' : '')) {
+      setPref('ui.detailTab', 'proof');
       await select(S.ent.sel);
       if (on) { const n = $('#proofNote'); n?.focus(); toast('Označeno k opravě – napiš poznámku.', 'ok', 2500); }
     }
@@ -1268,8 +1577,13 @@ async function viewEntries() {
     const d = S.ent.detail; if (!d || d.status === 'translated') return;
     await globalApproveDialog(d, async () => { S.files = null; await refreshHeader(); load(true); });
   }
-  S.ent.api = { select, toggleApprove, toggleProof, flagFix, proofUpto, unproofUpto: () => proofUpto(''), globalApprove, load, tbody: () => tbody, reload: () => load(true) };
-  root.afterMount = () => { load(true); drawDetail(null); };
+  S.ent.api = { select, toggleApprove, toggleProof, flagFix, proofUpto, unproofUpto: () => proofUpto(''), globalApprove, load, tbody: () => tbody, reload: () => load(true), follow: followLine, redraw: () => drawDetail(S.ent.detail) };
+  root.afterMount = () => {
+    if (!COMPANION) { load(true); drawDetail(null); return; }
+    skeleton();
+    const f = S.ent.pendingLine ? { file: pref('entries.file', ''), line: S.ent.pendingLine } : S.lastFocus;
+    if (f?.file && f.line) followLine(f.file, f.line); else drawDetail(null);
+  };
   return root;
 }
 async function globalApproveDialog(d, done) {
@@ -1397,6 +1711,97 @@ async function fixDialog({ items = [], file = '', kinds = ['speaker', 'spaces', 
   const body = h('div', null, head, listBox);
   paint();
   dialog({ title: 'Opravit', body, buttons: [{ label: 'Zrušit' }, { node: h('span', { style: { display: 'contents' } }, info, go) }] });
+}
+
+/* Machine translation of several lines. Suggestions come in small batches (progress, Stop), are shown in a table you can edit and
+   tick, and only the ticked ones are written, as one undoable step. Approved lines are never overwritten. */
+async function mtDialog({ picked = [], anchor = null, file = '', scope = '' }, done) {
+  let cfg;
+  try { cfg = (await get('settings')).mt || {}; } catch (e) { return fail(e); }
+  if (!cfg.provider || !cfg.consent || !cfg.has_key) {
+    return dialog({ title: 'Strojový překlad není nastavený', narrow: true, buttons: [{ label: 'Zavřít' }, { label: 'Otevřít Nastavení', kind: 'primary', onclick: () => go('settings') }],
+      body: h('p', null, 'Nastav službu, klíč k API a souhlas s odesíláním textu v ', h('b', null, 'Nastavení → Strojový překlad'), '. Klíč zůstane jen v tvém počítači a text se odešle až po tvém souhlasu.') });
+  }
+  const SCENE_R = 15, LIMIT = 500;
+  const opts = [];
+  if (picked.length) opts.push(['picked', `Vybrané řádky (${picked.length})`]);
+  if (anchor) opts.push(['scene', `Scéna kolem otevřeného řádku (±${SCENE_R})`]);
+  if (file) opts.push(['file', 'Soubor ve filtru: ' + file.split(/[\\/]/).pop()]);
+  opts.push(['all', 'Všechny soubory']);
+  let sc = scope && opts.some(([k]) => k === scope) ? scope : opts[0][0];
+  let onlyTodo = true, results = [], target = { items: [], chars: 0 }, running = false, stop = false;
+  const scopeSel = h('select', { onchange: (e) => { sc = e.target.value; plan(); } }, opts.map(([k, l]) => h('option', { value: k, selected: k === sc }, l)));
+  const todoBox = h('input', { type: 'checkbox', checked: true, onchange: (e) => { onlyTodo = e.target.checked; plan(); } });
+  const info = h('div', { class: 'muted' }), prog = h('div', { class: 'muted' }), list = h('div');
+  const run = h('button', { class: 'btn primary', disabled: true }), stopBtn = h('button', { class: 'btn', style: { display: 'none' }, onclick: () => { stop = true; } }, 'Zastavit');
+  const write = h('button', { class: 'btn primary', disabled: true }), sel = new Set();
+  const rk = (r) => r.file + '\t' + r.line;
+  const flagged = (r) => (r.issues || []).some((i) => i.severity === 'error') || (r.warnings || []).length > 0;
+  async function plan() {
+    run.disabled = true; info.textContent = 'Počítám…';
+    try {
+      let lines = null;
+      if (sc === 'picked') lines = picked;
+      else if (sc === 'scene') { const r = await get('entry/scene', { file: anchor.file, line: anchor.line, radius: SCENE_R }); lines = r.items.map((x) => ({ file: anchor.file, line: x.line })); }
+      target = await post('mt/targets', { file: sc === 'file' ? file : '', lines, only_todo: onlyTodo });
+    } catch (e) { info.textContent = e.message; return; }
+    const n = target.total, over = n > LIMIT;
+    info.replaceChildren(`${n} ${plural(n, 'řádek', 'řádky', 'řádků')}, asi ${target.chars.toLocaleString('cs')} znaků se odešle službě ${cfg.provider}.`,
+      over ? h('div', { class: 'notice bad' }, `Najednou jde nejvýš ${LIMIT} řádků – přeloží se prvních ${LIMIT}, zbytek spusť znovu.`) : null,
+      h('div', null, 'Služba si účtuje podle odeslaného textu – cenu si zkontroluj u svého poskytovatele.'));
+    run.disabled = !n || running;
+    run.textContent = n ? `Přeložit ${Math.min(n, LIMIT)} ${plural(Math.min(n, LIMIT), 'řádek', 'řádky', 'řádků')}` : 'Není co překládat';
+  }
+  function paintList() {
+    const ok = results.filter((r) => !r.error);
+    const rows = ok.map((r) => {
+      const inp = h('input', { type: 'text', class: 'mtedit', value: r.suggestion, oninput: (e) => { r.suggestion = e.target.value; } });
+      return h('tr', null,
+        h('td', { class: 'center' }, h('input', { type: 'checkbox', checked: sel.has(rk(r)), onchange: (e) => { e.target.checked ? sel.add(rk(r)) : sel.delete(rk(r)); paintBtn(); } })),
+        h('td', null, fname(r.file), h('span', { class: 'mono muted' }, ` ${r.line}`), r.who ? h('div', { class: 'mono muted' }, speakerLabel(r.who)) : null),
+        h('td', { class: 'txt' }, fmtText(r.source ?? '')), h('td', { class: 'txt' }, inp,
+          flagged(r) ? h('div', null, ...(r.warnings || []).map((w) => chip('warning', w)), ...(r.issues || []).map((i) => chip(i.severity === 'error' ? 'error' : 'warning', i.message || i.code))) : null));
+    });
+    const errs = results.filter((r) => r.error);
+    list.replaceChildren(
+      ok.length ? h('div', { class: 'toolbar' },
+        h('button', { class: 'btn small', onclick: () => { ok.forEach((r) => sel.add(rk(r))); paintList(); } }, 'Vybrat vše'),
+        h('button', { class: 'btn small', title: 'Odškrtne řádky, u kterých validátor něco našel', onclick: () => { ok.forEach((r) => { if (flagged(r)) sel.delete(rk(r)); else sel.add(rk(r)); }); paintList(); } }, 'Jen bez nálezů'),
+        h('button', { class: 'btn small', onclick: () => { sel.clear(); paintList(); } }, 'Nic')) : null,
+      ok.length ? h('div', { class: 'tablewrap', style: { maxHeight: '44vh' } }, h('table', { class: 'data' }, h('colgroup', null, [44, 140, 330, 400].map((w) => h('col', { style: { width: w + 'px' } }))),
+        h('thead', null, h('tr', null, ['', 'Kde', 'Originál', 'Návrh (jde upravit)'].map((x) => h('th', null, x)))), h('tbody', null, rows))) : null,
+      errs.length ? h('p', { class: 'muted' }, `${errs.length} ${plural(errs.length, 'řádek se nepodařil', 'řádky se nepodařily', 'řádků se nepodařilo')}: ${errs[0].error}`) : null);
+    paintBtn();
+  }
+  function paintBtn() { const n = sel.size; write.disabled = !n || running; write.textContent = `Zapsat ${n} ${plural(n, 'řádek', 'řádky', 'řádků')}`; }
+  run.onclick = async () => {
+    const todo = target.items.slice(0, LIMIT);
+    running = true; stop = false; results = []; sel.clear(); run.disabled = true; stopBtn.style.display = ''; let stopped = '';
+    for (let i = 0; i < todo.length && !stop; i += 10) {
+      prog.textContent = `Překládám… ${Math.min(i + 10, todo.length)} / ${todo.length}`;
+      let r;
+      try { r = await post('mt/batch', { items: todo.slice(i, i + 10) }); } catch (e) { stopped = e.message; break; }
+      for (const x of r.results) { results.push(x); if (!x.error && !flagged(x)) sel.add(rk(x)); }
+      paintList();
+      if (r.stopped) { stopped = r.stopped; break; }
+    }
+    prog.textContent = stopped || (stop ? 'Zastaveno.' : 'Hotovo – projdi návrhy a zapiš vybrané.');
+    running = false; stopBtn.style.display = 'none'; paintList(); plan();
+  };
+  write.onclick = async () => {
+    const selections = results.filter((r) => !r.error && sel.has(rk(r))).map((r) => ({ file: r.file, line: r.line, text: r.suggestion }));
+    try {
+      const r = await post('mt/apply', { selections });
+      toast(`Zapsáno ${r.changed} ${plural(r.changed, 'řádek', 'řádky', 'řádků')}` + (r.skipped ? `, přeskočeno ${r.skipped}` : '') + '. Zpět: Ctrl+Z.', 'ok', 8000);
+      await done?.();
+    } catch (e) { fail(e); return false; }
+  };
+  const body = h('div', null,
+    h('p', { class: 'muted' }, 'Anglický text se pošle nastavené službě; nic se nezapíše, dokud nezaškrtneš a nepotvrdíš. Schválené řádky se nikdy nepřepíšou.'),
+    h('div', { class: 'toolbar' }, h('label', { class: 'check' }, 'Co: ', scopeSel), h('label', { class: 'check' }, todoBox, ' jen nepřeložené')),
+    info, h('div', { class: 'toolbar', style: { margin: '8px 0' } }, run, stopBtn, prog), list);
+  dialog({ title: 'Přeložit strojem', body, buttons: [{ label: 'Zavřít' }, { node: h('span', { style: { display: 'contents' } }, write) }] });
+  plan();
 }
 
 /* Find and replace in the translated texts of all or chosen files, with a preview you tick line by line. */
@@ -1676,6 +2081,47 @@ async function snapshotRestoreDialog(name, done) {
   paint2();
 }
 
+/* Unify: set ONE chosen translation on the lines you tick. The same words can mean something else in another place, so every line
+   of the group is listed (speaker, current translation) and only the ticked ones change. */
+function unifyDialog(g, v, loose, bySp, done) {
+  const lines = g.variants.flatMap((x) => x.lines.map((l) => ({ ...l, current: x.target })));
+  const sel = new Set(lines.filter((l) => l.current !== v.target).map((l) => `${l.file}|${l.line}`));
+  const key = (l) => `${l.file}|${l.line}`;
+  const info = h('span', { class: 'grow' }), go1 = h('button', { class: 'btn primary', disabled: true });
+  const speakers = new Set(v.lines.map((l) => (l.who || '').split(' ')[0]));
+  const box = h('div');
+  function paint() {
+    const rows = lines.map((l) => { const same = l.current === v.target; const d = same ? null : diffSpans(l.current, v.target); return h('tr', null,
+      h('td', { class: 'center' }, h('input', { type: 'checkbox', checked: sel.has(key(l)), disabled: same, onchange: (e) => { e.target.checked ? sel.add(key(l)) : sel.delete(key(l)); paint2(); } })),
+      h('td', null, fname(l.file), h('span', { class: 'mono muted' }, `řádek ${l.line}`)), h('td', { class: 'who' }, speakerLabel(l.who) || '—'),
+      h('td', { class: 'txt' }, same ? h('span', null, fmtText(l.current), ' ', chip('done', 'už je')) : d.before),
+      h('td', { class: 'txt' }, same ? '' : d.after),
+      h('td', null, h('button', { class: 'btn small ghost', onclick: () => { closeAllDialogs(); go('entries', { file: l.file, line: l.line, status: 'all' }); } }, 'Zobrazit'))); });
+    const t = h('table', { class: 'data' }, h('colgroup', null, [44, 200, 110, 240, 240, 90].map((w) => h('col', { style: { width: w + 'px' } }))),
+      h('thead', null, h('tr', null, ['', 'Kde', 'Mluvčí', 'Teď', 'Po sjednocení', ''].map((x) => h('th', null, x)))), h('tbody', null, rows));
+    t.style.width = '924px';
+    box.replaceChildren(h('p', null, 'Originál: ', h('b', null, fmtText(g.source)), ' → nový překlad: ', h('b', null, fmtText(v.target))),
+      h('p', { class: 'muted' }, 'Stejný text může mít jiný význam (jiný mluvčí, rod, tón, kontext). Zaškrtni jen řádky, kde to opravdu sedí.'),
+      h('div', { class: 'toolbar' },
+        h('button', { class: 'btn small', onclick: () => { lines.forEach((l) => { if (l.current !== v.target) sel.add(key(l)); }); paint(); } }, 'Vybrat vše'),
+        h('button', { class: 'btn small', onclick: () => { sel.clear(); paint(); } }, 'Nic'),
+        h('button', { class: 'btn small', title: 'Jen řádky mluvčích, kteří tuhle variantu používají', onclick: () => { sel.clear(); lines.forEach((l) => { if (l.current !== v.target && speakers.has((l.who || '').split(' ')[0])) sel.add(key(l)); }); paint(); } }, 'Jen stejný mluvčí')),
+      h('div', { class: 'tablewrap', style: { maxHeight: '46vh' } }, t));
+    paint2();
+  }
+  function paint2() { const n = sel.size; go1.disabled = !n; go1.textContent = `Sjednotit ${n} ${plural(n, 'řádek', 'řádky', 'řádků')}`; info.textContent = `Vybráno ${n} z ${lines.filter((l) => l.current !== v.target).length} odlišných`; }
+  go1.onclick = async () => {
+    try {
+      const r = await post('consistency/unify', { key: g.key, target: v.target, loose, by_speaker: bySp, lines: lines.filter((l) => sel.has(key(l))).map((l) => ({ file: l.file, line: l.line })) });
+      toast(`Sjednoceno: ${r.changed} ${plural(r.changed, 'řádek', 'řádky', 'řádků')}. Zpět: „Vrátit poslední změnu souboru“.`);
+      S.files = null; await refreshHeader(); done?.();
+    } catch (e) { fail(e); return false; }
+  };
+  S.dlgDirty = true;
+  dialog({ title: 'Sjednotit překlad', body: box, buttons: [{ label: 'Zrušit' }, { node: h('span', { style: { display: 'contents' } }, info, go1) }] });
+  paint();
+}
+
 /* ================================================================ VALIDATION */
 async function viewValidation() {
   const o = S.goOpts; S.goOpts = null;
@@ -1694,18 +2140,20 @@ async function viewValidation() {
   fsel.value = v.file || '';
   const search = h('input', { type: 'search', class: 'search', id: 'search', placeholder: 'Hledat ve zprávách a překladu… (Ctrl+F)', value: v.q || '', oninput: (ev) => { setPref('validation.q', ev.target.value); clearTimeout(S.valTimer); S.valTimer = setTimeout(() => load(true), 250); } });
   const info = h('label', { class: 'check', title: 'Například jiný počet pauz {w} / {p}' }, h('input', { type: 'checkbox', checked: !!settings.validation.show_info, onchange: async (ev) => { try { await post('settings', { validation: { show_info: ev.target.checked } }); load(true); } catch (e) { fail(e); } } }), 'Zobrazit i drobnosti');
-  const ignBtn = h('button', { class: 'btn small', title: 'Nálezy, které jsi u některých řádků nechal ignorovat' });
-  const paintIgnBtn = () => { const n = S.overview?.validation?.ignored || 0; const on = pref('validation.ignored', 'hide') === 'only'; ignBtn.textContent = on ? '← Zpět na nálezy' : `Ignorované (${n})`; ignBtn.classList.toggle('primary', on); };
-  ignBtn.onclick = async () => { setPref('validation.ignored', pref('validation.ignored', 'hide') === 'only' ? 'hide' : 'only'); setPref('validation.consistency', false); setPref('validation.lint', false); paintIgnBtn(); paintConsBtn(); paintLintBtn(); load(true); };
-  const consBtn = h('button', { class: 'btn small', title: 'Stejný anglický řádek přeložený různě' });
+  const findBtn = h('button', { title: 'Nálezy kontroly překladu' }, 'Nálezy');
+  const consBtn = h('button', { title: 'Stejný anglický řádek přeložený různě' }, 'Rozdílné překlady');
+  const ignBtn = h('button', { title: 'Nálezy, které jsi u některých řádků nechal ignorovat' }, 'Ignorované');
+  const lintBtn = h('button', { title: 'Spustí Ren\'Py lint celé hry (potřebuje Ren\'Py SDK)' }, 'Lint hry');
   const consOn = () => !!pref('validation.consistency', false);
-  const special = () => consOn() || lintOn() || pref('validation.ignored', 'hide') === 'only';
-  const paintConsBtn = () => { consBtn.textContent = consOn() ? '← Zpět na nálezy' : 'Rozdílné překlady'; consBtn.classList.toggle('primary', consOn()); };
-  consBtn.onclick = () => { setPref('validation.consistency', !consOn()); setPref('validation.ignored', 'hide'); setPref('validation.lint', false); paintIgnBtn(); paintConsBtn(); paintLintBtn(); load(true); };
-  const lintBtn = h('button', { class: 'btn small', title: 'Spustí Ren\'Py lint celé hry (potřebuje Ren\'Py SDK)' });
   const lintOn = () => !!pref('validation.lint', false);
-  const paintLintBtn = () => { lintBtn.textContent = lintOn() ? '← Zpět na nálezy' : 'Lint hry'; lintBtn.classList.toggle('primary', lintOn()); };
-  lintBtn.onclick = () => { setPref('validation.lint', !lintOn()); setPref('validation.consistency', false); setPref('validation.ignored', 'hide'); paintIgnBtn(); paintConsBtn(); paintLintBtn(); load(true); };
+  const ignOn = () => pref('validation.ignored', 'hide') === 'only';
+  const special = () => consOn() || lintOn() || ignOn();
+  const paintIgnBtn = () => { const n = S.overview?.validation?.ignored || 0; ignBtn.textContent = `Ignorované (${n})`; ignBtn.classList.toggle('on', ignOn()); };
+  const paintConsBtn = () => consBtn.classList.toggle('on', consOn());
+  const paintLintBtn = () => { lintBtn.classList.toggle('on', lintOn()); findBtn.classList.toggle('on', !special()); };
+  const setMode = (m) => { setPref('validation.consistency', m === 'cons'); setPref('validation.lint', m === 'lint'); setPref('validation.ignored', m === 'ign' ? 'only' : 'hide'); paintIgnBtn(); paintConsBtn(); paintLintBtn(); load(true); };
+  findBtn.onclick = () => setMode(''); consBtn.onclick = () => setMode('cons'); ignBtn.onclick = () => setMode('ign'); lintBtn.onclick = () => setMode('lint');
+  const modeSeg = h('div', { class: 'seg', role: 'group', 'aria-label': 'Co zobrazit' }, findBtn, consBtn, ignBtn, lintBtn);
   const undoFix = h('button', { class: 'btn small', style: { display: 'none' } });
   async function loadLast() {
     try {
@@ -1740,7 +2188,8 @@ async function viewValidation() {
     chipsBox.replaceChildren(...activeChips(active, resetFilters));
   }
   root.append(h('div', { class: 'filterbar' },
-      h('div', { class: 'frow' }, search, filterGroup('Soubor', fsel), filterGroup('Druh', cat), info, h('span', { class: 'spacer' }), lintBtn, consBtn, ignBtn, undoFix, fixAll),
+      h('div', { class: 'frow' }, filterGroup('Zobrazit', modeSeg), h('span', { class: 'spacer' }), undoFix, fixAll),
+      h('div', { class: 'frow' }, search, filterGroup('Soubor', fsel), filterGroup('Druh', cat), info),
       h('div', { class: 'frow' }, pillsBox, h('span', { class: 'spacer' }), counter), chipsBox),
     h('p', { class: 'muted' }, 'Jeden řádek překladu = jedna položka se všemi nálezy pod sebou. Kontrola nic nepřepisuje sama; jen tlačítko ', h('b', null, 'Opravit'), ' u chyby mluvčího / atributů po tvém potvrzení zapíše opravu podle originálu do souboru (se zálohou). ', h('b', null, 'Chyba'), ' = Ren\'Py by pravděpodobně spadl nebo je rozbitá struktura skriptu. ', h('b', null, 'Varování'), ' = podezřelé, ale může být záměr (např. češtině chybí značka, text je výrazně delší). Porovnává se vždy s originálem, ne s pevnými pravidly.'), list);
   S.val.items = [];
@@ -1769,27 +2218,30 @@ async function viewValidation() {
   async function loadConsistency() {
     list.replaceChildren(loading());
     try {
-      const r = await get('consistency');
+      const loose = !!pref('consistency.loose', false), bySp = !!pref('consistency.bySpeaker', false);
+      const r = await get('consistency', { loose: loose ? '1' : '', by_speaker: bySp ? '1' : '' });
       const hidden = new Set(pref('consistency.hidden', []));
       const showHidden = !!pref('consistency.showHidden', false);
       const groups = r.groups.filter((g) => showHidden || !hidden.has(g.key));
       counter.textContent = `${fmtN(groups.length)} ${plural(groups.length, 'originál', 'originály', 'originálů')} s víc překlady (${fmtN(r.lines)} řádků celkem)`;
       paintFilters();
-      const note = h('div', { class: 'notice' }, 'Stejný anglický řádek přeložený různě. Někdy je to správně (jiný mluvčí, rod, kontext), proto se nic nesjednocuje samo: u varianty, kterou chceš všude, klikni ',
-        h('b', null, 'Použít všude'), ' (ukáže se potvrzení, jde vrátit). ', h('b', null, 'Nechat jak je'), ' skupinu schová. ',
-        h('label', { class: 'check', style: { marginLeft: '8px' } }, h('input', { type: 'checkbox', checked: showHidden, onchange: (e) => { setPref('consistency.showHidden', e.target.checked); loadConsistency(); } }), ` Zobrazit i skryté (${hidden.size})`));
+      const opt = (key, def, label, title) => h('label', { class: 'check', title }, h('input', { type: 'checkbox', checked: !!pref(key, def), onchange: (e) => { setPref(key, e.target.checked); loadConsistency(); } }), ' ' + label);
+      const note = h('div', { class: 'notice' },
+        h('div', null, 'Stejný anglický řádek přeložený různě. ', h('b', null, 'Porovnává se přesný text originálu'), ' – „Yeah.“, „Yeah!“ a „YEAH!!!“ jsou různé řádky a správně se překládají různě, takže se nikdy nespojí. Stejný text může mít i jiný význam nebo mluvčího, proto se nic nesjednocuje samo: u varianty klikni ', h('b', null, 'Sjednotit…'), ', vyber řádky, kterých se to týká, a potvrď (jde vrátit). ', h('b', null, 'Nechat jak je'), ' skupinu schová.'),
+        h('div', { class: 'row', style: { marginTop: '6px', gap: '16px' } },
+          opt('consistency.bySpeaker', false, 'Rozlišovat mluvčího', 'Řádky různých postav se nikdy nespojí do jedné skupiny'),
+          opt('consistency.loose', false, 'Volnější srovnání (jen slova)', 'Ignoruje velikost písmen a interpunkci – najde i „Yeah.“ vs „YEAH!!!“, jen jako nápovědu, sjednocovat je většinou nechceš'),
+          opt('consistency.showHidden', false, `Zobrazit i skryté (${hidden.size})`, '')));
       if (!groups.length) return list.replaceChildren(note, empty('Vše je jednotné', 'Žádný opakovaný originál nemá víc různých překladů.'));
       const t = buildTable({ key: 'consistency', cols: [{ k: 'src', w: 300, label: 'Originál' }, { k: 'var', w: 900, label: 'Varianty překladu' }, { k: 'act', w: 140, label: '', resize: false }] });
       for (const g of groups) {
         const variants = g.variants.map((v) => h('div', { class: 'variant' },
           h('div', { class: 'row' }, h('span', { class: 'chip none' }, `×${v.count}`), h('span', { class: 'txt grow' }, fmtText(v.target)),
-            h('button', { class: 'btn small', title: 'Změní ostatní varianty na tuhle', onclick: async () => {
-              const others = g.total - v.count;
-              if (!await confirmDialog('Sjednotit překlad?', `Všech ${g.total} řádků s originálem „${g.source}“ dostane překlad „${v.target}“ (změní se ${others} ${plural(others, 'řádek', 'řádky', 'řádků')}). Před zápisem se vytvoří záloha, jde to vrátit.`, 'Použít všude')) return;
-              try { const res = await post('consistency/unify', { key: g.key, target: v.target }); toast(`Sjednoceno: ${res.changed} řádků. Zpět: „Vrátit poslední změnu souboru“.`); S.files = null; await refreshHeader(); loadConsistency(); } catch (e) { fail(e); }
-            } }, 'Použít všude')),
+            h('button', { class: 'btn small', title: 'Vybereš řádky a změníš je na tuhle variantu', onclick: () => unifyDialog(g, v, loose, bySp, () => loadConsistency()) }, 'Sjednotit…')),
           h('div', { class: 'vlines' }, v.lines.slice(0, 6).map((l) => h('a', { href: '#', class: 'mono', title: l.who ? `mluvčí: ${l.who}` : '', onclick: (ev) => { ev.preventDefault(); go('entries', { file: l.file, line: l.line, status: 'all' }); } }, `${l.file.split(/[\\/]/).pop()}:${l.line}${l.who ? ' (' + l.who.split(' ')[0] + ')' : ''}`)), v.lines.length > 6 ? ` … +${v.lines.length - 6}` : '')));
-        t.tbody.append(h('tr', null, h('td', { class: 'txt' }, fmtText(g.source), h('div', { class: 'muted' }, `${g.total}× celkem`)), h('td', null, ...variants),
+        t.tbody.append(h('tr', null,
+          h('td', { class: 'txt' }, (g.sources && g.sources.length > 1) ? g.sources.map((x) => h('div', null, fmtText(x))) : fmtText(g.source), h('div', { class: 'muted' }, `${g.total}× celkem`)),
+          h('td', null, ...variants),
           h('td', null, h('button', { class: 'btn small ghost', title: 'Tahle skupina je v pořádku, schovat ji ze seznamu', onclick: () => { const hs = new Set(pref('consistency.hidden', [])); hs.has(g.key) ? hs.delete(g.key) : hs.add(g.key); setPref('consistency.hidden', [...hs]); loadConsistency(); } }, hidden.has(g.key) ? 'Zase hlídat' : 'Nechat jak je'))));
       }
       list.replaceChildren(note, h('div', { class: 'tablewrap' }, t.table));
@@ -2031,7 +2483,7 @@ async function viewPublish() {
 /* ================================================================ SETTINGS */
 async function viewSettings() {
   const s = await get('settings');
-  const root = h('div', { style: { maxWidth: '900px' } });
+  const root = h('div', { style: { maxWidth: '1100px' } });
   const val = (id) => $('#' + id);
   const field = (label, node, hint) => [h('label', { for: node.id }, label), node, hint ? h('div', { class: 'hint' }, hint) : null];
   const ln = s.validation.length;
@@ -2060,7 +2512,7 @@ async function viewSettings() {
     h('fieldset', null, h('legend', null, 'Strojový překlad (nepovinné, experimentální)'), h('div', { class: 'form' },
       ...field('Služba', h('select', { id: 'set_mt_provider' }, [['', 'Vypnuto'], ['deepl', 'DeepL'], ['openai', 'OpenAI-kompatibilní (i místní)'], ['libretranslate', 'LibreTranslate']].map(([k, l]) => h('option', { value: k, selected: (s.mt?.provider || '') === k }, l))), 'Dává jen NÁVRH k jednomu řádku po kliknutí na „Návrh strojem“ v editoru; nikdy se nic samo nezapíše.'),
       ...field('Klíč k API', h('input', { type: 'password', id: 'set_mt_key', value: '', placeholder: s.mt?.has_key ? '(uložen – nech prázdné, pokud ho nechceš měnit)' : '', autocomplete: 'off' }), 'Ukládá se jako prostý text v config.json v %APPDATA%\\BaDIKTranslationManager. Do aplikace se zpět neposílá.'),
-      s.mt?.has_key ? h('label', { class: 'check' }, h('input', { type: 'checkbox', id: 'set_mt_clear' }), ' Smazat uložený klíč') : null,
+      ...(s.mt?.has_key ? [h('span'), h('label', { class: 'check' }, h('input', { type: 'checkbox', id: 'set_mt_clear' }), ' Smazat uložený klíč')] : []),
       ...field('Adresa služby', h('input', { type: 'text', id: 'set_mt_url', value: s.mt?.base_url || '', placeholder: 'jen pro vlastní server, např. http://localhost:1234/v1' })),
       ...field('Model', h('input', { type: 'text', id: 'set_mt_model', value: s.mt?.model || '', placeholder: 'jen pro OpenAI-kompatibilní, např. gpt-4o-mini' })),
       ...field('Jazyky', h('span', { class: 'row' }, h('input', { type: 'text', id: 'set_mt_src', value: s.mt?.source_lang || 'EN', style: { width: '70px' } }), ' → ', h('input', { type: 'text', id: 'set_mt_dst', value: s.mt?.target_lang || 'CS', style: { width: '70px' } }))),
@@ -2086,6 +2538,23 @@ async function viewSettings() {
         h('button', { class: 'btn small', onclick: () => post('open-url', { id }).catch(fail) }, l)))),
     h('div', { class: 'row' }, h('button', { class: 'btn primary', onclick: save }, 'Uložit nastavení'),
       h('span', { class: 'muted' }, 'Nastavení: ', h('span', { class: 'mono' }, 'config.json'), ' v %APPDATA%\\BaDIKTranslationManager')));
+  /* Group the fieldsets into sections with a side navigation. Everything stays in the DOM (only hidden), so Save sees every field. */
+  const fsets = [...root.querySelectorAll(':scope > fieldset')];
+  const findSet = (t) => fsets.find((f) => f.querySelector('legend').textContent.startsWith(t));
+  const SECS = [['general', 'Obecné', ['Projekt', 'Editor', 'Týdenní cíle']], ['check', 'Kontrola', ['Kontrola překladu']], ['mt', 'Strojový překlad', ['Strojový']],
+    ['backup', 'Zálohy a lint', ['Zálohy', 'Kontrola hry']], ['keys', 'Zkratky', ['Klávesové']], ['web', 'Web', ['Web']], ['about', 'O aplikaci', ['O aplikaci']]];
+  const saveRow = root.lastElementChild;
+  const content = h('div', { class: 'setcontent' });
+  const secs = SECS.map(([id, title, legends]) => { const sec = h('section', { class: 'setsec' }, ...legends.map(findSet).filter(Boolean)); content.append(sec); return [id, title, sec]; });
+  const nav = h('nav', { class: 'setnav', 'aria-label': 'Sekce nastavení' });
+  function showSec(id) {
+    setPref('ui.settingsSection', id);
+    secs.forEach(([k, , sec]) => { sec.hidden = k !== id; });
+    nav.replaceChildren(...secs.map(([k, t]) => h('button', { class: 'setnavbtn' + (k === id ? ' on' : ''), 'aria-current': k === id ? 'page' : 'false', onclick: () => showSec(k) }, t)));
+  }
+  root.replaceChildren(h('div', { class: 'settings' }, nav, content), h('div', { class: 'savebar' }, saveRow));
+  const want = pref('ui.settingsSection', 'general');
+  showSec(secs.some(([k]) => k === want) ? want : 'general');
   async function save() {
     try {
       await post('settings', {
@@ -2116,7 +2585,13 @@ const VAL_MODES = { 'validation.consistency': false, 'validation.lint': false, '
 const entriesApi = () => (S.view === 'entries' && S.ent.api ? S.ent.api : null);
 const moveSel = (n) => { const api = entriesApi(); if (!api) return; const i = S.ent.sel, last = S.ent.items.length - 1; api.select(Math.max(0, Math.min(last, i < 0 ? 0 : i + n))); };
 /* id (no dots: it is a preference key), label, default keys, typing (works while typing in a field), entries (only in Řádky) */
+/* Full screen: the desktop window is asked through the app (F11 does not reach it), a browser tab uses the Fullscreen API. */
+async function toggleFullscreen() {
+  try { const r = await post('window/fullscreen', {}); if (r.ok) return; } catch { /* use the browser way */ }
+  try { if (document.fullscreenElement) await document.exitFullscreen(); else await document.documentElement.requestFullscreen(); } catch (e) { fail(e); }
+}
 const ACTIONS = [
+  { id: 'fullscreen', label: 'Celá obrazovka (zapnout / vypnout)', keys: ['F11'], typing: true, run: () => toggleFullscreen() },
   { id: 'palette', label: 'Paleta příkazů (hledání akcí a souborů)', keys: ['Ctrl+K'], typing: true, run: () => openPalette() },
   { id: 'search', label: 'Hledat v aktuální sekci', keys: ['Ctrl+F'], typing: true, run: () => { const el = $('#search'); if (el) { el.focus(); el.select(); } } },
   { id: 'search_slash', label: 'Hledat v aktuální sekci (lomítko)', keys: ['/'], run: () => $('#search')?.focus() },
@@ -2147,6 +2622,7 @@ const ACTIONS = [
   { id: 'snapshot', label: 'Vytvořit zálohu souborů překladu teď', keys: [], run: async () => { try { const r = await post('snapshots/create'); toast(`Záloha vytvořena (${r.snapshot.files} souborů, ${fmtSize(r.snapshot.bytes)}).`); } catch (e) { fail(e); } } },
   { id: 'theme', label: 'Přepnout vzhled (automaticky / tmavý / světlý)', keys: [], run: () => cycleTheme() },
   { id: 'density', label: 'Přepnout hustotu tabulek', keys: [], run: () => toggleDensity() },
+  { id: 'new_window', label: 'Otevřít druhé okno s detailem řádku', keys: [], run: () => openDetailWindow() },
   { id: 'change_project', label: 'Změnit složku s překladem…', keys: [], run: () => pickProject() },
 ];
 const keysOf = (a) => { const o = pref('keys', {}); return Array.isArray(o[a.id]) ? o[a.id] : a.keys; };
@@ -2266,6 +2742,14 @@ function keysPanel() {
 $('#refreshBtn').addEventListener('click', () => doRefresh());
 $('#undoBtn').addEventListener('click', doUndo);
 $('#themeBtn').addEventListener('click', cycleTheme);
+$('#newWinBtn').addEventListener('click', () => openDetailWindow());
+$('#fullBtn').addEventListener('click', () => toggleFullscreen());
+/* A change made in another window: when this one gets the focus back, refresh the counters and the open line. */
+window.addEventListener('focus', () => {
+  if (!S.ready || document.querySelector('#dlg[open]')) return;
+  refreshHeader().catch(() => {});
+  if (S.view === 'entries' && S.ent.api && S.ent.sel >= 0 && !document.querySelector('#editTarget[data-dirty="1"]')) S.ent.api.select(S.ent.sel);
+});
 $('#densityBtn').addEventListener('click', toggleDensity);
 $('#changeProject').addEventListener('click', pickProject);
 document.querySelectorAll('[data-link]').forEach((b) => b.addEventListener('click', () => post('open-url', { id: b.dataset.link }).catch(fail)));
@@ -2282,6 +2766,15 @@ if (new URLSearchParams(location.search).has('selftest')) {      // UI self-test
     applyTheme(); applyDensity(); $('#brandText').textContent = `BaDIK Translation Manager ${S.version || ''}`.trim(); S.notices = st.notices || []; S.projectDir = st.project_dir || '';
     if (st.config_error) S.notices.push(st.config_error);
     S.view = pref('view', 'overview');
+    if (SECONDARY) {
+      document.title += COMPANION ? ' – detail' : ' – okno 2';
+      if (COMPANION) document.body.classList.add('companion');
+      if (COMPANION) { S.prefs.ui = { ...(S.prefs.ui || {}), detailTab: URL_Q.get('tab') || 'scene' }; startFollowing(); }
+      const v = URL_Q.get('view');
+      if (v && TABS.some(([k]) => k === v)) S.view = v;
+      if (S.view === 'entries') S.goOpts = { file: URL_Q.get('file') || '', line: +URL_Q.get('line') || 0, status: URL_Q.get('status') || 'all', select: true };
+      if (S.view === 'validation' && URL_Q.get('file')) S.goOpts = { file: URL_Q.get('file') };
+    }
     if (!TABS.some(([k]) => k === S.view)) S.view = 'overview';
     await refreshHeader();
     if (S.ready) await loadGlossary();
@@ -2289,8 +2782,11 @@ if (new URLSearchParams(location.search).has('selftest')) {      // UI self-test
     if (S.ready) S.lastRefresh = new Date().toLocaleTimeString('cs-CZ');
   } catch (e) { $('#view').replaceChildren(h('div', { class: 'notice bad' }, e.message)); }
   let fails = 0;
-  setInterval(() => get('ping').then(() => { fails = 0; }).catch(() => {
+  const pingQ = () => ({ w: WIN_ID, ...(COMPANION ? { k: 1 } : {}) });
+  const seenWin = (r) => { if (COMPANION) return; const on = r.companions > 0; if (on !== !!S.companionOpen) { S.companionOpen = on; S.ent?.api?.redraw?.(); } };
+  get('ping', pingQ()).then(seenWin).catch(() => {});
+  setInterval(() => get('ping', pingQ()).then((r) => { fails = 0; seenWin(r); }).catch(() => {
     if (++fails >= 3) document.body.replaceChildren(h('div', { style: { padding: '3rem', textAlign: 'center' } }, 'Aplikace byla ukončena. Toto okno můžeš zavřít.'));
   }), 4000);
-  addEventListener('pagehide', () => { try { navigator.sendBeacon('/api/bye?t=' + TOKEN); } catch { /* ignore */ } });
+  addEventListener('pagehide', () => { try { navigator.sendBeacon('/api/bye?t=' + TOKEN + '&w=' + WIN_ID); } catch { /* ignore */ } });
 })();

@@ -1,4 +1,5 @@
 """Zip snapshots of the translation folder (with restore) and the Ren'Py lint wrapper."""
+import sys
 import time
 import unittest
 import zipfile
@@ -164,8 +165,20 @@ The game contains 4,123 dialogue blocks, containing 52,311 words.
         res = lint.run(sdk, Path(self._tmp) / "game_base", runner)
         self.assertEqual((res["ok"], res["exit_code"], len(res["issues"])), (False, 1, 2))
         argv = calls[0][0]
-        self.assertEqual(argv[1:2], ["-O"])
+        self.assertEqual(argv[1:2], ["-EO"])
         self.assertEqual((argv[-1], Path(argv[2]).name), ("lint", "renpy.py"))
+
+    def test_old_sdks_keep_their_python_in_a_platform_folder(self):
+        sdk = Path(self._tmp) / "sdk7"
+        for plat in ("linux-x86_64", "mac-x86_64", "windows-i686", "windows-x86_64"):
+            (sdk / "lib" / plat).mkdir(parents=True)
+            (sdk / "lib" / plat / ("python.exe" if plat.startswith("windows") else "python")).write_text("", encoding="utf-8")
+        (sdk / "lib" / "python2.7").mkdir()
+        (sdk / "renpy.py").write_text("", encoding="utf-8")
+        py = lint.find_python(sdk)
+        want = {"win32": "windows-x86_64", "darwin": "mac-x86_64"}.get(sys.platform, "linux-x86_64")
+        self.assertEqual(py.parent.name, want)
+        self.assertEqual(lint.build_command(sdk, Path(self._tmp))[0][1], "-EO")
 
     def test_a_missing_or_wrong_sdk_gives_a_readable_error(self):
         with self.assertRaises(lint.LintError):

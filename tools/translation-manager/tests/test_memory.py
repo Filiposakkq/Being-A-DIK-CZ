@@ -69,37 +69,76 @@ class ConsistencyTests(TempCase):
     def setUp(self):
         super().setUp()
         self.path = self.write("a.rpy", dialog("a1", "mc", "Yes.", "Ano.", 5) + dialog("a2", "de", "Yes.", "Jo.", 9)
-                               + dialog("a3", "mc", "Yes!", "Ano.", 14) + dialog("a4", "mc", "No.", "Ne.", 20)
+                               + dialog("a3", "mc", "Yes.", "Ano.", 14) + dialog("a4", "mc", "No.", "Ne.", 20)
                                + dialog("a5", "mc", "No.", "Ne.", 25) + dialog("a6", "mc", "Hmm", None, 30))
         self.app = self.new_app()
+
+    def key(self):
+        return self.app.consistency()["groups"][0]["key"]
 
     def test_only_originals_with_different_translations_are_listed(self):
         res = self.app.consistency()
         self.assertEqual(res["total"], 1)
         g = res["groups"][0]
-        self.assertEqual((g["key"], g["total"]), ("yes", 3))
+        self.assertEqual((g["source"], g["total"]), ("Yes.", 3))
         self.assertEqual([(v["target"], v["count"]) for v in g["variants"]], [("Ano.", 2), ("Jo.", 1)])
         self.assertEqual({l["who"] for v in g["variants"] for l in v["lines"]}, {"mc", "de"})
 
     def test_unify_rewrites_only_the_other_variants_as_one_undo_step(self):
-        res = self.app.consistency_unify("yes", "Ano.")
+        res = self.app.consistency_unify(self.key(), "Ano.")
         self.assertEqual(res["changed"], 1)
         self.assertEqual(self.path.read_text(encoding="utf-8").count('"Ano."'), 3)
         self.assertEqual(self.app.consistency()["total"], 0)
         self.app.fix_undo()
         self.assertIn('"Jo."', self.path.read_text(encoding="utf-8"))
 
-    def test_unify_can_be_limited_to_chosen_lines(self):
+    def test_unify_changes_only_the_lines_the_user_ticked(self):
         g = self.app.consistency()["groups"][0]
-        jo = g["variants"][1]["lines"][0]
-        self.app.consistency_unify("yes", "Ano.", [{"file": jo["file"], "line": jo["line"]}])
-        self.assertEqual(self.app.consistency()["total"], 0)
+        ano = [l for v in g["variants"] for l in v["lines"] if v["target"] == "Ano."]
+        res = self.app.consistency_unify(self.key(), "Jo.", [{"file": ano[0]["file"], "line": ano[0]["line"]}])
+        self.assertEqual(res["changed"], 1)
+        text = self.path.read_text(encoding="utf-8")
+        self.assertEqual((text.count('"Jo."'), text.count('"Ano."')), (2, 1))          # the other "Ano." line was not ticked
 
     def test_unknown_group_and_invalid_text_are_errors(self):
         with self.assertRaises(AppError):
             self.app.consistency_unify("nothing here", "x")
         with self.assertRaises(AppError):
-            self.app.consistency_unify("yes", 'bad "quote"')
+            self.app.consistency_unify(self.key(), 'bad "quote"')
+
+
+class ConsistencyCaseAndPunctuationTests(TempCase):
+    """"Yeah." / "Yeah!" / "YEAH!!!" are different originals with rightly different translations."""
+
+    def setUp(self):
+        super().setUp()
+        self.write("a.rpy", dialog("a1", "mc", "Yeah.", "Jo.", 5) + dialog("a2", "mc", "Yeah!", "Jo!", 9)
+                   + dialog("a3", "mc", "YEAH!!!", "JOOOO!", 14) + dialog("a4", "de", "Yeah.", "Jo.", 20)
+                   + dialog("a5", "de", "Yeah.", "Jasně.", 25))
+        self.app = self.new_app()
+
+    def test_different_case_or_punctuation_is_never_one_group(self):
+        res = self.app.consistency()
+        self.assertEqual([(g["source"], g["total"]) for g in res["groups"]], [("Yeah.", 3)])       # only the three "Yeah."
+        self.assertEqual({v["target"] for v in res["groups"][0]["variants"]}, {"Jo.", "Jasně."})
+
+    def test_loose_mode_finds_near_duplicates_but_lists_every_original_text(self):
+        res = self.app.consistency(loose=True)
+        self.assertEqual(res["groups"][0]["total"], 5)
+        self.assertEqual(res["groups"][0]["sources"], ["YEAH!!!", "Yeah!", "Yeah."])
+
+    def test_unify_in_strict_mode_cannot_touch_the_shouting_line(self):
+        key = self.app.consistency()["groups"][0]["key"]
+        self.app.consistency_unify(key, "Jo.")
+        targets = [e.target for e in self.app.project.entries("a.rpy")]
+        self.assertEqual(targets, ["Jo.", "Jo!", "JOOOO!", "Jo.", "Jo."])
+
+    def test_by_speaker_keeps_speakers_apart(self):
+        strict = self.app.consistency(by_speaker=True)
+        self.assertEqual([(g["total"], {l["who"] for v in g["variants"] for l in v["lines"]}) for g in strict["groups"]],
+                         [(2, {"de"})])                                                   # mc has one "Yeah." only
+        loose = self.app.consistency(by_speaker=True, loose=True)
+        self.assertEqual(sorted(g["total"] for g in loose["groups"]), [2, 3])             # mc: 3 spellings, de: 2 lines
 
 
 class GameGuiTests(TempCase):

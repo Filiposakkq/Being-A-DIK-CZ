@@ -22,6 +22,20 @@
     try { await fn(); } catch (e) { ok(name, false, e.message || String(e)); return; }
     if (errors.length > before) ok(name + ' – bez chyb v konzoli', false, errors.slice(before).join(' | '));
   }
+  const clickText = (sel, test) => [...document.querySelectorAll(sel)].find((b) => (typeof test === 'string' ? b.textContent.includes(test) : test.test(b.textContent)));
+  async function openTool(name) {              // tools live in the "Nástroje" menu of the Řádky filter bar
+    const menuBtn = clickText('#view button', 'Nástroje');
+    if (!menuBtn) return null;
+    menuBtn.click();
+    const item = await waitFor(() => clickText('#view .menu .menuitem', name), 2000);
+    return item || null;
+  }
+  async function openDetailTab(name) {
+    const t = await waitFor(() => clickText('#entryDetail .dtab', name), 4000);
+    t?.click();
+    await sleep(150);
+    return t;
+  }
   const closeDialog = () => { const d = document.querySelector('#dlg'); if (d.open) d.close(); };
   async function openView(name, opts) {
     go(name, opts);
@@ -84,8 +98,8 @@
     const moreBtn = [...document.querySelectorAll('#view .filterbar button')].find((b) => b.textContent.includes('Další filtry'));
     ok('tlačítko „Další filtry“ existuje', moreBtn, 'chybí');
     setPref('display.speaker', 'both');
-    const btn = [...document.querySelectorAll('#view button')].find((b) => b.textContent.includes('Schválit podle pravidla'));
-    ok('tlačítko „Schválit podle pravidla“ existuje', btn, 'chybí');
+    const btn = await openTool('Schválit podle pravidla');
+    ok('menu Nástroje obsahuje „Schválit podle pravidla“', btn, 'chybí');
     if (btn) {
       btn.click();
       const dlg = await waitFor(() => document.querySelector('#dlg[open] .dlg-head')?.textContent.includes('pravidla') && document.querySelector('#dlg .check, #dlg .empty'), 6000);
@@ -98,8 +112,8 @@
   });
   await step('Najít a nahradit', async () => {
     await openView('entries', { file: '', status: 'all' });
-    const btn = await waitFor(() => [...document.querySelectorAll('#view button')].find((b) => b.textContent.includes('Najít a nahradit')));
-    ok('tlačítko „Najít a nahradit“ existuje', btn, 'chybí');
+    const btn = await waitFor(() => openTool('Najít a nahradit'));
+    ok('menu Nástroje obsahuje „Najít a nahradit“', btn, 'chybí');
     if (btn) {
       btn.click();
       const inputs = await waitFor(() => { const i = document.querySelectorAll('#dlg[open] input[type=text]'); return i.length >= 2 ? i : null; }, 4000);
@@ -131,13 +145,27 @@
     if (dialogue >= 0) {
       S.ent.api.select(dialogue);
       await waitFor(() => document.querySelector('#editTarget'));
-      ok('editor má panel paměti překladů', await waitFor(() => document.querySelector('#entryDetail details.memory summary'), 4000), 'chybí');
+      ok('detail má záložky', document.querySelectorAll('#entryDetail .dtab').length >= 5, 'chybí záložky');
+      await openDetailTab('Paměť');
+      ok('záložka Paměť ukáže panel paměti překladů', await waitFor(() => document.querySelector('#entryDetail details.memory summary'), 4000), 'chybí');
         ok('editor má tlačítko „Návrh strojem“ (skryté, dokud se nenastaví)', [...document.querySelectorAll('#entryDetail button')].some((b) => b.textContent === 'Návrh strojem'), 'chybí');
-    ok('editor má panel historie textu', await waitFor(() => document.querySelector('#entryDetail details.texthistory summary'), 4000), 'chybí');
-      const gp = document.querySelector('#entryDetail details.gamepreview');
+      await openDetailTab('Historie');
+      ok('záložka Historie ukáže panel historie textu', await waitFor(() => document.querySelector('#entryDetail details.texthistory summary'), 4000), 'chybí');
+      await openDetailTab('Scéna');
+      const gp = await waitFor(() => document.querySelector('#entryDetail details.gamepreview'), 4000);
       ok('editor má náhled v okně hry', gp, 'chybí');
-      if (gp) { gp.open = true; gp.dispatchEvent(new Event('toggle')); ok('náhled hry spočítá řádky', await waitFor(() => /řádek|řádky|řádků/.test(gp.querySelector('summary').textContent), 4000), gp.querySelector('summary').textContent); gp.open = false; gp.dispatchEvent(new Event('toggle')); }
+      if (gp) { gp.open = true; gp.dispatchEvent(new Event('toggle')); ok('náhled hry spočítá řádky', await waitFor(() => /řádek|řádky|řádků/.test(gp.querySelector('summary').textContent), 4000), gp.querySelector('summary').textContent); ok('náhled kreslí okno hry s textem a jménem', await waitFor(() => gp.querySelector('.gstage .gtextbox .gbox')?.textContent.length > 0, 4000), 'chybí .gstage'); const sc = await get('game/scene', { file: S.ent.items[dialogue].file, line: S.ent.items[dialogue].line }); ok('API scény vrací stav a rozměry okna', typeof sc.available === 'boolean' && sc.gui.screen_width > 0 && sc.gui.textbox_height > 0, JSON.stringify(sc).slice(0, 100)); gp.open = false; gp.dispatchEvent(new Event('toggle')); }
     }
+    const fo = await post('focus', { file: S.ent.items[0]?.file || 'x', line: S.ent.items[0]?.line || 1 });
+    ok('hlavní okno sdílí vybraný řádek s doprovodným oknem', (await get('focus')).seq === fo.seq && fo.seq > 0, JSON.stringify(fo));
+    const lay = [...document.querySelectorAll('#view .frow button')].find((b) => /Detail (vpravo|dole)/.test(b.textContent));
+    ok('seznam řádků má přepínač rozložení detailu', !!lay, 'chybí');
+    if (lay) { const before = !!document.querySelector('#view .split.ecols'); lay.click(); await sleep(400); ok('přepínač změní rozložení (vedle / pod)', before !== !!document.querySelector('#view .split.ecols'), 'beze změny'); setPref('entries.layout', 'rows'); }
+    const tg = await post('mt/targets', { file: '' });
+    ok('API strojového překladu vrací cíle a počet znaků', Array.isArray(tg.items) && tg.total === tg.items.length && tg.chars >= 0, JSON.stringify(tg).slice(0, 80));
+    mtDialog({ picked: [], anchor: null, file: '' }, null);
+    ok('dialog strojového překladu bez nastavení vysvětlí, co chybí', await waitFor(() => /Strojový překlad není nastavený/.test(document.querySelector('#dlg .dlg-head')?.textContent || ''), 4000), 'dialog se neukázal');
+    closeDialog();
     const cons = await get('consistency');
     ok('API konzistence vrací skupiny', Array.isArray(cons.groups), JSON.stringify(cons).slice(0, 80));
     setPref('validation.consistency', false); setPref('validation.ignored', 'hide');      // do not depend on saved view modes
@@ -146,7 +174,7 @@
     ok('Kontrola má režim „Rozdílné překlady“', b, 'chybí tlačítko');
     b?.click();
     ok('režim konzistence se vykreslí', await waitFor(() => document.querySelector('#view .tablewrap, #view .empty'), 5000) && !document.querySelector('#view .notice.bad'), 'chyba při načtení');
-    [...document.querySelectorAll('#view button')].find((x) => /Zpět na nálezy/.test(x.textContent))?.click();
+    [...document.querySelectorAll('#view .seg button')].find((x) => x.textContent === 'Nálezy')?.click();
     await sleep(300);
   });
   await step('Zálohy a lint', async () => {
@@ -165,7 +193,7 @@
     ok('Kontrola má režim „Lint hry“', b, 'chybí tlačítko');
     b?.click();
     ok('režim lintu se vykreslí a nabízí cestu k SDK', await waitFor(() => document.querySelector('#view input[type=text]') && /Lint/.test(document.querySelector('#view').innerText), 5000) && !document.querySelector('#view .notice.bad'), 'chybí');
-    [...document.querySelectorAll('#view button')].find((x) => /Zpět na nálezy/.test(x.textContent))?.click();
+    [...document.querySelectorAll('#view .seg button')].find((x) => x.textContent === 'Nálezy')?.click();
     setPref('validation.lint', false);
     await sleep(300);
   });
@@ -173,6 +201,11 @@
     const ev = (key, mods = {}) => ({ key, ctrlKey: false, altKey: false, shiftKey: false, metaKey: false, ...mods });
     ok('comboOf: písmeno velké a s Shift', comboOf(ev('a')) === 'A' && comboOf(ev('A', { shiftKey: true })) === 'Shift+A', comboOf(ev('a')) + ' / ' + comboOf(ev('A', { shiftKey: true })));
     ok('comboOf: Ctrl, Alt, symboly a názvy kláves', comboOf(ev('k', { ctrlKey: true })) === 'Ctrl+K' && comboOf(ev('1', { altKey: true })) === 'Alt+1' && comboOf(ev('?', { shiftKey: true })) === '?' && comboOf(ev('ArrowDown')) === 'ArrowDown' && comboOf(ev('Shift', { shiftKey: true })) === '', 'špatný zápis');
+    ok('v záhlaví je tlačítko druhého okna', document.getElementById('newWinBtn') && !SECONDARY, 'chybí tlačítko nebo je to druhé okno');
+    ok('v záhlaví je tlačítko celé obrazovky a zkratka F11', document.getElementById('fullBtn') && ACTIONS.some((a) => a.id === 'fullscreen' && a.keys.includes('F11')), 'chybí');
+    let wo;
+    try { wo = await post('window/open', { view: 'entries', file: 'x.rpy', line: 3 }); } catch (e) { wo = e.data; }      // no opener in the test server: the page must be told to fall back
+    ok('server při nedostupném okně vrátí náhradní postup, ne chybu', wo && wo.ok === false && wo.fallback === true, JSON.stringify(wo));
     ok('každá akce má jedinečné id bez tečky', new Set(ACTIONS.map((a) => a.id)).size === ACTIONS.length && ACTIONS.every((a) => !a.id.includes('.')), 'duplicitní nebo špatné id');
     const keys = ACTIONS.flatMap((a) => (a.entries ? [] : keysOf(a))), dup = keys.filter((k, i) => keys.indexOf(k) !== i);
     ok('výchozí zkratky se nepřekrývají', dup.length === 0, dup.join(','));
@@ -198,6 +231,8 @@
     const dialogue = S.ent.items.findIndex((x) => x.unit === 'dialogue');
     if (dialogue >= 0) {
       S.ent.api.select(dialogue);
+      await waitFor(() => document.querySelector('#entryDetail .dtab'));
+      await openDetailTab('Scéna');
       ok('detail má scénu kolem řádku', await waitFor(() => document.querySelector('#entryDetail details.scene table.scene-table tbody tr.cur'), 5000), 'chybí scéna');
     }
   });
@@ -214,7 +249,7 @@
     b?.click();
     await waitFor(() => document.querySelector('#view .tablewrap, #view .empty'));
     ok('seznam ignorovaných se vykreslí', !document.querySelector('#view .notice.bad'), 'chyba při načtení ignorovaných');
-    [...document.querySelectorAll('#view button')].find((x) => /Zpět na nálezy/.test(x.textContent))?.click();
+    [...document.querySelectorAll('#view .seg button')].find((x) => x.textContent === 'Nálezy')?.click();
     await sleep(300);
   });
   await step('Slovník', async () => {

@@ -23,13 +23,17 @@ class LintError(Exception):
 
 
 def find_python(sdk):
-    """The Python that ships with the SDK (lib/py3-*/python[.exe], or py2-* for old SDKs)."""
+    """The Python that ships with the SDK: lib/py3-*/ (Ren'Py 8), lib/py2-*/ or lib/<platform>-<arch>/ (Ren'Py 7 and older)."""
     sdk = Path(sdk)
-    for pattern in ("py3-*", "py2-*"):
-        for d in sorted((sdk / "lib").glob(pattern)) if (sdk / "lib").is_dir() else []:
-            for name in ("python.exe", "python"):
-                if (d / name).is_file():
-                    return d / name
+    lib = sdk / "lib"
+    if not lib.is_dir():
+        return None
+    plat = "windows" if sys.platform.startswith("win") else "mac" if sys.platform == "darwin" else "linux"
+    dirs = sorted(lib.glob("py3-*")) + sorted(lib.glob("py2-*")) + sorted(lib.glob(plat + "-*"), key=lambda d: ("x86_64" not in d.name, d.name))
+    for d in dirs:
+        for name in ("python.exe", "python"):
+            if (d / name).is_file():
+                return d / name
     return None
 
 
@@ -40,11 +44,11 @@ def build_command(sdk, base):
         raise LintError(f"Složka Ren'Py SDK neexistuje: {sdk}")
     py, entry = find_python(sdk), sdk / "renpy.py"
     if py and entry.is_file():
-        return [str(py), "-O", str(entry), str(base), "lint"], sdk
+        return [str(py), "-EO", str(entry), str(base), "lint"], sdk
     sh = sdk / "renpy.sh"
     if sh.is_file() and not sys.platform.startswith("win"):
         return [str(sh), str(base), "lint"], sdk
-    raise LintError("V SDK jsem nenašel renpy.py a vestavěný Python (lib/py3-…) ani renpy.sh. Je to složka rozbaleného Ren'Py SDK?")
+    raise LintError("V SDK jsem nenašel renpy.py a vestavěný Python (lib/py3-…, lib/windows-x86_64 …) ani renpy.sh. Je to složka rozbaleného Ren'Py SDK?")
 
 
 def parse(output):
