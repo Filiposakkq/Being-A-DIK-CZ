@@ -367,6 +367,8 @@ td input[type=text]:focus { background: var(--panel); }
 .split.companion > .detail { border: 0; }
 .followbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 0 0 10px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2, transparent); font-size: 13px; }
 /* the detail window: nothing but the line detail */
+.gch { display: inline-block; white-space: pre; }
+.gw { white-space: nowrap; }
 .slimnote { margin-top: 12px; padding: 10px 12px; border: 1px dashed var(--line-2); border-radius: 8px; }
 body.companion .topbar, body.companion .tabs, body.companion .statusbar { display: none; }
 body.companion #app { grid-template-rows: 1fr; }

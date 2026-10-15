@@ -1008,6 +1008,7 @@ async function viewEntries() {
   /* Detail window: there is no list, only the one line it follows (loading a whole list for every change was slow and racy). */
   async function followLine(file, line) {
     let d;
+    prefetchScene(file, line).catch(() => {});          // starts at once, in parallel with the detail
     try { d = await get('entry', { file, line }); } catch (err) { S.ent.items = [{ file, line }]; S.ent.detail = null; return drawDetail(null, err.message); }
     const it = { file, line, key: d.key, status: d.status, proof: d.proof, kind: d.kind, unit: d.unit, who: d.who, ref: d.ref, source: d.source, target: d.target,
       issues: d.issues.filter((x) => x.severity !== 'info').map((x) => ({ severity: x.severity, code: x.code })) };
@@ -1051,7 +1052,10 @@ async function viewEntries() {
     tr?.scrollIntoView({ block: 'nearest' });
     const it = S.ent.items[i];
     if (!COMPANION) announceFocus(it);
+    const tab = pref('ui.detailTab', 'scene');
+    const pre = (COMPANION ? (S.compFull || tab === 'scene') : (tab === 'scene' && !(S.companionOpen && pref('ui.slimMain', true)))) ? prefetchScene(it.file, it.line).catch(() => {}) : null;
     try { S.ent.detail = await get('entry', { file: it.file, line: it.line }); } catch (err) { S.ent.detail = null; drawDetail(null, err.message); return; }
+    if (pre) await pre;
     if (S.ent.sel === i) drawDetail(S.ent.detail);
     if (i >= S.ent.items.length - 15 && S.ent.start + S.ent.items.length < S.ent.total) load(false);
   }
@@ -1321,13 +1325,14 @@ async function viewEntries() {
     const fallbackName = speakerLabel(d.who) || '';
     async function load() {
       if (!gui) { try { const st = await get('settings'); gui = S.gui = { ...st.game_gui, max_lines: st.validation.textbox.max_lines }; } catch { gui = { text_size: 33, dialogue_width: 1116, textbox_height: 278, max_lines: 4, source: 'výchozí hodnoty' }; } }
-      if (!scene) { try { scene = await get('game/scene', { file: d.file, line: d.line }); } catch (e) { scene = { available: false, reason: e.message }; } }
+      if (!scene) scene = await prefetchScene(d.file, d.line);
     }
     async function draw() {
       if (!box.open) return;
       await load();
       const g = { ...gui, ...(scene.gui || {}) };
       const fam = await loadGameFont(scene.fonts_text), nfam = await loadGameFont(scene.fonts_name);
+      const mText = fam ? await loadGameMetrics(scene.fonts_text) : null, mName = nfam ? await loadGameMetrics(scene.fonts_name) : null;
       const sp = scene.speaker;                      // the game's own Character(...) name and colour, not the app's speaker names
       const speaker = sp ? sp.name : fallbackName;
       const W = g.screen_width || 1920, H = g.screen_height || 1080;
@@ -1339,6 +1344,8 @@ async function viewEntries() {
       const nm = speaker ? h('div', { class: 'gname', style: { left: g.name_xpos + 'px', top: '-' + Math.round(g.name_text_size * 0.9) + 'px', fontSize: g.name_text_size + 'px', ...(nfam ? { fontFamily: `"${nfam}", sans-serif` } : {}), ...(sp?.color ? { color: sp.color } : {}) } }, speaker) : null;
       const dlg = h('div', { class: 'gbox', style: { left: g.dialogue_xpos + 'px', top: g.dialogue_ypos + 'px', width: g.dialogue_width + 'px' } });
       dlg.append(gameText(text));
+      placeChars(dlg, mText, g.text_size);
+      if (nm) placeChars(nm, mName, g.name_text_size);
       tb.append(...(nm ? [nm] : []), dlg);
       stage.append(tb);
       outer.replaceChildren(stage);
@@ -1360,10 +1367,54 @@ async function viewEntries() {
     }
     ta.addEventListener('input', () => { clearTimeout(box._t); box._t = setTimeout(draw, 150); });
     ta.addEventListener('draft', () => draw());
-    setTimeout(draw, 0);
+    requestAnimationFrame(() => draw());
     const onResize = () => { if (!box.isConnected) removeEventListener('resize', onResize); else { clearTimeout(box._r); box._r = setTimeout(draw, 80); } };
     addEventListener('resize', onResize);
     return box;
+  }
+  async function loadGameMetrics(f) {
+    if (!f || !f.file) return null;
+    S.metricCache ||= {};
+    S.metricCache[f.file] ||= get('game/fontmetrics', { k: f.file }).catch(() => null);
+    return S.metricCache[f.file];
+  }
+  /* Every character goes into a box as wide as the font's own advance (hmtx), which is what Ren'Py uses. A browser may take the advance from the
+     font's CFF charstring instead, and some patched fonts get a gap after each accented letter that way. Words stay unbreakable, spaces break. */
+  function placeChars(el, m, px) {
+    if (!m) return;
+    const w = (ch) => { const a = m.adv[ch.codePointAt(0)]; return a === undefined ? null : (a * px) / m.upm; };
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT), nodes = [];
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) nodes.push(n);
+    for (const node of nodes) {
+      const frag = document.createDocumentFragment();
+      for (const part of node.nodeValue.split(/( +)/)) {
+        if (!part) continue;
+        if (part[0] === ' ') { for (let k = 0; k < part.length; k++) frag.append(h('span', { class: 'gch', style: { width: (w(' ') ?? px * 0.25) + 'px' } }), document.createElement('wbr')); continue; }
+        const word = h('span', { class: 'gw' });
+        for (const ch of part) { const cw = w(ch); word.append(cw === null ? ch : h('span', { class: 'gch', style: { width: cw + 'px' } }, ch)); }
+        frag.append(word);
+      }
+      node.replaceWith(frag);
+    }
+  }
+  /* Everything the scene preview of one line needs (scene info, the picture decoded, the fonts and their widths), fetched ahead of drawing so
+     that choosing a new line swaps the whole view at once instead of showing it piece by piece. Cached per line. */
+  async function prefetchScene(file, line) {
+    S.sceneCache ||= new Map();
+    const key = file + '\t' + line;
+    if (!S.sceneCache.has(key)) {
+      S.sceneCache.set(key, get('game/scene', { file, line }).catch((e) => ({ available: false, reason: e.message })));
+      if (S.sceneCache.size > 80) S.sceneCache.delete(S.sceneCache.keys().next().value);
+    }
+    const sc = await S.sceneCache.get(key);
+    const jobs = [loadGameFont(sc.fonts_text), loadGameFont(sc.fonts_name), loadGameMetrics(sc.fonts_text), loadGameMetrics(sc.fonts_name)];
+    if (sc.url) {
+      S.imgCache ||= new Map();
+      if (!S.imgCache.has(sc.url)) { const im = new Image(); im.src = sc.url; S.imgCache.set(sc.url, im.decode().catch(() => {})); if (S.imgCache.size > 12) S.imgCache.delete(S.imgCache.keys().next().value); }
+      jobs.push(S.imgCache.get(sc.url));
+    }
+    await Promise.all(jobs);
+    return sc;
   }
   /* A font file of the game (found in its folder or archives) made available to the page as a FontFace; its family name, or '' when it cannot be had. */
   async function loadGameFont(f) {

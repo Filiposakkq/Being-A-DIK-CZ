@@ -10,7 +10,7 @@ from dataclasses import replace
 from datetime import date, datetime
 from pathlib import Path
 
-from . import (__version__, bulk, editor, export, fixes, gameimages, history as hist, lint, memory, mt, publish as pub, rpy, snapshots,
+from . import (__version__, bulk, editor, export, fixes, fontmetrics, gameimages, history as hist, lint, memory, mt, publish as pub, rpy, snapshots,
                spelling, textedit, texthistory, validator)
 from .config import Config, migrate_web_json
 from .lock import ProjectLock, ProjectLocked
@@ -1251,6 +1251,14 @@ class App:
             return gi.font_bytes(name)
         except (gameimages.rpa.RpaError, OSError) as e:
             raise AppError(str(e)) from e
+
+    def game_font_metrics(self, name):
+        """Advance widths (from hmtx) of a game font, so the scene preview can place characters like Ren'Py does."""
+        data, _mime = self.game_font(name)
+        m = fontmetrics.advances(data)
+        if m is None:
+            raise AppError("Z písma nejdou přečíst šířky znaků.")
+        return {"upm": m["upm"], "adv": {str(k): v for k, v in m["adv"].items()}}
 
     def game_image(self, key):
         """(bytes, mime) of a picture the index knows by its stem key (never an arbitrary path)."""

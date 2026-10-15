@@ -183,7 +183,10 @@ the string literal (a bare `"`, a lone `\`) is skipped.
   the frame turns red when the text needs more lines than the limit in *Nastavení* or does not fit the box. It is an approximation: it follows the text
   of the script (no jumps or conditions, no layered sprites), so a scene may be wrong where the game builds it in a complicated way; the line under the preview
   says which picture and which script line it used. Without the game folder next to the translation (or with only `.rpyc` files) you get the box alone.
-  The game's own font is not used, so wrapping is an estimate.
+  Characters are placed by the font's own advance widths (`hmtx`, read by `prehled/fontmetrics.py`), which is what Ren'Py does: some patched fonts (e.g. with added
+  Czech letters) have a wrong width in their CFF charstrings, and a browser then leaves a gap after every accented letter. Choosing a new line does not
+  flicker: the scene info, the decoded picture, the fonts and their widths are fetched first and the view is swapped in one go (cached per line).
+  Without the game's font files the preview uses a fallback font, so wrapping is an estimate.
 
 ## Detail window (second window)
 
