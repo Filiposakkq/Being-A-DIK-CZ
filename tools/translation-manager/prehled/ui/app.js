@@ -514,6 +514,7 @@ async function viewOverview() {
       h('div', { class: 'value' }, fmtN(v.error), h('small', null, v.error === 1 ? 'chyba' : 'chyb')),
       h('div', { class: 'sub' }, `${fmtN(v.warning)} varování (z toho ${fmtN(v.length)} k délce textu)`),
       v.ignored ? h('div', { class: 'sub' }, h('a', { href: '#', onclick: (ev) => { ev.preventDefault(); ev.stopPropagation(); go('validation', { ignored: 'only' }); } }, `ignorováno ${fmtN(v.ignored)}`)) : null)));
+  if (o.goals) root.append(goalsPanel(o.goals));
   root.append(estimatePanel(o.estimate));
 
   const left = h('div'), right = h('div');
@@ -547,6 +548,19 @@ async function viewOverview() {
   root.append(h('div', { class: 'two-col' }, left, right));
   return root;
 }
+/* This week's goal for translating and proofreading. Automatic goals come from the recent weekly pace (+10 %); a goal set in Nastavení wins. */
+function goalsPanel(g) {
+  const row = (label, p, cls) => {
+    if (!p.goal) return h('div', { class: 'goalrow' }, h('b', null, label), h('span', { class: 'muted' }, `tento týden ${fmtN(p.done)} ${plural(p.done, 'řádek', 'řádky', 'řádků')} · cíl zatím nejde odvodit z tempa (málo historie) – nastav ho v Nastavení`));
+    const msg = { met: ['Splněno', 'done'], on_track: ['Jdeš podle plánu', 'tr'], behind: [`Zbývá ${fmtN(p.left)}, to je asi ${fmtN(p.needed_per_day)} za den`, 'warning'] }[p.status];
+    return h('div', { class: 'goalrow' }, h('b', null, label), bar(p.percent, cls),
+      h('span', { class: 'num' }, `${fmtN(p.done)} / ${fmtN(p.goal)}`), chip(msg[1], msg[0]),
+      h('span', { class: 'muted' }, p.auto ? `cíl automaticky z tvého tempa${p.pace_per_week ? ` (≈ ${fmtN(p.pace_per_week)} / týden)` : ''}` : 'cíl nastavený ručně'));
+  };
+  return h('div', { class: 'panel', style: { marginBottom: '12px' } }, h('div', { class: 'panel-body' },
+    h('div', { class: 'row', style: { justifyContent: 'space-between', marginBottom: '8px' } }, h('b', null, 'Cíl na tento týden'), h('span', { class: 'muted' }, `od pondělí ${dateCz(g.week_start)} · cíle jde změnit v `, h('a', { href: '#', onclick: (ev) => { ev.preventDefault(); go('settings'); } }, 'Nastavení'))),
+    row('Překlad', g.translate), row('Korektura', g.proofread, 'alt')));
+}
 function estimatePanel(e) {
   let body;
   if (e.status === 'ok') {
@@ -578,7 +592,8 @@ function seasonPanel(s, episodes) {
     panel.append(h('div', { class: 'ep-row' }, h('span', { class: 'nm' }, `Epizoda ${e.n}`),
       e.translation.total ? h('div', { class: 'bars' }, bar(e.translation.percent), bar(e.proofreading.percent, 'alt')) : h('span', { class: 'muted' }, 'žádné zařazené soubory'),
       h('div', { class: 'pcts' }, h('span', null, 'Překlad ', h('b', null, fmtPct(e.translation.percent))), h('span', { class: 'pr' }, 'Korektura ', h('b', null, fmtPct(e.proofreading.percent)))),
-      h('span', { class: 'meta' }, e.files ? `${fmtN(e.translation.done)} / ${fmtN(e.translation.total)} řádků · ${e.files} souborů (${e.files_done} hotových)` : 'bez souborů'),
+      h('span', { class: 'meta' }, e.files ? `${fmtN(e.translation.done)} / ${fmtN(e.translation.total)} řádků · ${e.files} souborů (${e.files_done} hotových)` : 'bez souborů',
+        e.eta_days ? h('div', { title: 'Podle tvého současného tempa (řádků za den)' }, `při tvém tempu ≈ ${fmtN(e.eta_days)} ${plural(e.eta_days, 'den', 'dny', 'dní')}`) : null),
       h('span', { class: 'sel' }, sel)));
   }
   return panel;
@@ -1912,6 +1927,9 @@ async function viewSettings() {
       ...field('Kontrola okna dialogu', h('input', { type: 'checkbox', id: 'set_tb', checked: tb.enabled }), 'Varuje, když se překlad nevejde do okna dialogu a originál se vešel.'),
       ...field('Znaků na řádek', h('input', { type: 'text', id: 'set_tbcpl', value: String(tb.chars_per_line) }), 'Výchozí 65 vychází z gui.rpy hry (šířka textu 1116 px, písmo 33 px).'),
       ...field('Nejvíc řádků v okně', h('input', { type: 'text', id: 'set_tblines', value: String(tb.max_lines) }), 'Výchozí 4.'))),
+    h('fieldset', null, h('legend', null, 'Týdenní cíle'), h('div', { class: 'form' },
+      ...field('Překlad (řádků týdně)', h('input', { type: 'text', id: 'set_goal_t', value: String(s.goals?.translate_per_week ?? 0) }), '0 = automaticky podle tvého tempa za poslední týdny (o 10 % víc).'),
+      ...field('Korektura (řádků týdně)', h('input', { type: 'text', id: 'set_goal_p', value: String(s.goals?.proofread_per_week ?? 0) }), '0 = automaticky.'))),
     h('fieldset', null, h('legend', null, 'Web (publikování)'), h('div', { class: 'form' },
       ...field('Repozitář', h('input', { type: 'text', id: 'set_repo', value: s.web.repo, placeholder: 'Filiposakkq/Being-A-DIK-CZ' }), 'Složka s klonem, adresa nebo uživatel/repozitář. Přihlášení řeší tvůj git (Credential Manager) – žádné tokeny se tu neukládají.'),
       ...field('Soubor v repozitáři', h('input', { type: 'text', id: 'set_path', value: s.web.path }), 'Výchozí web/progress.json.'),
@@ -1934,6 +1952,7 @@ async function viewSettings() {
         validation: { enabled: val('set_val').checked, spelling: val('set_spell').checked,
           textbox: { enabled: val('set_tb').checked, chars_per_line: num(val('set_tbcpl').value), max_lines: num(val('set_tblines').value) }, length: { enabled: val('set_len').checked, max_ratio: num(val('set_max').value), min_ratio: num(val('set_min').value),
           min_source_chars: num(val('set_minsrc').value), min_extra_chars: num(val('set_extra').value), min_missing_chars: num(val('set_missing').value) } },
+        goals: { translate_per_week: num(val('set_goal_t').value), proofread_per_week: num(val('set_goal_p').value) },
         web: { repo: val('set_repo').value, path: val('set_path').value, title: val('set_title').value },
       });
       toast('Nastavení uloženo ✓'); refreshHeader();

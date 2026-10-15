@@ -30,6 +30,7 @@ DEFAULTS = {
         "length": {"enabled": True, "min_source_chars": 12, "max_ratio": 2.2, "min_ratio": 0.45,
                    "min_extra_chars": 25, "min_missing_chars": 18},
     },
+    "goals": {"translate_per_week": 0, "proofread_per_week": 0},      # 0 = automatic, from the recent pace
     "web": {"repo": "", "path": "web/progress.json", "title": "", "migrated_from": ""},
     "ui": {},
 }

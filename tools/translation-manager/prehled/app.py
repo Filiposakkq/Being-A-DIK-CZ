@@ -432,6 +432,12 @@ class App:
             est[k] = est[k].isoformat() if est[k] else None
         return est
 
+    def goals(self):
+        """Weekly goals and this week's progress (see history.goals)."""
+        rows = self.project.rows()
+        t_done, total, c_done, *_ = totals_of(rows)
+        return hist.goals(self.history.points(), max(0, total - t_done), max(0, total - c_done), self.config.get("goals", {}))
+
     def overview(self):
         self._need_project()
         rows = self.project.rows()
@@ -447,6 +453,11 @@ class App:
                 marked, flagged = marked + ok, flagged + fix
                 stale += self.project.proof_stale(rel)
         stats = export.stats_for(rows, self.store)
+        est_now = self.estimate()
+        pace = est_now.get("pace_per_day")
+        for e in stats["episodes"]:                       # how long an episode would take at the current pace
+            left = e["translation"]["total"] - e["translation"]["done"]
+            e["eta_days"] = int(-(-left // pace)) if pace and left > 0 else None
         vcounts, per_file = self.validation_summary()
         pts = self.history.points()
         recent = []
@@ -465,8 +476,8 @@ class App:
             "file_counts": counts,
             "seasons": stats["seasons"], "episodes": stats["episodes"],
             "general": stats["general"], "unassigned": stats["unassigned"],
-            "validation": vcounts, "worst_files": self._worst_files(per_file),
-            "estimate": self.estimate(),
+            "validation": vcounts, "worst_files": self._worst_files(per_file), "goals": self.goals(),
+            "estimate": est_now,
             "recent": recent[-8:][::-1],
             "undo": [s["label"] for s in self.store.undo_stack][-5:][::-1],
             "unsaved": sorted(self.store.unsaved),
@@ -1443,6 +1454,19 @@ class App:
                     lo["enabled"] = bool(ln["enabled"])
                 out["length"] = lo
             clean["validation"] = out
+        gl = patch.get("goals")
+        if isinstance(gl, dict):
+            g = {}
+            for k in ("translate_per_week", "proofread_per_week"):
+                if k in gl:
+                    try:
+                        val = int(float(gl[k] or 0))
+                    except (TypeError, ValueError):
+                        raise AppError(f"Neplatný cíl: {k}") from None
+                    if not 0 <= val <= 100000:
+                        raise AppError("Cíl musí být v rozmezí 0–100 000 řádků týdně (0 = automaticky).")
+                    g[k] = val
+            clean["goals"] = g
         web = patch.get("web")
         if isinstance(web, dict):
             w = {}

@@ -178,6 +178,14 @@ the string literal (a bare `"`, a lone `\`) is skipped.
   text size come from the game's `gui.rpy` (`gui.dialogue_width`, `gui.text_size`; Being a DIK's values when the sources are not found), the
   estimated number of lines is compared with the limit from *Nastavení*. The game's own font is not used, so it is an estimate.
 
+## Weekly goals and time estimates
+
+*Přehled* shows **Cíl na tento týden** for translating and for proofreading (weeks start on Monday): lines done this week against a goal, a status
+(*Splněno / Jdeš podle plánu / Zbývá N, to je asi M za den*) and what is needed per day to still make it. The goal comes from your own pace: the
+average of the last up to four complete weeks plus 10 %, rounded up to tens, never more than what is left; with less than two complete weeks of history
+there is no automatic goal. A goal set in *Nastavení → Týdenní cíle* wins (0 = automatic). Every episode also shows how many days it would take **at
+your current pace** (the same pace as the completion estimate, shown only when the history supports a forecast).
+
 ## History of a line
 
 *Historie textu* (under the editor) lists every text the line has had, newest first, with the time and how it came about: edit in the app, fix,

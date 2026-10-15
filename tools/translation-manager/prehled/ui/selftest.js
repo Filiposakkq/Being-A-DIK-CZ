@@ -40,6 +40,7 @@
 
   await step('Přehled', async () => {
     await openView('overview');
+    ok('Přehled ukazuje týdenní cíl', document.querySelector('#view .goalrow'), 'chybí panel cíle');
     ok('Přehled má karty', document.querySelectorAll('#view .stat').length >= 4, `karet: ${document.querySelectorAll('#view .stat').length}`);
   });
   await step('Soubory', async () => {

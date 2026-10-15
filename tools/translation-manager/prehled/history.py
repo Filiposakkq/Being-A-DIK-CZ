@@ -164,3 +164,96 @@ def estimate(points, done_now, total_now, today=None, key=None):
     out["reason"] = (f"Tempo {pace:.0f} řádků/den za posledních {span} dní"
                      f" ({days_with_data} dnů se záznamem). Odhad se mění s tempem práce.")
     return out
+
+
+# ---------------------------------------------------------------- weekly goals
+
+def _daily(points, idx):
+    """Last known value of every calendar day for column `idx` of a point (2 = total, 1 = translated, 3 = proofread)."""
+    by_day = {}
+    for p in points:
+        by_day[p[0].date()] = p[idx]
+    return sorted(by_day.items())
+
+
+def _at(series, day):
+    val = None
+    for d, v in series:
+        if d <= day:
+            val = v
+        else:
+            break
+    return val
+
+
+def week_start(day):
+    """Monday of the week of `day`."""
+    return day - timedelta(days=day.weekday())
+
+
+def weekly_deltas(series, today, weeks=4):
+    """Lines added in each of the last `weeks` COMPLETE weeks (Mon-Sun) that the history covers: [int], oldest first."""
+    out = []
+    monday = week_start(today)
+    for i in range(weeks, 0, -1):
+        start = monday - timedelta(days=7 * i)
+        a, b = _at(series, start - timedelta(days=1)), _at(series, start + timedelta(days=6))
+        if a is None or b is None:
+            continue
+        out.append(max(0, b - a))
+    return out
+
+
+def auto_goal(deltas, remaining):
+    """A goal a bit above the recent weekly pace (+10 %, rounded up to tens); None when there is too little history."""
+    if len(deltas) < 2:
+        return None
+    avg = sum(deltas) / len(deltas)
+    if avg <= 0:
+        return None
+    goal = max(10, -(-int(avg * 1.1 + 0.999) // 10) * 10)
+    return max(1, min(goal, remaining)) if remaining > 0 else None
+
+
+def goal_status(done, goal, today):
+    days_left = 7 - today.weekday()                 # today included
+    elapsed = (7 - days_left + 1) / 7
+    if done >= goal:
+        status = "met"
+    elif done >= goal * elapsed * 0.9:
+        status = "on_track"
+    else:
+        status = "behind"
+    return {"status": status, "left": max(0, goal - done), "days_left": days_left,
+            "needed_per_day": -(-max(0, goal - done) // max(1, days_left))}
+
+
+def goals(points, remaining_translate, remaining_proof, cfg=None, today=None):
+    """This week's progress against a goal, for translating and for proofreading.
+
+    cfg = {"translate_per_week": N, "proofread_per_week": N}; 0 / missing = automatic (from the recent pace).
+    Returns {"week_start", "translate": {...}, "proofread": {...}}; each part has done, goal (or None), auto, percent,
+    status (met | on_track | behind | no_goal), left, needed_per_day, pace_per_week."""
+    today = today or date.today()
+    cfg = cfg or {}
+    monday = week_start(today)
+    out = {"week_start": monday.isoformat()}
+    for key, idx, remaining, name in (("translate", 1, remaining_translate, "translate_per_week"),
+                                       ("proofread", 3, remaining_proof, "proofread_per_week")):
+        series = _daily(points, idx)
+        base = _at(series, monday - timedelta(days=1))
+        if base is None and series:
+            base = series[0][1]
+        now = series[-1][1] if series else 0
+        done = max(0, now - base) if base is not None else 0
+        deltas = weekly_deltas(series, today)
+        pace = round(sum(deltas) / len(deltas)) if deltas else None
+        manual = int(cfg.get(name, 0) or 0)
+        goal = manual if manual > 0 else auto_goal(deltas, remaining)
+        part = {"done": done, "goal": goal, "auto": manual <= 0, "pace_per_week": pace}
+        if goal:
+            part.update(goal_status(done, goal, today), percent=round(min(100, done / goal * 100), 1))
+        else:
+            part.update(status="no_goal", left=0, days_left=7 - today.weekday(), needed_per_day=0, percent=0)
+        out[key] = part
+    return out
