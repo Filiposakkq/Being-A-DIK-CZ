@@ -263,6 +263,14 @@ class Project:
                 fix += st == "fix"
         return ok, fix
 
+    def proof_stale(self, rel):
+        """Lines that were marked proofread but whose translation changed since (they need a new look)."""
+        marks = self.store.proof.get(rel)
+        if not marks:
+            return 0
+        return sum(1 for e in self.files[rel].parsed.entries
+                   if e.key in marks and self.is_translated(rel, e) and self.proof_state(rel, e) == "stale")
+
     def rows(self):
         """One Row per file. Proofread = the hand-typed baseline (korekce.csv) + lines marked one by one."""
         out = []

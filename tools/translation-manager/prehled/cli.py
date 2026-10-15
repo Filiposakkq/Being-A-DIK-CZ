@@ -9,6 +9,7 @@
   ... --publish                            show the publish preview and ask for confirmation
   ... --browser                            use a browser window instead of pywebview
 """
+import atexit
 import os
 import shutil
 import subprocess
@@ -222,6 +223,7 @@ def main(argv=None):
     if opts["skip"] is not None:
         cfg.set("skip_files", [s.lower() for s in opts["skip"]])
     app = App(cfg)
+    atexit.register(app.close)
     console = bool(opts["folder"]) and "--edit" not in flags or "--nogui" in flags or opts["find"] or opts["debug"]
     path, note = choose_project_dir(cfg, opts["folder"])
     if note:

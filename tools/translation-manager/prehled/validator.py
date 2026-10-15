@@ -267,7 +267,7 @@ def plain_text(text):
     out = re.sub(r"\{[^}]*\}", "", out)
     out = re.sub(r"\[\[", "[", out)
     out = re.sub(r"\[[^\]]*\]", " ", out)
-    return out.replace("\n", " ").replace('\\"', '"')
+    return out.replace("\\n", " ").replace('\\"', '"')
 
 
 def check_quality(source, target):
@@ -315,17 +315,26 @@ def _stem(word):
     return folded[:max(3, len(folded) - 2)]
 
 
+def term_in_text(text, term):
+    """Does the English `term` occur in `text` as a whole word (case-insensitive)?"""
+    return bool(term) and bool(re.search(r"(?<!\w)" + re.escape(term.lower()) + r"(?!\w)", plain_text(text).lower()))
+
+
+def term_used(target, czech):
+    """Is the Czech form of a glossary term present in the translation (any ending, matched by word stem)?"""
+    cz_stems = [_stem(w) for w in _WORD_RE.findall(czech)]
+    if not cz_stems:
+        return True
+    t_stems = {_stem(w) for w in _WORD_RE.findall(plain_text(target))}
+    return all(any(len(ts) >= 3 and (ts.startswith(cs) or cs.startswith(ts)) for ts in t_stems) for cs in cz_stems)
+
+
 def check_terms(source, target, terms):
     """Glossary terms: when the original uses the English term, the translation should use the Czech one
     (any ending). `terms` = {english: czech}. Info only – Czech declension makes this approximate."""
     issues = []
-    ps = plain_text(source).lower()
-    t_stems = {_stem(w) for w in _WORD_RE.findall(plain_text(target))}
     for en, cz in terms.items():
-        if not en or not cz or not re.search(r"(?<!\w)" + re.escape(en.lower()) + r"(?!\w)", ps):
-            continue
-        cz_stems = [_stem(w) for w in _WORD_RE.findall(cz)]
-        if cz_stems and not all(any(len(ts) >= 3 and (ts.startswith(cs) or cs.startswith(ts)) for ts in t_stems) for cs in cz_stems):
+        if en and cz and term_in_text(source, en) and not term_used(target, cz):
             issues.append(Issue("info", "term-inconsistent",
                                 f"Termín „{en}“ se ve Slovníku překládá jako „{cz}“, ale v překladu to nevidím.", category="text"))
     return issues
@@ -364,7 +373,46 @@ def check_length(source, target, cfg=None):
     return []
 
 
-def check_entry(entry, length_cfg=None, terms=None):
+TEXTBOX_DEFAULTS = {"enabled": True, "chars_per_line": 65, "max_lines": 4}
+
+
+def lines_needed(text, per_line):
+    """Lines a text takes in the dialogue box: explicit \\n breaks plus greedy word wrap at `per_line` characters."""
+    out = re.sub(r"\{\{", "{", text)
+    out = re.sub(r"\{[^}]*\}", "", out)
+    out = re.sub(r"\[\[", "[", out)
+    out = re.sub(r"\[[^\]]*\]", "XXXXX", out)
+    total = 0
+    for seg in out.replace('\\"', '"').split("\\n"):
+        line_len, n = 0, 1
+        for w in seg.split():
+            need = len(w) + (1 if line_len else 0)
+            if line_len + need > per_line and line_len:
+                n += 1
+                line_len = len(w)
+            else:
+                line_len += need
+        total += n
+    return total
+
+
+def check_textbox(source, target, cfg=None):
+    """Will the translation fit the dialogue box? Defaults come from the game's gui.rpy (box text width 1116 px at
+    33 px font ≈ 65 characters per line, about 4 lines). Only reported when the translation needs more lines than
+    the limit AND more than the original did (an original that already overflows is the game's own problem)."""
+    c = dict(TEXTBOX_DEFAULTS, **(cfg or {}))
+    if not c["enabled"] or not c["chars_per_line"] or not c["max_lines"]:
+        return []
+    ls, lt = lines_needed(source, c["chars_per_line"]), lines_needed(target, c["chars_per_line"])
+    if lt > c["max_lines"] and lt > ls:
+        return [Issue("warning", "textbox-overflow",
+                      f"Text se nemusí vejít do okna dialogu: asi {lt} řádků (limit {c['max_lines']}, originál {ls}). "
+                      f"Zkrať ho, nebo ho rozděl pomocí {{p}}.", category="length",
+                      extra={"lines": lt, "limit": c["max_lines"]})]
+    return []
+
+
+def check_entry(entry, length_cfg=None, terms=None, spell=None, textbox=None):
     """All issues for one parsed Entry (see rpy.Entry). Untranslated lines are not validated."""
     if entry.pending and entry.category:
         return []
@@ -388,14 +436,18 @@ def check_entry(entry, length_cfg=None, terms=None):
     issues += check_quality(entry.source, entry.target)
     if terms:
         issues += check_terms(entry.source, entry.target, terms)
+    if spell is not None:
+        issues += spell.check(entry.source, entry.target)
+    if entry.unit == "dialogue":
+        issues += check_textbox(entry.source, entry.target, textbox)
     return issues
 
 
-def check_parsed(parsed, length_cfg=None, terms=None):
+def check_parsed(parsed, length_cfg=None, terms=None, spell=None, textbox=None):
     """Issues for a whole ParsedFile: [(line, Issue, entry|None)] sorted by line."""
     out = []
     for e in parsed.entries:
-        for iss in check_entry(e, length_cfg, terms):
+        for iss in check_entry(e, length_cfg, terms, spell, textbox):
             out.append((e.line, iss, e))
     for line, code, msg in parsed.structure:
         out.append((line, Issue("error", code, msg, category="structure"), None))

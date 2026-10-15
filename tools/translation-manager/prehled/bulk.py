@@ -263,3 +263,65 @@ def apply_approvals(project, selections, on=True, label=None):
     n = sum(len(k) for k in plan.values())
     store.change(label or (f"{'Schválení' if on else 'Zrušení schválení'} {n} řádků"), ("approved",), go)
     return {"changed": changed, "skipped": skipped}
+
+
+# ---------------------------------------------------------------- approval by rule
+
+RULES = {
+    "symbols": "Jen znaky (…, ?!, čísla) – nic k překladu",
+    "interjections": "Citoslovce (Hmm, Ah, Haha, Wow, Ugh…) – v češtině stejná",
+    "names": "Jen jména ze Slovníku (mluvčí, termíny)",
+}
+INTERJECTIONS = {"hm", "hmm", "hmmm", "mm", "mmm", "mhm", "ah", "aha", "ahh", "oh", "ooh", "uh", "uhm", "um", "umm",
+                 "ugh", "ha", "haha", "hahaha", "hehe", "heh", "hihi", "wow", "whoa", "yay", "ow", "ouch", "argh",
+                 "eh", "huh", "shh", "psst", "ok", "okay", "ahem", "pfft", "tsk", "tss", "boo", "bam", "pow", "zzz"}
+_WORDS = re.compile(r"[^\W\d_]+(?:'[^\W\d_]+)?", re.UNICODE)
+
+
+def _plain(text):
+    return re.sub(r"\{[^}]*\}|\[[^\]]*\]", " ", text.replace("\\n", " "))
+
+
+def name_words(glossary):
+    """Lower-case words of every speaker name and glossary term (both the English and the Czech side)."""
+    out = set()
+    for code, g in glossary.items():
+        for part in (code, g.get("n", "")):
+            out.update(w.lower() for w in _WORDS.findall(part))
+    return out
+
+
+def rule_candidates(project, glossary, rules, rel=None):
+    """Pending lines that a simple rule says need no translation. Nothing is changed.
+
+    Returns {items:[{file, line, key, who, text, rule, selectable, selected, notes}], counts}.
+    An already approved line is listed but not selectable; an empty translation never qualifies."""
+    rules = [r for r in rules if r in RULES]
+    names = name_words(glossary) if "names" in rules else set()
+    approved = project.store.approved
+    items, per_rule = [], Counter()
+    for f in ([rel] if rel else sorted(project.files, key=str.lower)):
+        done = approved.get(f, ())
+        for e in project.entries(f):
+            if not e.pending or e.category == rpy.K_EMPTY:
+                continue
+            text = e.target or ""
+            words = [w.lower() for w in _WORDS.findall(_plain(text))]
+            hit = None
+            if "symbols" in rules and e.category == rpy.K_SYMBOLS:
+                hit = "symbols"
+            elif words and "interjections" in rules and all(w in INTERJECTIONS for w in words):
+                hit = "interjections"
+            elif words and "names" in rules and len(words) <= 4 and all(w in names for w in words):
+                hit = "names"
+            if not hit:
+                continue
+            already = e.key in done
+            per_rule[hit] += 1
+            items.append({"file": f, "line": e.line, "block": e.block, "who": e.who, "text": text, "rule": hit,
+                          "key": [e.block, norm_ws(e.source)], "approved": already,
+                          "selectable": not already, "selected": not already,
+                          "notes": ["už schváleno"] if already else []})
+    return {"items": items, "rules": RULES,
+            "counts": {"total": len(items), "selectable": sum(1 for i in items if i["selectable"]),
+                       "by_rule": dict(per_rule)}}

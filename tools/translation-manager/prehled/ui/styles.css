@@ -282,3 +282,8 @@ td input[type=text]:focus { background: var(--panel); }
 .splitter:hover::after, .splitter.drag::after { background: #fff; opacity: .9; }
 .split.cols > .detail { border-left: 0; }
 td.whoname { font-size: 13px; color: var(--text); }
+
+/* script context of a line (read-only view of the original game script) */
+.scriptctx { margin: 6px 0; }
+.ctxcode { font-family: var(--mono, ui-monospace, Consolas, monospace); font-size: 12px; margin: 4px 0; padding: 6px 8px; background: var(--panel-2); border-radius: 6px; overflow: auto; white-space: pre; max-height: 240px; }
+.ctxcode .hit { background: rgba(255, 196, 0, .22); font-weight: 600; }
