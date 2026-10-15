@@ -12,7 +12,7 @@ import time
 import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlencode, urlparse
 
 from . import __version__
 from .app import AppError, ProjectBusy
@@ -43,6 +43,9 @@ class Session:
         self.last_ping = time.time()
         self.bye_at = None
         self.pick_folder = pick_folder
+        self.windows = {}              # window id -> time of its last ping (the app quits when the last one is gone)
+        self.open_window = None        # set by cli: callable(url) that opens one more app window
+        self.base_url = ""
 
 
 def make_handler(sess):
@@ -146,6 +149,9 @@ def make_handler(sess):
                 return self._send(404, "not found", "text/plain")
             r = p[5:]
             if r == "ping":
+                wid = q1(q, "w")
+                if wid:
+                    sess.windows[wid[:40]] = time.time()
                 return self._json({"ok": True})
             if r == "state":
                 return self._run(lambda: {
@@ -196,8 +202,14 @@ def make_handler(sess):
                 return self._send(403, "forbidden", "text/plain")
             url = urlparse(self.path)
             if url.path == "/api/bye":      # sendBeacon cannot set headers
-                if parse_qs(url.query).get("t", [""])[0] == sess.token:
-                    sess.bye_at = time.time()
+                qs = parse_qs(url.query)
+                if qs.get("t", [""])[0] == sess.token:
+                    sess.windows.pop(qs.get("w", [""])[0][:40], None)
+                    now = time.time()
+                    for k in [k for k, t in sess.windows.items() if now - t > 30]:      # windows that stopped pinging
+                        sess.windows.pop(k, None)
+                    if not sess.windows:
+                        sess.bye_at = now
                 return self._send(200, "ok", "text/plain")
             if self.headers.get("X-Token") != sess.token:
                 self._drain()
@@ -238,6 +250,26 @@ def make_handler(sess):
             def ints(v):
                 return int(v)
 
+            def open_window():
+                """One more app window with its own list / filter state, e.g. to read the scene next to the editor."""
+                if sess.open_window is None:
+                    return {"ok": False, "fallback": True, "error": "Nové okno tu nejde otevřít z aplikace."}
+                q = {"win": "2"}
+                if str(d.get("view", "")) in ("overview", "files", "entries", "validation", "glossary", "publish", "settings"):
+                    q["view"] = str(d["view"])
+                if d.get("file"):
+                    q["file"] = str(d["file"])[:500]
+                if str(d.get("line", "")).isdigit():
+                    q["line"] = str(int(d["line"]))
+                if str(d.get("status", "")) in ("all", "todo", "translated", "approved", "review", "proofed", "fix", "stale"):
+                    q["status"] = str(d["status"])
+                url = sess.base_url + "?" + urlencode(q)
+                try:
+                    sess.open_window(url)
+                except Exception as e:  # noqa: BLE001
+                    return {"ok": False, "fallback": True, "error": f"Okno se nepodařilo otevřít ({e})."}
+                return {"ok": True, "url": url}
+
             routes = {
                 "project/set": project_set,
                 "project/pick": project_pick,
@@ -261,6 +293,7 @@ def make_handler(sess):
                 "proof/upto": lambda: app.proof_upto(str(d["file"]), ints(d["line"]), str(d.get("state", "ok"))),
                 "proof/clear-file": lambda: app.proof_clear_file(str(d["file"])),
                 "open-url": lambda: app.open_link(str(d.get("id", ""))),
+                "window/open": lambda: open_window(),
                 "fix/preview": lambda: {"ok": True, **app.fix_preview(list(d.get("items") or []), str(d.get("file", "")), list(d.get("kinds") or []))},
                 "replace/preview": lambda: {"ok": True, **app.replace_preview(d.get("find", ""), d.get("replace", ""), str(d.get("mode", "plain")), bool(d.get("case")), list(d.get("files") or []), bool(d.get("protect", True)))},
                 "replace/apply": lambda: app.replace_apply(list(d.get("selections") or []), d.get("find", ""), d.get("replace", ""), str(d.get("mode", "plain")), bool(d.get("case")), list(d.get("files") or []), bool(d.get("protect", True))),
@@ -307,5 +340,6 @@ class LocalServer(ThreadingHTTPServer):
 def start_server(app, pick_folder=None):
     sess = Session(app, pick_folder)
     server = LocalServer(("127.0.0.1", 0), make_handler(sess))
+    sess.base_url = f"http://127.0.0.1:{server.server_address[1]}/"
     threading.Thread(target=server.serve_forever, daemon=True).start()
-    return server, sess, f"http://127.0.0.1:{server.server_address[1]}/"
+    return server, sess, sess.base_url

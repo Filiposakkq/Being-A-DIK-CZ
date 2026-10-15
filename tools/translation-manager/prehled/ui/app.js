@@ -102,6 +102,11 @@ function speakerModeSelect(onchange) {
   return h('select', { title: 'Jak zobrazovat mluvčí', onchange: (ev) => { setPref('display.speaker', ev.target.value); onchange?.(); } },
     ...[['both', 'Mluvčí: kód i jméno (2 sloupce)'], ['code', 'Mluvčí: jen kód'], ['name', 'Mluvčí: jen jméno']].map(([v, l]) => h('option', { value: v, selected: speakerMode() === v }, l)));
 }
+/* Several windows can be open at once (each has its own list / filter state). Only the first one saves preferences, so the
+   windows never overwrite each other's settings; the app quits when the last window is closed. */
+const WIN_ID = Math.random().toString(36).slice(2, 10);
+const URL_Q = new URLSearchParams(location.search);
+const SECONDARY = URL_Q.has('win');
 let prefTimer = null;
 const pref = (path, def) => path.split('.').reduce((o, k) => (o && o[k] !== undefined ? o[k] : undefined), S.prefs) ?? def;
 function setPref(path, value) {
@@ -109,6 +114,7 @@ function setPref(path, value) {
   let o = S.prefs;
   for (const k of parts.slice(0, -1)) o = o[k] = o[k] || {};
   o[parts.at(-1)] = value;
+  if (SECONDARY) return;
   clearTimeout(prefTimer);
   prefTimer = setTimeout(() => post('prefs', S.prefs).catch(() => {}), 500);
 }
@@ -796,6 +802,17 @@ async function bulkAssignDialog(names) {
     buttons: [{ label: 'Zrušit' }, { node: applyBtn }] });
 }
 const optLabel = (opts, v) => (opts.find((o) => o.value === v) || { label: v }).label;
+/* Another window of the app on the same project (e.g. the scene or the file list next to the editor). Falls back to a browser window. */
+async function openWindow(opts = {}) {
+  const q = { view: S.view, ...opts };
+  try {
+    const r = await post('window/open', q);
+    if (!r.ok) throw new Error(r.error || 'Okno se nepodařilo otevřít.');
+  } catch (e) {
+    const u = new URLSearchParams({ win: '2', ...Object.fromEntries(Object.entries(q).filter(([, v]) => v !== undefined && v !== '')) });
+    if (!window.open(`${location.origin}/?${u}`, '_blank')) fail(e);
+  }
+}
 async function openEditor(file, line) {
   try { const r = await post('open-editor', { file, line }); toast(r.message, r.ok ? 'ok' : 'bad', 7000); } catch (e) { fail(e); }
 }
@@ -970,6 +987,7 @@ async function viewEntries() {
         h('button', { class: 'btn small', title: 'Otevře soubor na tomhle řádku v externím editoru', onclick: () => openEditor(d.file, d.line) }, 'Editor (E)'),
         menuButton('Více', [
           ...(canApprove ? [{ label: 'Schválit všechny shodné…', hint: 'Shift+A', run: () => globalApprove() }] : []),
+          { label: 'Otevřít v novém okně', hint: 'vedle tohoto', run: () => openWindow({ view: 'entries', file: d.file, line: d.line, status: 'all' }) },
           { label: 'Kopírovat cestu', run: () => copy(`${d.path}:${d.line}`) },
         ], { title: 'Další akce s řádkem' })),
       h('div', { class: 'pair' },
@@ -2267,6 +2285,7 @@ const ACTIONS = [
   { id: 'snapshot', label: 'Vytvořit zálohu souborů překladu teď', keys: [], run: async () => { try { const r = await post('snapshots/create'); toast(`Záloha vytvořena (${r.snapshot.files} souborů, ${fmtSize(r.snapshot.bytes)}).`); } catch (e) { fail(e); } } },
   { id: 'theme', label: 'Přepnout vzhled (automaticky / tmavý / světlý)', keys: [], run: () => cycleTheme() },
   { id: 'density', label: 'Přepnout hustotu tabulek', keys: [], run: () => toggleDensity() },
+  { id: 'new_window', label: 'Otevřít další okno aplikace', keys: [], run: () => openWindow() },
   { id: 'change_project', label: 'Změnit složku s překladem…', keys: [], run: () => pickProject() },
 ];
 const keysOf = (a) => { const o = pref('keys', {}); return Array.isArray(o[a.id]) ? o[a.id] : a.keys; };
@@ -2386,6 +2405,13 @@ function keysPanel() {
 $('#refreshBtn').addEventListener('click', () => doRefresh());
 $('#undoBtn').addEventListener('click', doUndo);
 $('#themeBtn').addEventListener('click', cycleTheme);
+$('#newWinBtn').addEventListener('click', () => openWindow());
+/* A change made in another window: when this one gets the focus back, refresh the counters and the open line. */
+window.addEventListener('focus', () => {
+  if (!S.ready || document.querySelector('#dlg[open]')) return;
+  refreshHeader().catch(() => {});
+  if (S.view === 'entries' && S.ent.api && S.ent.sel >= 0 && !document.querySelector('#editTarget[data-dirty="1"]')) S.ent.api.select(S.ent.sel);
+});
 $('#densityBtn').addEventListener('click', toggleDensity);
 $('#changeProject').addEventListener('click', pickProject);
 document.querySelectorAll('[data-link]').forEach((b) => b.addEventListener('click', () => post('open-url', { id: b.dataset.link }).catch(fail)));
@@ -2402,6 +2428,13 @@ if (new URLSearchParams(location.search).has('selftest')) {      // UI self-test
     applyTheme(); applyDensity(); $('#brandText').textContent = `BaDIK Translation Manager ${S.version || ''}`.trim(); S.notices = st.notices || []; S.projectDir = st.project_dir || '';
     if (st.config_error) S.notices.push(st.config_error);
     S.view = pref('view', 'overview');
+    if (SECONDARY) {
+      document.title += ' – okno 2';
+      const v = URL_Q.get('view');
+      if (v && TABS.some(([k]) => k === v)) S.view = v;
+      if (S.view === 'entries') S.goOpts = { file: URL_Q.get('file') || '', line: +URL_Q.get('line') || 0, status: URL_Q.get('status') || 'all', select: true };
+      if (S.view === 'validation' && URL_Q.get('file')) S.goOpts = { file: URL_Q.get('file') };
+    }
     if (!TABS.some(([k]) => k === S.view)) S.view = 'overview';
     await refreshHeader();
     if (S.ready) await loadGlossary();
@@ -2409,8 +2442,9 @@ if (new URLSearchParams(location.search).has('selftest')) {      // UI self-test
     if (S.ready) S.lastRefresh = new Date().toLocaleTimeString('cs-CZ');
   } catch (e) { $('#view').replaceChildren(h('div', { class: 'notice bad' }, e.message)); }
   let fails = 0;
-  setInterval(() => get('ping').then(() => { fails = 0; }).catch(() => {
+  get('ping', { w: WIN_ID }).catch(() => {});
+  setInterval(() => get('ping', { w: WIN_ID }).then(() => { fails = 0; }).catch(() => {
     if (++fails >= 3) document.body.replaceChildren(h('div', { style: { padding: '3rem', textAlign: 'center' } }, 'Aplikace byla ukončena. Toto okno můžeš zavřít.'));
   }), 4000);
-  addEventListener('pagehide', () => { try { navigator.sendBeacon('/api/bye?t=' + TOKEN); } catch { /* ignore */ } });
+  addEventListener('pagehide', () => { try { navigator.sendBeacon('/api/bye?t=' + TOKEN + '&w=' + WIN_ID); } catch { /* ignore */ } });
 })();

@@ -178,6 +178,14 @@ the string literal (a bare `"`, a lone `\`) is skipped.
   text size come from the game's `gui.rpy` (`gui.dialogue_width`, `gui.text_size`; Being a DIK's values when the sources are not found), the
   estimated number of lines is compared with the limit from *Nastavení*. The game's own font is not used, so it is an estimate.
 
+## More windows
+
+**⧉** in the top bar (or *Více → Otevřít v novém okně* in the line detail, or the palette) opens **another window of the app** on the same project. Each window
+has its own list, filter and selected line, so you can read the scene or the file list next to the editor, or compare two files. The first window keeps the saved
+preferences (the others do not write them, so they never overwrite each other); the app quits when the **last** window is closed. A change made in one window is
+picked up by the other when it gets the focus back (counters and the open line refresh). In the desktop window this opens another native window, in the browser
+mode an app window, and as a last resort a browser tab.
+
 ## Shortcuts, command palette, scene view
 
 * **Shortcuts are customizable** (*Nastavení → Klávesové zkratky*): press **Změnit** and then the new key; **+** adds a second one, **Odebrat** removes them,

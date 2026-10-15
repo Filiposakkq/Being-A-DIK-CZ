@@ -57,6 +57,19 @@ def pick_folder(initial=""):
         return None
 
 
+_WINDOW_MODE = {"desktop": False}
+
+
+def open_extra_window(url):
+    """Another window of the running app (a webview window, or an --app browser window in the fallback mode)."""
+    if _WINDOW_MODE["desktop"]:
+        import webview
+        webview.create_window(f"BaDIK Translation Manager {__version__}", url, width=1360, height=880, min_size=(900, 560),
+                              background_color="#0f1319")
+    else:
+        open_app_window(url)
+
+
 def run_desktop(url):
     """Own window (pywebview). True once a window was shown and closed; False -> use the browser."""
     try:
@@ -65,6 +78,7 @@ def run_desktop(url):
         print("(pywebview není nainstalovaný: py -m pip install pywebview)")
         return False
     try:
+        _WINDOW_MODE["desktop"] = True
         webview.create_window(f"BaDIK Translation Manager {__version__}", url, width=1560, height=940, min_size=(1000, 620),
                               background_color="#0f1319")
         if sys.platform.startswith("win"):
@@ -74,6 +88,7 @@ def run_desktop(url):
         return True
     except Exception as e:  # noqa: BLE001
         print(f"! Okno aplikace nelze spustit ({e})")
+        _WINDOW_MODE["desktop"] = False
         return False
 
 
@@ -103,7 +118,7 @@ def watchdog(sess, stop):
     """Quit when the browser window is gone (page said bye, or stopped sending heartbeats)."""
     while not stop.wait(1.0):
         now = time.time()
-        if sess.bye_at is not None and now - sess.bye_at > 5:
+        if sess.bye_at is not None and now - sess.bye_at > 5 and not sess.windows:
             break
         if now - sess.last_ping > 150:
             break
@@ -261,6 +276,7 @@ def main(argv=None):
     except OSError as e:
         print(f"! Nelze spustit okno ({e}).")
         return 1
+    sess.open_window = open_extra_window
     print(f"\nOkno aplikace: {url}")
     shown = False
     if "--browser" not in flags:
