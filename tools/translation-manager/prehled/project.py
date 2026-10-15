@@ -48,6 +48,7 @@ class RefreshReport:
     unchanged: int = 0
     errors: list = field(default_factory=list)
     empty: list = field(default_factory=list)        # no translatable lines
+    prev: dict = field(default_factory=dict)         # rel -> FileInfo before the change (for the text history)
     seconds: float = 0.0
 
     @property
@@ -184,6 +185,7 @@ class Project:
                 gone.discard(best)
                 added.remove(new)
 
+        report.prev = {rel: self.files[rel] for rel in fresh if rel in self.files}
         for rel, fi in fresh.items():
             self._known[rel] = fi.sig
             if fi.parsed.entries:

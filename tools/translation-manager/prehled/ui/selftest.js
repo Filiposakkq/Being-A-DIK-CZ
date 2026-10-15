@@ -95,7 +95,60 @@
       closeDialog();
     }
   });
+  await step('Najít a nahradit', async () => {
+    await openView('entries', { file: '', status: 'all' });
+    const btn = await waitFor(() => [...document.querySelectorAll('#view button')].find((b) => b.textContent.includes('Najít a nahradit')));
+    ok('tlačítko „Najít a nahradit“ existuje', btn, 'chybí');
+    if (btn) {
+      btn.click();
+      const inputs = await waitFor(() => { const i = document.querySelectorAll('#dlg[open] input[type=text]'); return i.length >= 2 ? i : null; }, 4000);
+      ok('dialog hledání se otevře', inputs, 'dialog se neotevřel');
+      if (inputs) {
+        ok('dialog nabízí režimy hledání', document.querySelectorAll('#dlg .seg button').length >= 4, 'chybí režimy');
+        inputs[0].value = 'a'; inputs[0].dispatchEvent(new Event('input'));
+        const shown = await waitFor(() => document.querySelector('#dlg .tablewrap, #dlg .empty, #dlg .notice.bad'), 5000);
+        ok('náhled hledání se vykreslí', shown && !document.querySelector('#dlg .notice.bad'), 'náhled selhal');
+        inputs[0].value = '('; inputs[0].dispatchEvent(new Event('input'));
+        [...document.querySelectorAll('#dlg .seg button')].find((b) => b.textContent.includes('Regulární'))?.click();
+        ok('špatný regulární výraz se ohlásí chybou, ne výjimkou', await waitFor(() => document.querySelector('#dlg .notice.bad'), 5000), 'chyba se nezobrazila');
+      }
+      closeDialog();
+    }
+  });
+  await step('Opravit (bezpečné opravy)', async () => {
+    const pv = await post('fix/preview', { kinds: ['speaker', 'spaces', 'typo'] });
+    ok('náhled oprav vrací položky s výchozím zaškrtnutím', Array.isArray(pv.items) && pv.items.every((i) => 'default' in i && 'kind' in i), 'špatný tvar odpovědi');
+  });
+  await step('Paměť překladů, náhled okna hry, konzistence', async () => {
+    const html = (t) => gameText(t).innerHTML;
+    ok('náhled hry vykreslí {i} a proměnné', html('{i}a{/i} [x]') === '<i data-tag="i">a</i> XXXXX', html('{i}a{/i} [x]'));
+    ok('náhled hry převede \\n na zalomení a skryje {w}', html('a\\nb{w}c') === 'a<br>bc', html('a\\nb{w}c'));
+    ok('náhled hry nevytvoří HTML z textu', !html('<img src=x onerror=1>').includes('<img'), html('<img src=x onerror=1>'));
+    await openView('entries', { file: '', status: 'all' });
+    await waitFor(() => document.querySelector('#view table.data tbody tr'));
+    const dialogue = S.ent.items.findIndex((x) => x.unit === 'dialogue');
+    if (dialogue >= 0) {
+      S.ent.api.select(dialogue);
+      await waitFor(() => document.querySelector('#editTarget'));
+      ok('editor má panel paměti překladů', await waitFor(() => document.querySelector('#entryDetail details.memory summary'), 4000), 'chybí');
+      ok('editor má panel historie textu', await waitFor(() => document.querySelector('#entryDetail details.texthistory summary'), 4000), 'chybí');
+      const gp = document.querySelector('#entryDetail details.gamepreview');
+      ok('editor má náhled v okně hry', gp, 'chybí');
+      if (gp) { gp.open = true; gp.dispatchEvent(new Event('toggle')); ok('náhled hry spočítá řádky', await waitFor(() => /řádek|řádky|řádků/.test(gp.querySelector('summary').textContent), 4000), gp.querySelector('summary').textContent); gp.open = false; gp.dispatchEvent(new Event('toggle')); }
+    }
+    const cons = await get('consistency');
+    ok('API konzistence vrací skupiny', Array.isArray(cons.groups), JSON.stringify(cons).slice(0, 80));
+    setPref('validation.consistency', false); setPref('validation.ignored', 'hide');      // do not depend on saved view modes
+    await openView('validation');
+    const b = await waitFor(() => [...document.querySelectorAll('#view button')].find((x) => x.textContent === 'Rozdílné překlady'));
+    ok('Kontrola má režim „Rozdílné překlady“', b, 'chybí tlačítko');
+    b?.click();
+    ok('režim konzistence se vykreslí', await waitFor(() => document.querySelector('#view .tablewrap, #view .empty'), 5000) && !document.querySelector('#view .notice.bad'), 'chyba při načtení');
+    [...document.querySelectorAll('#view button')].find((x) => /Zpět na nálezy/.test(x.textContent))?.click();
+    await sleep(300);
+  });
   await step('Kontrola', async () => {
+    setPref('validation.consistency', false); setPref('validation.ignored', 'hide');      // do not depend on saved view modes
     await openView('validation');
     await waitFor(() => document.querySelector('#view .tablewrap, #view .empty'));
     const api = await get('validation', { group: 'line' });

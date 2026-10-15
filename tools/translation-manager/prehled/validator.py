@@ -290,7 +290,8 @@ def check_quality(source, target):
 
     # double spaces inside the text
     if re.search(r"\S {2,}\S", target) and not re.search(r"\S {2,}\S", source):
-        issues.append(Issue("warning", "double-space", "V překladu je dvojitá mezera.", category="text"))
+        issues.append(Issue("warning", "double-space", "V překladu je dvojitá mezera.", category="text",
+                            extra={"fixable": True, "kind": "spaces"}))
 
     # the same word twice in a row (typo), unless the source does it as well or Czech does it normally
     src_rep = {m.group(1).lower() for m in _REPEAT_RE.finditer(ps)}
@@ -424,11 +425,11 @@ def check_entry(entry, length_cfg=None, terms=None, spell=None, textbox=None):
         if " ".join(entry.who.split()) != " ".join(entry.src_who.split()):
             issues.append(Issue("error", "speaker-changed",
                                 f"Mluvčí / atributy se liší od originálu: „{entry.src_who}“ → „{entry.who}“.",
-                                category="structure", extra={"fixable": True}))
+                                category="structure", extra={"fixable": True, "kind": "speaker"}))
         if " ".join(entry.suffix.split()) != " ".join(entry.src_suffix.split()):
             issues.append(Issue("error", "suffix-changed",
                                 f"Kód za textem se liší od originálu: „{entry.src_suffix}“ → „{entry.suffix}“.",
-                                category="structure", extra={"fixable": True}))
+                                category="structure", extra={"fixable": True, "kind": "speaker"}))
     if entry.target.strip() == "" and entry.source.strip() != "":
         return issues
     issues += check_text(entry.source, entry.target)

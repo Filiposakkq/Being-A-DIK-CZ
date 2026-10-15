@@ -215,17 +215,13 @@ def check_literal(text):
         i += 1
 
 
-def edit_translation(project, data_dir, rel, line, new_text):
-    """Replace the translated text of one unit in the .rpy file. Everything else on the line (speaker, attributes,
-    trailing code) and every other line stays byte for byte as it was. Returns {changed, backup}."""
-    ent = next((e for e in project.entries(rel) if e.line == line), None)
-    if ent is None:
-        raise FixError("Řádek už v souboru není – obnov soubory.")
-    check_literal(new_text)
-    if new_text == ent.target:
-        return {"changed": False}
+def _stage_file(project, rel, changes):
+    """Prepare the new bytes of one file for {line: new_text}. Nothing is written. Returns a dict."""
+    fi = project.files.get(rel)
+    if fi is None:
+        raise FixError(f"{rel}: neznámý soubor.")
+    ents = {e.line: e for e in project.entries(rel)}
     full = project.path_of(rel)
-    fi = project.files[rel]
     try:
         data = full.read_bytes()
     except OSError as e:
@@ -238,37 +234,89 @@ def edit_translation(project, data_dir, rel, line, new_text):
     except UnicodeDecodeError as e:
         raise FixError(f"{rel}: soubor není platné UTF-8, úpravu raději neprovádím.") from e
     parts = SPLIT_RE.split(text)
-    idx = 2 * (line - 1)
-    if idx >= len(parts) or parts[idx].strip() != ent.cur_raw:
-        raise FixError(f"{rel}:{line}: řádek už neodpovídá načtenému stavu. Obnov soubory.")
-    raw = parts[idx]
-    m = rpy.STR_RE.search(raw)
-    if not m:
-        raise FixError(f"{rel}:{line}: na řádku není text v uvozovkách.")
-    parts[idx] = raw[:m.start()] + '"' + new_text + '"' + raw[m.end():]
+    for line, new_text in changes.items():
+        ent = ents.get(line)
+        if ent is None:
+            raise FixError(f"{rel}:{line}: řádek už v souboru není – obnov soubory.")
+        check_literal(new_text)
+        idx = 2 * (line - 1)
+        if idx >= len(parts) or parts[idx].strip() != ent.cur_raw:
+            raise FixError(f"{rel}:{line}: řádek už neodpovídá načtenému stavu. Obnov soubory.")
+        raw = parts[idx]
+        m = rpy.STR_RE.search(raw)
+        if not m:
+            raise FixError(f"{rel}:{line}: na řádku není text v uvozovkách.")
+        parts[idx] = raw[:m.start()] + '"' + new_text + '"' + raw[m.end():]
     new_bytes = "".join(parts).encode("utf-8")
     if had_bom:
         new_bytes = BOM + new_bytes
-    backup = make_backup(full, data_dir / "backups", min_interval=0, keep=50)
+    return {"rel": rel, "full": full, "data": data, "new": new_bytes, "changes": changes, "old": fi.parsed.entries}
+
+
+def _verify(staged, written):
+    """The file on disk must differ from the old one in exactly the planned lines and nowhere else."""
+    old, changes = staged["old"], staged["changes"]
+    if len(written.entries) != len(old):
+        return False
+    for a, b in zip(old, written.entries):
+        want = changes.get(a.line, a.target)
+        if b.line != a.line or b.target != want or b.who != a.who or b.suffix != a.suffix:
+            return False
+    return True
+
+
+def apply_edits(project, data_dir, edits, label):
+    """Replace the translated text of several lines (possibly in several files) as ONE undoable step.
+
+    edits = [(rel, line, new_text)]. Everything else in the files stays byte for byte as it was. Every file is
+    backed up, written atomically and verified; if anything fails the files already written are restored.
+    Returns {changed, files, backups}."""
+    by_file = {}
+    for rel, line, new_text in edits:
+        ent = next((e for e in project.entries(rel) if e.line == line), None) if rel in project.files else None
+        if ent is not None and ent.target == new_text:
+            continue                                         # nothing to do for this line
+        by_file.setdefault(rel, {})[int(line)] = new_text
+    if not by_file:
+        return {"changed": 0, "files": 0, "backups": [], "details": []}
+    staged = [_stage_file(project, rel, ch) for rel, ch in sorted(by_file.items())]   # validates everything first
+    written, record, backups = [], [], []
     try:
-        atomic_write_bytes(full, new_bytes)
-    except WriteFailed as e:
-        raise FixError(f"Nelze zapsat: {e.reason} ({full.name})") from e
-    check = rpy.parse_bytes(full.read_bytes())
-    old = fi.parsed.entries
-    ok = len(check.entries) == len(old)
-    if ok:
-        for a, b in zip(old, check.entries):
-            want = new_text if a.line == line else a.target
-            if b.line != a.line or b.target != want or b.who != a.who or b.suffix != a.suffix:
-                ok = False
-                break
-    if not ok:
-        atomic_write_bytes(full, data)
-        raise FixError(f"{rel}: kontrola po zápisu selhala, soubor byl vrácen do původního stavu.")
-    if backup:
-        _push(data_dir, {"time": datetime.now().isoformat(timespec="seconds"),
-                         "label": f"Úprava řádku {line} v {Path(rel).name}",
-                         "files": [{"file": rel, "backup": str(backup), "after": hashlib.sha1(new_bytes).hexdigest(),
-                                    "lines": 1}]})
-    return {"changed": True, "backup": str(backup) if backup else ""}
+        for st in staged:
+            backup = make_backup(st["full"], data_dir / "backups", min_interval=0, keep=50)
+            atomic_write_bytes(st["full"], st["new"])
+            written.append(st)
+            if not _verify(st, rpy.parse_bytes(st["full"].read_bytes())):
+                raise FixError(f"{st['rel']}: kontrola po zápisu selhala, změny byly vráceny do původního stavu.")
+            if backup:
+                backups.append(str(backup))
+                record.append({"file": st["rel"], "backup": str(backup), "after": hashlib.sha1(st["new"]).hexdigest(),
+                               "lines": len(st["changes"])})
+    except (FixError, WriteFailed, OSError) as e:
+        for st in written:                                   # roll back what was already written
+            try:
+                atomic_write_bytes(st["full"], st["data"])
+            except (WriteFailed, OSError):
+                pass
+        if isinstance(e, WriteFailed):
+            raise FixError(f"Nelze zapsat: {e.reason} ({e.path.name})") from e
+        if isinstance(e, FixError):
+            raise
+        raise FixError(f"Zápis selhal: {e}") from e
+    if record:
+        _push(data_dir, {"time": datetime.now().isoformat(timespec="seconds"), "label": label, "files": record})
+    details = [{"file": st["rel"], "line": e.line, "key": e.key, "old": e.target, "new": st["changes"][e.line]}
+               for st in staged for e in st["old"] if e.line in st["changes"]]
+    return {"changed": sum(len(st["changes"]) for st in staged), "files": len(staged), "backups": backups, "details": details}
+
+
+def edit_translation(project, data_dir, rel, line, new_text):
+    """Replace the translated text of one unit. Returns {changed, backup}."""
+    ent = next((e for e in project.entries(rel) if e.line == line), None)
+    if ent is None:
+        raise FixError("Řádek už v souboru není – obnov soubory.")
+    check_literal(new_text)
+    if new_text == ent.target:
+        return {"changed": False}
+    res = apply_edits(project, data_dir, [(rel, line, new_text)], f"Úprava řádku {line} v {Path(rel).name}")
+    return {"changed": True, "backup": res["backups"][0] if res["backups"] else "", "details": res["details"]}
