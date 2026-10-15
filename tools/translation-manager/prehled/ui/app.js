@@ -2585,7 +2585,13 @@ const VAL_MODES = { 'validation.consistency': false, 'validation.lint': false, '
 const entriesApi = () => (S.view === 'entries' && S.ent.api ? S.ent.api : null);
 const moveSel = (n) => { const api = entriesApi(); if (!api) return; const i = S.ent.sel, last = S.ent.items.length - 1; api.select(Math.max(0, Math.min(last, i < 0 ? 0 : i + n))); };
 /* id (no dots: it is a preference key), label, default keys, typing (works while typing in a field), entries (only in Řádky) */
+/* Full screen: the desktop window is asked through the app (F11 does not reach it), a browser tab uses the Fullscreen API. */
+async function toggleFullscreen() {
+  try { const r = await post('window/fullscreen', {}); if (r.ok) return; } catch { /* use the browser way */ }
+  try { if (document.fullscreenElement) await document.exitFullscreen(); else await document.documentElement.requestFullscreen(); } catch (e) { fail(e); }
+}
 const ACTIONS = [
+  { id: 'fullscreen', label: 'Celá obrazovka (zapnout / vypnout)', keys: ['F11'], typing: true, run: () => toggleFullscreen() },
   { id: 'palette', label: 'Paleta příkazů (hledání akcí a souborů)', keys: ['Ctrl+K'], typing: true, run: () => openPalette() },
   { id: 'search', label: 'Hledat v aktuální sekci', keys: ['Ctrl+F'], typing: true, run: () => { const el = $('#search'); if (el) { el.focus(); el.select(); } } },
   { id: 'search_slash', label: 'Hledat v aktuální sekci (lomítko)', keys: ['/'], run: () => $('#search')?.focus() },
@@ -2737,6 +2743,7 @@ $('#refreshBtn').addEventListener('click', () => doRefresh());
 $('#undoBtn').addEventListener('click', doUndo);
 $('#themeBtn').addEventListener('click', cycleTheme);
 $('#newWinBtn').addEventListener('click', () => openDetailWindow());
+$('#fullBtn').addEventListener('click', () => toggleFullscreen());
 /* A change made in another window: when this one gets the focus back, refresh the counters and the open line. */
 window.addEventListener('focus', () => {
   if (!S.ready || document.querySelector('#dlg[open]')) return;

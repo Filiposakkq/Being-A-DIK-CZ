@@ -202,6 +202,7 @@
     ok('comboOf: písmeno velké a s Shift', comboOf(ev('a')) === 'A' && comboOf(ev('A', { shiftKey: true })) === 'Shift+A', comboOf(ev('a')) + ' / ' + comboOf(ev('A', { shiftKey: true })));
     ok('comboOf: Ctrl, Alt, symboly a názvy kláves', comboOf(ev('k', { ctrlKey: true })) === 'Ctrl+K' && comboOf(ev('1', { altKey: true })) === 'Alt+1' && comboOf(ev('?', { shiftKey: true })) === '?' && comboOf(ev('ArrowDown')) === 'ArrowDown' && comboOf(ev('Shift', { shiftKey: true })) === '', 'špatný zápis');
     ok('v záhlaví je tlačítko druhého okna', document.getElementById('newWinBtn') && !SECONDARY, 'chybí tlačítko nebo je to druhé okno');
+    ok('v záhlaví je tlačítko celé obrazovky a zkratka F11', document.getElementById('fullBtn') && ACTIONS.some((a) => a.id === 'fullscreen' && a.keys.includes('F11')), 'chybí');
     let wo;
     try { wo = await post('window/open', { view: 'entries', file: 'x.rpy', line: 3 }); } catch (e) { wo = e.data; }      // no opener in the test server: the page must be told to fall back
     ok('server při nedostupném okně vrátí náhradní postup, ne chybu', wo && wo.ok === false && wo.fallback === true, JSON.stringify(wo));

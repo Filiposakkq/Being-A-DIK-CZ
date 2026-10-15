@@ -45,6 +45,7 @@ class Session:
         self.pick_folder = pick_folder
         self.windows = {}              # window id -> time of its last ping (the app quits when the last one is gone)
         self.open_window = None        # set by cli: callable(url) that opens one more app window
+        self.toggle_fullscreen = None  # set by cli: callable() -> bool, full screen of the window in front
         self.base_url = ""
         self.focus = {"seq": 0, "file": "", "line": 0, "text": None}   # the line open in the main window; companion windows follow it
         self.focus_cv = threading.Condition()
@@ -342,6 +343,7 @@ def make_handler(sess):
                 "proof/clear-file": lambda: app.proof_clear_file(str(d["file"])),
                 "open-url": lambda: app.open_link(str(d.get("id", ""))),
                 "window/open": lambda: open_window(),
+                "window/fullscreen": lambda: ({"ok": True} if sess.toggle_fullscreen and sess.toggle_fullscreen() else {"ok": False, "fallback": True}),
                 "focus": lambda: set_focus(),
                 "fix/preview": lambda: {"ok": True, **app.fix_preview(list(d.get("items") or []), str(d.get("file", "")), list(d.get("kinds") or []))},
                 "replace/preview": lambda: {"ok": True, **app.replace_preview(d.get("find", ""), d.get("replace", ""), str(d.get("mode", "plain")), bool(d.get("case")), list(d.get("files") or []), bool(d.get("protect", True)))},

@@ -126,6 +126,16 @@ class WindowTests(TempCase):
         self.call("GET", "/api/focus?after=-1&wait=1")                # already newer than "-1": no waiting
         self.assertLess(time.time() - t0, 2)
 
+    def test_full_screen_is_done_by_the_app_window_or_the_page_is_told_to_do_it(self):
+        self.assertEqual(self.call("POST", "/api/window/fullscreen", {})[1], {"ok": False, "fallback": True})
+        calls = []
+        self.sess.toggle_fullscreen = lambda: calls.append(1) or True
+        self.assertEqual(self.call("POST", "/api/window/fullscreen", {})[1], {"ok": True})
+        self.sess.toggle_fullscreen = lambda: False
+        self.assertTrue(self.call("POST", "/api/window/fullscreen", {})[1]["fallback"])
+        self.assertEqual(calls, [1])
+        self.assertEqual(self.call("POST", "/api/window/fullscreen", {}, token=False)[0], 403)
+
     def test_without_an_opener_the_page_is_told_to_fall_back(self):
         status, res = self.call("POST", "/api/window/open", {"view": "entries"})
         self.assertEqual((res["ok"], res["fallback"]), (False, True))

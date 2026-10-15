@@ -70,6 +70,18 @@ def open_extra_window(url):
         open_app_window(url)
 
 
+def toggle_fullscreen():
+    """Full screen for the window that is in front (the page asks for it: F11 does not reach a pywebview window)."""
+    if not _WINDOW_MODE["desktop"]:
+        return False
+    import webview
+    win = webview.active_window() or (webview.windows[0] if webview.windows else None)
+    if win is None:
+        return False
+    win.toggle_fullscreen()
+    return True
+
+
 def run_desktop(url):
     """Own window (pywebview). True once a window was shown and closed; False -> use the browser."""
     try:
@@ -277,6 +289,7 @@ def main(argv=None):
         print(f"! Nelze spustit okno ({e}).")
         return 1
     sess.open_window = open_extra_window
+    sess.toggle_fullscreen = toggle_fullscreen
     print(f"\nOkno aplikace: {url}")
     shown = False
     if "--browser" not in flags:
