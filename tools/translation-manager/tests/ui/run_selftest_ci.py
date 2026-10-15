@@ -13,6 +13,7 @@ import importlib.util
 import json
 import os
 import sys
+import time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -40,10 +41,17 @@ def main():
     try:
         with sync_playwright() as p:
             browser = p.chromium.launch(channel=channel) if channel else p.chromium.launch()
-            page = browser.new_page(viewport={"width": 1400, "height": 900})
+            # The app sends a strict Content-Security-Policy (no eval). Playwright's wait_for_function is evaluated inside the
+            # page, so the policy is bypassed for THIS test context only; the checks themselves do not depend on it.
+            ctx = browser.new_context(viewport={"width": 1400, "height": 900}, bypass_csp=True)
+            page = ctx.new_page()
             page.on("pageerror", lambda e: page_errors.append(str(e)))
             page.goto(url)
-            page.wait_for_function("window.__selftest && window.__selftest.done", timeout=TIMEOUT_MS)
+            deadline = time.time() + TIMEOUT_MS / 1000
+            while not page.evaluate("Boolean(window.__selftest && window.__selftest.done)"):
+                if time.time() > deadline:
+                    raise TimeoutError("The UI self-test did not finish in time.")
+                time.sleep(1)
             result = page.evaluate("window.__selftest")
             page.screenshot(path=str(HERE / "selftest-result.png"))
             browser.close()
