@@ -200,7 +200,7 @@ documentation), so treat it as experimental and check the first results.
 ## CI
 
 `ui-selftest` in the workflow runs the UI self-test in Edge via Playwright (`tests/ui/run_selftest_ci.py`) and uploads a screenshot. It was added without a run in CI
-(no browser on the author's PC), so it has `continue-on-error: true`; remove that once it has been green.
+(no browser on the author's PC), and has since been green, so it is a normal required-looking job (no `continue-on-error`).
 
 ## Backups of the translation folder and the Ren'Py lint
 
