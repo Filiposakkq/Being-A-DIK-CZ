@@ -63,7 +63,7 @@ async function request(method, path, body) {
   return data;
 }
 const get = (p, q) => request('GET', p, q);
-const post = (p, b) => request('POST', p, b);
+const post = (p, b) => { if (p !== 'focus' && p !== 'prefs' && p !== 'entry/check') S.ctxCache?.clear(); return request('POST', p, b); };   // a write may change the neighbouring lines
 
 /* ---------------------------------------------------------------- state & prefs */
 const S = {
@@ -824,8 +824,11 @@ function startFollowing() {
     pending = null;
     if (typeof f.text !== 'string' && $('#editTarget')?.dataset.dirty === '1') { pending = f; return; }   // keep what is being typed here; retried below
     const cur = S.ent?.items?.[S.ent.sel];
-    if (cur && cur.file === f.file && cur.line === f.line) { if (typeof f.text === 'string') S.compDraft?.(f.text); return; }     // same line: only the typed text changed
+    if (cur && cur.file === f.file && cur.line === f.line && typeof f.text === 'string') { S.compDraft?.(f.text); return; }     // same line, only the typed text changed (a plain re-announcement, e.g. after saving, reloads it)
+    const key = f.file + '	' + f.line;
+    if (S.followTarget === key && Date.now() - S.followAt < 500) { if (typeof f.text === 'string') S.compDraft?.(f.text); return; }      // the channel and the server both announce a change: draw it once
     if (!S.ent?.api) { pending = f; return; }
+    S.followTarget = key; S.followAt = Date.now();
     S.ent.api.follow(f.file, f.line);
   };
   S.followApply = apply;
@@ -1008,6 +1011,7 @@ async function viewEntries() {
   /* Detail window: there is no list, only the one line it follows (loading a whole list for every change was slow and racy). */
   async function followLine(file, line) {
     let d;
+    S.ctxCache?.clear();                                // the main window may have changed neighbouring lines
     prefetchScene(file, line).catch(() => {});          // starts at once, in parallel with the detail
     try { d = await get('entry', { file, line }); } catch (err) { S.ent.items = [{ file, line }]; S.ent.detail = null; return drawDetail(null, err.message); }
     const it = { file, line, key: d.key, status: d.status, proof: d.proof, kind: d.kind, unit: d.unit, who: d.who, ref: d.ref, source: d.source, target: d.target,
@@ -1056,7 +1060,7 @@ async function viewEntries() {
     const pre = (COMPANION ? (S.compFull || tab === 'scene') : (tab === 'scene' && !(S.companionOpen && pref('ui.slimMain', true)))) ? prefetchScene(it.file, it.line).catch(() => {}) : null;
     try { S.ent.detail = await get('entry', { file: it.file, line: it.line }); } catch (err) { S.ent.detail = null; drawDetail(null, err.message); return; }
     if (pre) await pre;
-    if (S.ent.sel === i) drawDetail(S.ent.detail);
+    if (S.ent.sel === i) { const top = detail.scrollTop; drawDetail(S.ent.detail); detail.scrollTop = top; }
     if (i >= S.ent.items.length - 15 && S.ent.start + S.ent.items.length < S.ent.total) load(false);
   }
   function drawDetail(d, err) {
@@ -1107,13 +1111,13 @@ async function viewEntries() {
       if (keep !== null) { const n = $('#editTarget'); n.value = keep; n.dispatchEvent(new Event('input')); }
     };
     return h('div', { class: 'followbar' },
-      h('label', { class: 'check', title: 'Okno ukazuje řádek, na který kliknu v hlavním okně' }, h('input', { type: 'checkbox', checked: S.follow !== false, onchange: (e) => { S.follow = e.target.checked; if (S.follow) S.followApply?.(S.lastFocus || {}); } }), ' Sledovat hlavní okno'),
+      h('label', { class: 'check', title: 'Okno ukazuje řádek, na který kliknu v hlavním okně' }, h('input', { type: 'checkbox', checked: S.follow !== false, onchange: (e) => { S.follow = e.target.checked; S.followTarget = ''; if (S.follow) S.followApply?.(S.lastFocus || {}); } }), ' Sledovat hlavní okno'),
       h('span', { class: 'spacer' }),
       h('label', { class: 'check', title: 'Překládat i v tomhle okně (jinak se překládá v hlavním a tohle okno ukazuje scénu a kontroly)' }, h('input', { type: 'checkbox', checked: !!S.compEditor, onchange: (e) => { S.compEditor = e.target.checked; drawDetail(S.ent.detail); } }), ' Editor i tady'),
       h('div', { class: 'seg' }, h('button', { class: S.compFull ? '' : 'on', onclick: () => setFull(false) }, 'Scéna a detail'), h('button', { class: S.compFull ? 'on' : '', onclick: () => setFull(true) }, 'Scéna přes celé okno')));
   }
   /* Secondary panels of the line detail live in tabs: only the chosen one is built (and fetches its data). */
-  const inPane = (el) => { el.open = true; el.classList.add('inpane'); return el; };
+  const inPane = (el) => { if (!el.dataset.keep) el.open = true; el.classList.add('inpane'); return el; };
   const issuesPane = (d) => (
         d.issues.length ? h('div', null, d.issues.map((x) => h('div', { class: 'issue ' + x.severity + (x.ignored ? ' ignored' : '') }, x.ignored ? chip('none', 'ignorováno') : chip(x.severity, SEV_LABEL[x.severity]), ' ', x.message,
         x.ignored ? h('span', { class: 'muted' }, x.ignore_note ? ` – ${x.ignore_note}` : '') : null,
@@ -1313,13 +1317,13 @@ async function viewEntries() {
      to the last `scene` / `show`) with the dialogue box drawn over it, sized by the game's own gui.rpy values. Without the game
      folder it is the box alone. The real font is not used, so wrapping is an estimate. */
   function gamePreview(d, ta) {
-    const box = h('details', { class: 'gamepreview' });
+    const box = h('details', { class: 'gamepreview', dataset: { keep: '1' } });
     const sum = h('summary', null, 'Náhled scény ', h('span', { class: 'muted' }, ''));
     const outer = h('div', { class: 'gwin' }), info = h('div', { class: 'muted ginfo' });
     const mode = h('select', { title: 'Který text ukázat v okně hry', onchange: () => draw() },
       h('option', { value: 'target' }, 'Překlad'), h('option', { value: 'source' }, 'Originál'));
     box.append(sum, h('div', { class: 'toolbar', style: { margin: '6px 0' } }, mode), outer, info);
-    box.open = COMPANION || !!pref('ui.gamepreview', true);
+    box.open = !!pref('ui.gamepreview', true);
     box.addEventListener('toggle', () => { setPref('ui.gamepreview', box.open); if (box.open) draw(); });
     let gui = S.gui, scene = null, imgOk = true;
     const fallbackName = speakerLabel(d.who) || '';
@@ -1399,6 +1403,15 @@ async function viewEntries() {
   }
   /* Everything the scene preview of one line needs (scene info, the picture decoded, the fonts and their widths), fetched ahead of drawing so
      that choosing a new line swaps the whole view at once instead of showing it piece by piece. Cached per line. */
+  function contextFor(file, line, radius) {
+    S.ctxCache ||= new Map();
+    const key = `${file}\t${line}\t${radius}`;
+    if (!S.ctxCache.has(key)) {
+      S.ctxCache.set(key, get('entry/scene', { file, line, radius }));
+      if (S.ctxCache.size > 60) S.ctxCache.delete(S.ctxCache.keys().next().value);
+    }
+    return S.ctxCache.get(key).catch((e) => { S.ctxCache.delete(key); throw e; });
+  }
   async function prefetchScene(file, line) {
     S.sceneCache ||= new Map();
     const key = file + '\t' + line;
@@ -1407,7 +1420,8 @@ async function viewEntries() {
       if (S.sceneCache.size > 80) S.sceneCache.delete(S.sceneCache.keys().next().value);
     }
     const sc = await S.sceneCache.get(key);
-    const jobs = [loadGameFont(sc.fonts_text), loadGameFont(sc.fonts_name), loadGameMetrics(sc.fonts_text), loadGameMetrics(sc.fonts_name)];
+    const jobs = [loadGameFont(sc.fonts_text), loadGameFont(sc.fonts_name), loadGameMetrics(sc.fonts_text), loadGameMetrics(sc.fonts_name),
+      contextFor(file, line, pref('ui.sceneRadius', 6)).catch(() => {})];
     if (sc.url) {
       S.imgCache ||= new Map();
       if (!S.imgCache.has(sc.url)) { const im = new Image(); im.src = sc.url; S.imgCache.set(sc.url, im.decode().catch(() => {})); if (S.imgCache.size > 12) S.imgCache.delete(S.imgCache.keys().next().value); }
@@ -1443,7 +1457,7 @@ async function viewEntries() {
   }
   /* The scene around the line: original next to translation, the current line marked; click a row to jump to it. */
   function sceneBox(d) {
-    const box = h('details', { class: 'scene' });
+    const box = h('details', { class: 'scene', dataset: { keep: '1' } });
     box.open = !!pref('ui.sceneOpen', true);
     const sum = h('summary', null, 'Scéna kolem řádku ', h('span', { class: 'muted' }, '(originál vedle překladu)'));
     const body = h('div');
@@ -1455,7 +1469,7 @@ async function viewEntries() {
       if (!box.open) return;
       body.replaceChildren(loading());
       try {
-        const r = await get('entry/scene', { file: d.file, line: d.line, radius: pref('ui.sceneRadius', 6) });
+        const r = await contextFor(d.file, d.line, pref('ui.sceneRadius', 6));
         const rows = r.items.map((it) => h('tr', { class: it.current ? 'cur' : '', onclick: () => { const i = S.ent.items.findIndex((x) => x.file === d.file && x.line === it.line); if (i >= 0) select(i); else go('entries', { file: d.file, line: it.line, status: 'all' }); } },
           h('td', { class: 'num muted' }, it.line), h('td', { class: 'who' }, speakerLabel(it.who) || ''), h('td', { class: 'txt' }, fmtText(it.source ?? '')),
           h('td', { class: 'txt' }, it.status === 'todo' ? h('span', { class: 'muted' }, 'nepřeloženo') : fmtText(it.target))));
@@ -1465,7 +1479,7 @@ async function viewEntries() {
       } catch (e) { body.replaceChildren(h('div', { class: 'notice bad' }, e.message)); }
     }
     box.addEventListener('toggle', () => { setPref('ui.sceneOpen', box.open); fill(); });
-    setTimeout(fill, 0);
+    fill();
     return box;
   }
   const ctxLine = (x) => h('div', { class: 'ctx' }, `${x.line}  `, x.who ? h('span', { class: 'mono' }, speakerLabel(x.who) + ' ') : null, fmtText(x.target));
