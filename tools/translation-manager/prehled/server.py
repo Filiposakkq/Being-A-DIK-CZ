@@ -267,6 +267,7 @@ def make_handler(sess):
                 "fix/apply": lambda: app.fix_apply(list(d.get("items") or []), str(d.get("file", "")), list(d.get("kinds") or []),
                                                   list(d["selections"]) if d.get("selections") is not None else None),
                 "fix/undo": lambda: app.fix_undo(),
+                "entry/mt": lambda: {"ok": True, **app.mt_suggest(str(d["file"]), ints(d["line"]))},
                 "snapshots/create": lambda: app.snapshot_create(),
                 "snapshots/restore": lambda: app.snapshot_restore(str(d.get("name", "")), d.get("files")),
                 "snapshots/delete": lambda: app.snapshot_delete(str(d.get("name", ""))),

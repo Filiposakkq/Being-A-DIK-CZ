@@ -1,4 +1,4 @@
-/* BaDIK Translation Manager 1.3 – design tokens first (dark default, light via [data-theme]); components use only tokens.
+/* BaDIK Translation Manager 1.4 – design tokens first (dark default, light via [data-theme]); components use only tokens.
    Every class used by app.js is styled here; nothing in the markup depends on the look. */
 :root {
   color-scheme: dark;
@@ -454,3 +454,7 @@ details.scene > summary { cursor: pointer; font-weight: 600; font-size: 12.5px; 
 table.scene-table tbody tr { cursor: pointer; }
 table.scene-table tbody tr.cur { background: var(--accent-bg); box-shadow: inset 3px 0 0 var(--accent); }
 table.scene-table td { padding: 4px 10px; }
+
+/* machine translation suggestion */
+.mtbox { margin: 8px 0; }
+.mtbox:empty { display: none; }

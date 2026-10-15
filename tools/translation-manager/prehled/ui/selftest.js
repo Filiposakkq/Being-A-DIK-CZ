@@ -132,7 +132,8 @@
       S.ent.api.select(dialogue);
       await waitFor(() => document.querySelector('#editTarget'));
       ok('editor má panel paměti překladů', await waitFor(() => document.querySelector('#entryDetail details.memory summary'), 4000), 'chybí');
-      ok('editor má panel historie textu', await waitFor(() => document.querySelector('#entryDetail details.texthistory summary'), 4000), 'chybí');
+        ok('editor má tlačítko „Návrh strojem“ (skryté, dokud se nenastaví)', [...document.querySelectorAll('#entryDetail button')].some((b) => b.textContent === 'Návrh strojem'), 'chybí');
+    ok('editor má panel historie textu', await waitFor(() => document.querySelector('#entryDetail details.texthistory summary'), 4000), 'chybí');
       const gp = document.querySelector('#entryDetail details.gamepreview');
       ok('editor má náhled v okně hry', gp, 'chybí');
       if (gp) { gp.open = true; gp.dispatchEvent(new Event('toggle')); ok('náhled hry spočítá řádky', await waitFor(() => /řádek|řádky|řádků/.test(gp.querySelector('summary').textContent), 4000), gp.querySelector('summary').textContent); gp.open = false; gp.dispatchEvent(new Event('toggle')); }
@@ -223,7 +224,7 @@
   await step('Publikace', async () => { await openView('publish'); });
   await step('Nastavení', async () => {
     await openView('settings');
-    for (const id of ['set_val', 'set_spell', 'set_tb', 'set_tbcpl', 'set_tblines', 'set_snap_on', 'set_snap_h', 'set_snap_keep', 'set_sdk', 'set_goal_t']) ok(`nastavení má pole ${id}`, document.getElementById(id), 'chybí');
+    for (const id of ['set_val', 'set_spell', 'set_tb', 'set_tbcpl', 'set_tblines', 'set_snap_on', 'set_snap_h', 'set_snap_keep', 'set_sdk', 'set_goal_t', 'set_mt_provider', 'set_mt_key', 'set_mt_consent']) ok(`nastavení má pole ${id}`, document.getElementById(id), 'chybí');
   });
   await step('Vzhled a hustota', async () => {
     const t0 = pref('ui.theme', 'auto'), d0 = pref('ui.density', 'comfortable');

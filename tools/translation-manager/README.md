@@ -1,4 +1,4 @@
-# BaDIK Translation Manager 1.3
+# BaDIK Translation Manager 1.4
 
 Desktop tool for the Czech fan translation of *Being a DIK*. It reads the Ren'Py translation files
 (`game/tl/czech/**/*.rpy`), tracks translation and proofreading progress per file, episode and season, checks the
@@ -187,6 +187,20 @@ the string literal (a bare `"`, a lone `\`) is skipped.
   those without a key (find & replace, approve by rule, fix, consistency, ignored, lint, snapshot, theme, density, change folder).
 * **Scéna kolem řádku** (in the line detail): ±3 / 6 / 10 / 15 neighbouring lines with the **original next to the translation**, the current line marked; a click
   on a row jumps to it. Opening a second window (two lists side by side) is not implemented: the list state is shared, so it would need a larger refactor.
+
+## Machine translation (optional, experimental)
+
+*Nastavení → Strojový překlad*: choose DeepL, an OpenAI-compatible endpoint (also a local one) or LibreTranslate, enter your own API key and **tick the consent**. Then
+the editor shows **Návrh strojem**: it sends the English text of *that one line* (OpenAI-compatible: plus the 2 previous lines as context and the glossary terms
+found in the line) and shows the answer as a *suggestion* with the validator's findings; it is inserted only when you click, never saved by itself. Tags, variables and
+`\n` never go to the service as text: they are swapped for placeholders and put back, and a warning appears if one came back lost or duplicated. The key is stored in
+plain text in the app's `config.json` and never sent back to the UI. **Not tested against the real services** (only against a fake HTTP layer, written from their
+documentation), so treat it as experimental and check the first results.
+
+## CI
+
+`ui-selftest` in the workflow runs the UI self-test in Edge via Playwright (`tests/ui/run_selftest_ci.py`) and uploads a screenshot. It was added without a run in CI
+(no browser on the author's PC), so it has `continue-on-error: true`; remove that once it has been green.
 
 ## Backups of the translation folder and the Ren'Py lint
 

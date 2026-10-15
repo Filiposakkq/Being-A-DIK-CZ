@@ -9,7 +9,7 @@ from dataclasses import replace
 from datetime import date, datetime
 from pathlib import Path
 
-from . import (__version__, bulk, editor, export, fixes, history as hist, lint, memory, publish as pub, rpy, snapshots,
+from . import (__version__, bulk, editor, export, fixes, history as hist, lint, memory, mt, publish as pub, rpy, snapshots,
                spelling, textedit, texthistory, validator)
 from .config import Config, migrate_web_json
 from .lock import ProjectLock, ProjectLocked
@@ -65,6 +65,7 @@ class App:
         self._memory_cache = None
         self.texthist = None       # TextHistory of the open project
         self.linter = lint.Linter()
+        self._mt_http = None       # replaced in tests
         self._val_cache = {}       # rel -> (digest, cfg signature, [(line, Issue, entry)])
         self.last_save_error = ""
         self.plock = None          # ProjectLock of the open project
@@ -1409,6 +1410,26 @@ class App:
             out.update(changed=res["changed"], files=res["files"], backups=res["backups"])
             return out
 
+    def mt_suggest(self, rel, line):
+        """A machine translation SUGGESTION for one line (only after consent and a key in the settings; never saved)."""
+        self._need_project()
+        ent = next((e for e in self.project.entries(rel) if e.line == line), None) if rel in self.project.files else None
+        if ent is None or ent.source is None:
+            raise AppError("Řádek už v souboru není – obnov soubory.")
+        cfg = dict(self.config.get("mt", {}))
+        ents = self.project.entries(rel)
+        idx = next(i for i, e in enumerate(ents) if e.line == line)
+        context = [e.source for e in ents[max(0, idx - 2):idx] if e.source]
+        terms = {en: cz for en, cz in self._terms().items() if validator.term_in_text(ent.source, en)}
+        try:
+            res = mt.translate(cfg, ent.source, terms, context, http=self._mt_http)
+        except mt.MTError as e:
+            raise AppError(str(e)) from e
+        probe = replace(ent, target=res["text"], category="")
+        issues = [i.to_dict() for i in validator.check_entry(probe, self._length_cfg(), self._terms(), None,
+                                                             self.config.get("validation.textbox", {})) if i.severity != "info"]
+        return {"suggestion": res["text"], "warnings": res["warnings"], "issues": issues, "provider": res["provider"]}
+
     def entry_scene(self, rel, line, radius=6):
         """The lines around one line (original and translation), i.e. the scene it belongs to."""
         self._need_project()
@@ -1603,6 +1624,29 @@ class App:
                         raise AppError(f"{k} musí být v rozmezí {lo}–{hi}.")
                     o[k] = val
             clean["snapshots"] = o
+        m = patch.get("mt")
+        if isinstance(m, dict):
+            cur = dict(self.config.get("mt", {}))
+            o = {}
+            if "provider" in m:
+                if m["provider"] not in ("",) + mt.PROVIDERS:
+                    raise AppError("Neznámý poskytovatel strojového překladu.")
+                o["provider"] = m["provider"]
+            for k, n in (("base_url", 300), ("model", 100), ("source_lang", 10), ("target_lang", 10)):
+                if k in m:
+                    o[k] = str(m[k]).strip()[:n]
+            if o.get("base_url"):
+                try:
+                    mt._check_url(o["base_url"])
+                except mt.MTError as e:
+                    raise AppError(str(e)) from e
+            if "consent" in m:
+                o["consent"] = bool(m["consent"])
+            if m.get("clear_key"):
+                o["api_key"] = ""
+            elif str(m.get("api_key", "")).strip():
+                o["api_key"] = str(m["api_key"]).strip()[:300]          # an empty field keeps the stored key
+            clean["mt"] = {**cur, **o}
         li = patch.get("lint")
         if isinstance(li, dict) and "sdk" in li:
             clean["lint"] = {"sdk": str(li["sdk"]).strip().strip('"')[:500]}

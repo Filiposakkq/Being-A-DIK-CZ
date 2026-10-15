@@ -1049,10 +1049,27 @@ async function viewEntries() {
     const undoLast = h('button', { class: 'btn small ghost', title: 'Vrátí poslední změnu souboru .rpy provedenou touto aplikací (úprava textu nebo oprava mluvčích) ze zálohy', onclick: async () => {
       try { const r = await post('fix/undo'); toast(`Vráceno: ${r.label || 'poslední změna'}`, 'ok'); S.files = null; refreshHeader(); load(true); } catch (err) { fail(err); }
     } }, '↶ Vrátit poslední změnu souboru');
+    /* Optional machine translation: a suggestion only, shown below, inserted when you click. Visible only when set up in Nastavení. */
+    const mtBox = h('div', { class: 'mtbox' });
+    const mtBtn = h('button', { class: 'btn small', style: { display: 'none' }, title: 'Pošle anglický text tohoto řádku nastavené službě a ukáže návrh. Nic se samo nezapíše.' }, 'Návrh strojem');
+    mtBtn.onclick = async () => {
+      mtBtn.disabled = true; mtBox.replaceChildren(loading('Ptám se služby…'));
+      try {
+        const r = await post('entry/mt', { file: d.file, line: d.line });
+        mtBox.replaceChildren(h('h4', null, `Návrh strojem (${r.provider})`), h('div', { class: 'textbox' }, fmtText(r.suggestion)),
+          ...r.warnings.map((w) => h('div', { class: 'issue warning' }, chip('warning', 'Pozor'), ' ', w)),
+          ...r.issues.map((x) => h('div', { class: 'issue ' + x.severity }, chip(x.severity, SEV_LABEL[x.severity]), ' ', x.message)),
+          h('div', { class: 'actions' }, h('button', { class: 'btn small primary', onclick: () => { ta.value = r.suggestion; ta.dispatchEvent(new Event('input')); ta.focus(); } }, 'Použít návrh'),
+            h('button', { class: 'btn small', onclick: () => insert(r.suggestion) }, 'Vložit'), h('button', { class: 'btn small ghost', onclick: () => mtBox.replaceChildren() }, 'Zavřít')),
+          h('div', { class: 'muted editnote' }, 'Strojový návrh bývá doslovný a často chybí pád, rod nebo tón postavy – vždy ho uprav.'));
+      } catch (e) { mtBox.replaceChildren(h('div', { class: 'notice bad' }, e.message)); }
+      mtBtn.disabled = false;
+    };
+    (async () => { try { if (S.mtOn === undefined) { const st = await get('settings'); S.mtOn = !!(st.mt?.provider && st.mt.consent && (st.mt.has_key || st.mt.base_url)); } mtBtn.style.display = S.mtOn ? '' : 'none'; } catch { /* the button just stays hidden */ } })();
     if (S.ent.focusEdit) { S.ent.focusEdit = false; setTimeout(() => { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }, 0); }
     return h('div', { class: 'editor' }, h('h4', null, 'Překlad ', h('span', { class: 'muted', style: { textTransform: 'none', letterSpacing: 0 } }, '– upravuje se přímo v souboru')), ta,
       tagBar, missing, terms,
-      h('div', { class: 'actions' }, save, reset, copySrc, copyTgt, undoLast),
+      h('div', { class: 'actions' }, save, reset, copySrc, copyTgt, mtBtn, undoLast), mtBox,
       h('div', { class: 'muted editnote' }, 'Nový řádek zapiš jako \\n, uvozovku jako \\". Značky {i}…{/i} a [proměnné] nech jako v originálu.'), msg,
       gamePreview(d, ta), memoryPanel(d, ta, insert), historyPanel(d, ta));
   }
@@ -2040,6 +2057,14 @@ async function viewSettings() {
       ...field('Kontrola okna dialogu', h('input', { type: 'checkbox', id: 'set_tb', checked: tb.enabled }), 'Varuje, když se překlad nevejde do okna dialogu a originál se vešel.'),
       ...field('Znaků na řádek', h('input', { type: 'text', id: 'set_tbcpl', value: String(tb.chars_per_line) }), 'Výchozí 65 vychází z gui.rpy hry (šířka textu 1116 px, písmo 33 px).'),
       ...field('Nejvíc řádků v okně', h('input', { type: 'text', id: 'set_tblines', value: String(tb.max_lines) }), 'Výchozí 4.'))),
+    h('fieldset', null, h('legend', null, 'Strojový překlad (nepovinné, experimentální)'), h('div', { class: 'form' },
+      ...field('Služba', h('select', { id: 'set_mt_provider' }, [['', 'Vypnuto'], ['deepl', 'DeepL'], ['openai', 'OpenAI-kompatibilní (i místní)'], ['libretranslate', 'LibreTranslate']].map(([k, l]) => h('option', { value: k, selected: (s.mt?.provider || '') === k }, l))), 'Dává jen NÁVRH k jednomu řádku po kliknutí na „Návrh strojem“ v editoru; nikdy se nic samo nezapíše.'),
+      ...field('Klíč k API', h('input', { type: 'password', id: 'set_mt_key', value: '', placeholder: s.mt?.has_key ? '(uložen – nech prázdné, pokud ho nechceš měnit)' : '', autocomplete: 'off' }), 'Ukládá se jako prostý text v config.json v %APPDATA%\\BaDIKTranslationManager. Do aplikace se zpět neposílá.'),
+      s.mt?.has_key ? h('label', { class: 'check' }, h('input', { type: 'checkbox', id: 'set_mt_clear' }), ' Smazat uložený klíč') : null,
+      ...field('Adresa služby', h('input', { type: 'text', id: 'set_mt_url', value: s.mt?.base_url || '', placeholder: 'jen pro vlastní server, např. http://localhost:1234/v1' })),
+      ...field('Model', h('input', { type: 'text', id: 'set_mt_model', value: s.mt?.model || '', placeholder: 'jen pro OpenAI-kompatibilní, např. gpt-4o-mini' })),
+      ...field('Jazyky', h('span', { class: 'row' }, h('input', { type: 'text', id: 'set_mt_src', value: s.mt?.source_lang || 'EN', style: { width: '70px' } }), ' → ', h('input', { type: 'text', id: 'set_mt_dst', value: s.mt?.target_lang || 'CS', style: { width: '70px' } }))),
+      ...field('Souhlas', h('label', { class: 'check' }, h('input', { type: 'checkbox', id: 'set_mt_consent', checked: !!s.mt?.consent }), ' Souhlasím, aby se anglický text řádku, na který klikneš, odeslal vybrané externí službě'), 'Bez souhlasu se nic neodesílá. Odesílá se jen text jednoho řádku (a u OpenAI-kompatibilní služby 2 předchozí řádky jako kontext).'))),
     h('fieldset', null, h('legend', null, 'Klávesové zkratky'), keysPanel()),
     h('fieldset', null, h('legend', null, 'Zálohy souborů překladu'), snapshotsPanel(s)),
     h('fieldset', null, h('legend', null, 'Kontrola hry (Ren\'Py lint)'), h('div', { class: 'form' },
@@ -2072,9 +2097,11 @@ async function viewSettings() {
         goals: { translate_per_week: num(val('set_goal_t').value), proofread_per_week: num(val('set_goal_p').value) },
         snapshots: { enabled: val('set_snap_on').checked, interval_hours: num(val('set_snap_h').value), keep: num(val('set_snap_keep').value) },
         lint: { sdk: val('set_sdk').value },
+        mt: { provider: val('set_mt_provider').value, api_key: val('set_mt_key').value, clear_key: !!val('set_mt_clear')?.checked, base_url: val('set_mt_url').value, model: val('set_mt_model').value,
+          source_lang: val('set_mt_src').value, target_lang: val('set_mt_dst').value, consent: val('set_mt_consent').checked },
         web: { repo: val('set_repo').value, path: val('set_path').value, title: val('set_title').value },
       });
-      toast('Nastavení uloženo ✓'); refreshHeader();
+      S.mtOn = undefined; toast('Nastavení uloženo ✓'); refreshHeader();
     } catch (e) { fail(e); }
   }
   const num = (v) => Number(String(v).replace(',', '.'));
