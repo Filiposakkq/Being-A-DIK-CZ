@@ -131,6 +131,7 @@
       S.ent.api.select(dialogue);
       await waitFor(() => document.querySelector('#editTarget'));
       ok('editor má panel paměti překladů', await waitFor(() => document.querySelector('#entryDetail details.memory summary'), 4000), 'chybí');
+      ok('editor má panel historie textu', await waitFor(() => document.querySelector('#entryDetail details.texthistory summary'), 4000), 'chybí');
       const gp = document.querySelector('#entryDetail details.gamepreview');
       ok('editor má náhled v okně hry', gp, 'chybí');
       if (gp) { gp.open = true; gp.dispatchEvent(new Event('toggle')); ok('náhled hry spočítá řádky', await waitFor(() => /řádek|řádky|řádků/.test(gp.querySelector('summary').textContent), 4000), gp.querySelector('summary').textContent); gp.open = false; gp.dispatchEvent(new Event('toggle')); }

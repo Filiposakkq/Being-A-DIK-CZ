@@ -278,7 +278,7 @@ def apply_edits(project, data_dir, edits, label):
             continue                                         # nothing to do for this line
         by_file.setdefault(rel, {})[int(line)] = new_text
     if not by_file:
-        return {"changed": 0, "files": 0, "backups": []}
+        return {"changed": 0, "files": 0, "backups": [], "details": []}
     staged = [_stage_file(project, rel, ch) for rel, ch in sorted(by_file.items())]   # validates everything first
     written, record, backups = [], [], []
     try:
@@ -305,7 +305,9 @@ def apply_edits(project, data_dir, edits, label):
         raise FixError(f"Zápis selhal: {e}") from e
     if record:
         _push(data_dir, {"time": datetime.now().isoformat(timespec="seconds"), "label": label, "files": record})
-    return {"changed": sum(len(st["changes"]) for st in staged), "files": len(staged), "backups": backups}
+    details = [{"file": st["rel"], "line": e.line, "key": e.key, "old": e.target, "new": st["changes"][e.line]}
+               for st in staged for e in st["old"] if e.line in st["changes"]]
+    return {"changed": sum(len(st["changes"]) for st in staged), "files": len(staged), "backups": backups, "details": details}
 
 
 def edit_translation(project, data_dir, rel, line, new_text):
@@ -317,4 +319,4 @@ def edit_translation(project, data_dir, rel, line, new_text):
     if new_text == ent.target:
         return {"changed": False}
     res = apply_edits(project, data_dir, [(rel, line, new_text)], f"Úprava řádku {line} v {Path(rel).name}")
-    return {"changed": True, "backup": res["backups"][0] if res["backups"] else ""}
+    return {"changed": True, "backup": res["backups"][0] if res["backups"] else "", "details": res["details"]}

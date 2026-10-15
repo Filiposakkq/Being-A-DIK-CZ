@@ -170,6 +170,7 @@ def make_handler(sess):
                 "ignore/list": lambda: {"ok": True, **app.ignored_list()},
                 "settings": lambda: {"ok": True, **app.settings()},
                 "fix/last": lambda: {"ok": True, **app.fix_last()},
+                "entry/history": lambda: {"ok": True, **app.entry_history(q1(q, "file"), int(q1(q, "line", "0")))},
                 "entry/memory": lambda: {"ok": True, **app.entry_memory(q1(q, "file"), int(q1(q, "line", "0")))},
                 "consistency": lambda: {"ok": True, **app.consistency()},
                 "entry/context": lambda: {"ok": True, **app.entry_context(q1(q, "file"), int(q1(q, "line", "0")))},

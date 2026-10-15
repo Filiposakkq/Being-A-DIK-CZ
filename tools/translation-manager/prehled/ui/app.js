@@ -1040,7 +1040,7 @@ async function viewEntries() {
       tagBar, missing, terms,
       h('div', { class: 'actions' }, save, reset, copySrc, copyTgt, undoLast),
       h('div', { class: 'muted editnote' }, 'Nový řádek zapiš jako \\n, uvozovku jako \\". Značky {i}…{/i} a [proměnné] nech jako v originálu.'), msg,
-      gamePreview(d, ta), memoryPanel(d, ta, insert));
+      gamePreview(d, ta), memoryPanel(d, ta, insert), historyPanel(d, ta));
   }
   /* "Translation memory": the same / a similar original that was already translated. The match is made on the English original,
      so Czech endings do not matter for finding it – but they do for reusing it, hence the reminder. */
@@ -1066,6 +1066,27 @@ async function viewEntries() {
       if (n && pref('ui.memoryOpen', true)) box.open = true;
     }).catch(() => sum.replaceChildren('Paměť překladů ', h('span', { class: 'muted' }, '(nedostupná)')));
     box.addEventListener('toggle', () => setPref('ui.memoryOpen', box.open));
+    return box;
+  }
+  /* Every text this line has had (edits in the app, fixes, replacements, undo and changes made elsewhere that were noticed at a refresh).
+     Restoring puts the old text into the box; it is only written when you save. */
+  function historyPanel(d, ta) {
+    const box = h('details', { class: 'texthistory' });
+    const sum = h('summary', null, 'Historie textu ', h('span', { class: 'muted' }, 'načítám…'));
+    box.append(sum);
+    get('entry/history', { file: d.file, line: d.line }).then((r) => {
+      sum.replaceChildren('Historie textu ', h('span', { class: 'muted' }, r.count ? `(${r.count} ${plural(r.count, 'změna', 'změny', 'změn')})` : '(žádná zaznamenaná změna)'));
+      if (!r.versions.length) return box.append(h('div', { class: 'muted' }, 'U tohoto řádku zatím nebyla zaznamenaná žádná změna. Zaznamenává se každá úprava v aplikaci i změna mimo ni, kterou aplikace zjistí při obnovení souborů (F5).'));
+      for (const v of r.versions) {
+        const df = diffSpans(d.target, v.text);
+        box.append(h('div', { class: 'memitem' },
+          h('div', { class: 'memhead' }, v.current ? chip('done', 'aktuální') : null, h('span', { class: 'muted' }, [v.time ? v.time.replace('T', ' ') : '', v.via].filter(Boolean).join(' · '))),
+          h('div', { class: 'txt memtext' }, v.current ? fmtText(v.text) : df.after),
+          v.current ? null : h('div', { class: 'actions' },
+            h('button', { class: 'btn small', title: 'Vloží tuhle verzi do pole. Zapíše se až po uložení.', onclick: () => { ta.value = v.text; ta.dispatchEvent(new Event('input')); ta.focus(); } }, 'Obnovit do pole'),
+            h('button', { class: 'btn small ghost', onclick: () => copy(v.text) }, '⧉ Kopírovat'))));
+      }
+    }).catch(() => sum.replaceChildren('Historie textu ', h('span', { class: 'muted' }, '(nedostupná)')));
     return box;
   }
   /* Approximate look of the line in the game's dialogue box: the game's own text size and text width (from gui.rpy), so

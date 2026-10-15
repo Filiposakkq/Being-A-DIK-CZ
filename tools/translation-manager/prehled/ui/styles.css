@@ -422,8 +422,8 @@ mark.diff-del { background: var(--bad-bg); color: var(--bad); border-radius: 3px
 mark.diff-add { background: var(--good-bg); color: var(--good); border-radius: 3px; padding: 0 2px; }
 
 /* v1.4: translation memory, game window preview, consistency */
-details.memory, details.gamepreview { margin: 8px 0; border: 1px solid var(--line-2); border-radius: var(--radius-sm); background: var(--panel-2); padding: 6px 10px; }
-details.memory > summary, details.gamepreview > summary { cursor: pointer; font-weight: 600; font-size: 12.5px; list-style-position: inside; }
+details.memory, details.gamepreview, details.texthistory { margin: 8px 0; border: 1px solid var(--line-2); border-radius: var(--radius-sm); background: var(--panel-2); padding: 6px 10px; }
+details.memory > summary, details.gamepreview > summary, details.texthistory > summary { cursor: pointer; font-weight: 600; font-size: 12.5px; list-style-position: inside; }
 .memitem { padding: 6px 0; border-top: 1px dashed var(--line); }
 .memitem:first-of-type { border-top: 0; }
 .memhead { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12.5px; }

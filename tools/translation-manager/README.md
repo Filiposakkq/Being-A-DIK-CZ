@@ -178,6 +178,13 @@ the string literal (a bare `"`, a lone `\`) is skipped.
   text size come from the game's `gui.rpy` (`gui.dialogue_width`, `gui.text_size`; Being a DIK's values when the sources are not found), the
   estimated number of lines is compared with the limit from *Nastavení*. The game's own font is not used, so it is an estimate.
 
+## History of a line
+
+*Historie textu* (under the editor) lists every text the line has had, newest first, with the time and how it came about: edit in the app, fix,
+replace, unify, undo, or **a change made outside the app** (VS Code, another program) that the app noticed when you refreshed the files (F5). **Obnovit do
+pole** puts an old version into the box (marked against the current text); it is only written when you save. The log is `_progress_data\historie_textu.jsonl`
+(append-only, the oldest part is dropped beyond 60 000 entries, a damaged line is skipped). Two outside edits between two refreshes appear as one change.
+
 ## Translating in the app
 
 The line detail (*Řádky*) has an editable **Překlad** box. **Ctrl+Enter** writes the text into the `.rpy` file and jumps to the next untranslated
