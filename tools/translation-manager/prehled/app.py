@@ -1409,6 +1409,21 @@ class App:
             out.update(changed=res["changed"], files=res["files"], backups=res["backups"])
             return out
 
+    def entry_scene(self, rel, line, radius=6):
+        """The lines around one line (original and translation), i.e. the scene it belongs to."""
+        self._need_project()
+        if rel not in self.project.files:
+            raise AppError("Neznámý soubor.")
+        ents = self.project.entries(rel)
+        idx = next((i for i, e in enumerate(ents) if e.line == line), None)
+        if idx is None:
+            raise AppError("Řádek už v souboru není – obnov soubory.")
+        r = max(1, min(int(radius), 30))
+        a, b = max(0, idx - r), min(len(ents), idx + r + 1)
+        return {"file": rel, "items": [{"line": e.line, "who": e.who, "source": e.source, "target": e.target,
+                                       "status": self._entry_row(rel, e), "current": e.line == line, "unit": e.unit}
+                                      for e in ents[a:b]]}
+
     def entry_check(self, rel, line, text):
         """Validator result for a text the translator is typing (nothing is written)."""
         self._need_project()

@@ -168,6 +168,38 @@
     setPref('validation.lint', false);
     await sleep(300);
   });
+  await step('Zkratky, paleta, scéna', async () => {
+    const ev = (key, mods = {}) => ({ key, ctrlKey: false, altKey: false, shiftKey: false, metaKey: false, ...mods });
+    ok('comboOf: písmeno velké a s Shift', comboOf(ev('a')) === 'A' && comboOf(ev('A', { shiftKey: true })) === 'Shift+A', comboOf(ev('a')) + ' / ' + comboOf(ev('A', { shiftKey: true })));
+    ok('comboOf: Ctrl, Alt, symboly a názvy kláves', comboOf(ev('k', { ctrlKey: true })) === 'Ctrl+K' && comboOf(ev('1', { altKey: true })) === 'Alt+1' && comboOf(ev('?', { shiftKey: true })) === '?' && comboOf(ev('ArrowDown')) === 'ArrowDown' && comboOf(ev('Shift', { shiftKey: true })) === '', 'špatný zápis');
+    ok('každá akce má jedinečné id bez tečky', new Set(ACTIONS.map((a) => a.id)).size === ACTIONS.length && ACTIONS.every((a) => !a.id.includes('.')), 'duplicitní nebo špatné id');
+    const keys = ACTIONS.flatMap((a) => (a.entries ? [] : keysOf(a))), dup = keys.filter((k, i) => keys.indexOf(k) !== i);
+    ok('výchozí zkratky se nepřekrývají', dup.length === 0, dup.join(','));
+    ok('výchozí zkratky: Ctrl+K a Alt+1 existují', findAction('Ctrl+K', true)?.id === 'palette' && findAction('Alt+1', false)?.id === 'tab_overview', 'chybí');
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true, bubbles: true }));
+    const pal = await waitFor(() => document.querySelector('#dlg[open] .palette .palrow'), 4000);
+    ok('Ctrl+K otevře paletu s akcemi', pal, 'paleta se neotevřela');
+    if (pal) {
+      const input = document.querySelector('#dlg input[type=search]');
+      input.value = 'nastaveni'; input.dispatchEvent(new Event('input'));
+      ok('paleta hledá bez diakritiky', [...document.querySelectorAll('#dlg .palrow')].some((r) => r.textContent.includes('Nastavení')), 'nenašla Nastavení');
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+      ok('Enter v paletě provede akci', await waitFor(() => S.view === 'settings', 3000), 'zůstalo ' + S.view);
+    }
+    closeDialog();
+    await openView('settings');
+    ok('Nastavení má panel zkratek', document.querySelectorAll('#view fieldset').length && [...document.querySelectorAll('#view legend')].some((l) => /zkratky/i.test(l.textContent)), 'chybí');
+    helpDialog();
+    ok('nápověda je vytvořená z registru akcí', await waitFor(() => document.querySelectorAll('#dlg[open] kbd').length > 15, 3000), 'málo zkratek');
+    closeDialog();
+    await openView('entries', { file: '', status: 'all' });
+    await waitFor(() => document.querySelector('#view table.data tbody tr'));
+    const dialogue = S.ent.items.findIndex((x) => x.unit === 'dialogue');
+    if (dialogue >= 0) {
+      S.ent.api.select(dialogue);
+      ok('detail má scénu kolem řádku', await waitFor(() => document.querySelector('#entryDetail details.scene table.scene-table tbody tr.cur'), 5000), 'chybí scéna');
+    }
+  });
   await step('Kontrola', async () => {
     setPref('validation.consistency', false); setPref('validation.ignored', 'hide');      // do not depend on saved view modes
     await openView('validation');

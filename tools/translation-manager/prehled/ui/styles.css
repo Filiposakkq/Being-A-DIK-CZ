@@ -444,3 +444,13 @@ details.memory > summary, details.gamepreview > summary, details.texthistory > s
 @media (max-width: 1000px) { .goalrow { grid-template-columns: 80px 1fr 80px; } .goalrow .chip, .goalrow > .muted { grid-column: 2 / 4; } }
 
 .btn.danger.primary { background: var(--bad); border-color: var(--bad); color: #fff; }
+
+/* v1.4: command palette, scene view */
+.palette { margin-top: 8px; max-height: 50vh; overflow: auto; }
+.palrow { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 7px 10px; border-radius: 8px; cursor: pointer; }
+.palrow.on, .palrow:hover { background: var(--accent-bg); }
+details.scene { margin: 10px 0; border: 1px solid var(--line-2); border-radius: var(--radius-sm); background: var(--panel-2); padding: 6px 10px; }
+details.scene > summary { cursor: pointer; font-weight: 600; font-size: 12.5px; list-style-position: inside; }
+table.scene-table tbody tr { cursor: pointer; }
+table.scene-table tbody tr.cur { background: var(--accent-bg); box-shadow: inset 3px 0 0 var(--accent); }
+table.scene-table td { padding: 4px 10px; }
