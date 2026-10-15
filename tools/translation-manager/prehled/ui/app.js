@@ -63,7 +63,8 @@ async function request(method, path, body) {
   return data;
 }
 const get = (p, q) => request('GET', p, q);
-const post = (p, b) => { if (p !== 'focus' && p !== 'prefs' && p !== 'entry/check') S.ctxCache?.clear(); return request('POST', p, b); };   // a write may change the neighbouring lines
+const clearCtx = () => { S.ctxCache?.clear(); S.ctxDone?.clear(); };
+const post = (p, b) => { if (p !== 'focus' && p !== 'prefs' && p !== 'entry/check') clearCtx(); return request('POST', p, b); };   // a write may change the neighbouring lines
 
 /* ---------------------------------------------------------------- state & prefs */
 const S = {
@@ -1011,7 +1012,7 @@ async function viewEntries() {
   /* Detail window: there is no list, only the one line it follows (loading a whole list for every change was slow and racy). */
   async function followLine(file, line) {
     let d;
-    S.ctxCache?.clear();                                // the main window may have changed neighbouring lines
+    clearCtx();                                         // the main window may have changed neighbouring lines
     prefetchScene(file, line).catch(() => {});          // starts at once, in parallel with the detail
     try { d = await get('entry', { file, line }); } catch (err) { S.ent.items = [{ file, line }]; S.ent.detail = null; return drawDetail(null, err.message); }
     const it = { file, line, key: d.key, status: d.status, proof: d.proof, kind: d.kind, unit: d.unit, who: d.who, ref: d.ref, source: d.source, target: d.target,
@@ -1060,7 +1061,7 @@ async function viewEntries() {
     const pre = (COMPANION ? (S.compFull || tab === 'scene') : (tab === 'scene' && !(S.companionOpen && pref('ui.slimMain', true)))) ? prefetchScene(it.file, it.line).catch(() => {}) : null;
     try { S.ent.detail = await get('entry', { file: it.file, line: it.line }); } catch (err) { S.ent.detail = null; drawDetail(null, err.message); return; }
     if (pre) await pre;
-    if (S.ent.sel === i) { const top = detail.scrollTop; drawDetail(S.ent.detail); detail.scrollTop = top; }
+    if (S.ent.sel === i) { const top = detail.scrollTop; drawDetail(S.ent.detail); detail.scrollTop = top; requestAnimationFrame(() => { if (S.ent.sel === i) detail.scrollTop = top; }); }
     if (i >= S.ent.items.length - 15 && S.ent.start + S.ent.items.length < S.ent.total) load(false);
   }
   function drawDetail(d, err) {
@@ -1320,6 +1321,7 @@ async function viewEntries() {
     const box = h('details', { class: 'gamepreview', dataset: { keep: '1' } });
     const sum = h('summary', null, 'Náhled scény ', h('span', { class: 'muted' }, ''));
     const outer = h('div', { class: 'gwin' }), info = h('div', { class: 'muted ginfo' });
+    if (S.gwinH) { outer.style.height = S.gwinH + 'px'; outer.style.width = S.gwinW + 'px'; }     // keep the size of the previous picture until this one is drawn (no jump)
     const mode = h('select', { title: 'Který text ukázat v okně hry', onchange: () => draw() },
       h('option', { value: 'target' }, 'Překlad'), h('option', { value: 'source' }, 'Originál'));
     box.append(sum, h('div', { class: 'toolbar', style: { margin: '6px 0' } }, mode), outer, info);
@@ -1331,12 +1333,19 @@ async function viewEntries() {
       if (!gui) { try { const st = await get('settings'); gui = S.gui = { ...st.game_gui, max_lines: st.validation.textbox.max_lines }; } catch { gui = { text_size: 33, dialogue_width: 1116, textbox_height: 278, max_lines: 4, source: 'výchozí hodnoty' }; } }
       if (!scene) scene = await prefetchScene(d.file, d.line);
     }
+    const fontsReady = () => [scene.fonts_text, scene.fonts_name].every((f) => !f || !f.url || (S.fontRes && f.file in S.fontRes && S.metRes && f.file in S.metRes));
+    function ready() { gui = gui || S.gui; scene = scene || S.sceneDone?.get(d.file + '\t' + d.line); return !!(gui && scene && fontsReady()); }
+    /* When the prefetch already has everything, the picture is drawn in the same task as the rest of the detail (no await in between), so the
+       view is complete before the browser paints and the scroll position can be kept. */
     async function draw() {
       if (!box.open) return;
-      await load();
+      if (!ready()) await load();
+      paint();
+    }
+    function paint() {
       const g = { ...gui, ...(scene.gui || {}) };
-      const fam = await loadGameFont(scene.fonts_text), nfam = await loadGameFont(scene.fonts_name);
-      const mText = fam ? await loadGameMetrics(scene.fonts_text) : null, mName = nfam ? await loadGameMetrics(scene.fonts_name) : null;
+      const fam = (scene.fonts_text && S.fontRes?.[scene.fonts_text.file]) || '', nfam = (scene.fonts_name && S.fontRes?.[scene.fonts_name.file]) || '';
+      const mText = fam ? S.metRes?.[scene.fonts_text.file] || null : null, mName = nfam ? S.metRes?.[scene.fonts_name.file] || null : null;
       const sp = scene.speaker;                      // the game's own Character(...) name and colour, not the app's speaker names
       const speaker = sp ? sp.name : fallbackName;
       const W = g.screen_width || 1920, H = g.screen_height || 1080;
@@ -1354,9 +1363,12 @@ async function viewEntries() {
       stage.append(tb);
       outer.replaceChildren(stage);
       const maxH = COMPANION ? (S.compFull ? innerHeight - 250 : innerHeight * 0.55) : innerHeight * 0.45;
-      const k = Math.min(1, ((box.clientWidth - 2) || W) / W, Math.max(200, maxH) / H);
+      const fit = Math.max(200, maxH) / H;
+      const k = box.isConnected && box.clientWidth ? Math.min(1, (box.clientWidth - 2) / W, fit) : (S.gwinK ?? Math.min(1, fit));       // not attached yet: the previous scale
+      if (box.isConnected && box.clientWidth) S.gwinK = k;
       stage.style.transform = `scale(${k})`;
       outer.style.height = Math.ceil(H * k) + 'px'; outer.style.width = Math.ceil(W * k) + 'px';
+      S.gwinH = Math.ceil(H * k); S.gwinW = Math.ceil(W * k);
       const lines = Math.max(1, Math.round(dlg.offsetHeight / (g.text_size * 1.3)));
       const over = lines > g.max_lines || g.dialogue_ypos + dlg.offsetHeight > g.textbox_height;
       sum.lastChild.textContent = `(≈ ${lines} ${plural(lines, 'řádek', 'řádky', 'řádků')}${over ? ' – moc!' : ''})`;
@@ -1371,7 +1383,8 @@ async function viewEntries() {
     }
     ta.addEventListener('input', () => { clearTimeout(box._t); box._t = setTimeout(draw, 150); });
     ta.addEventListener('draft', () => draw());
-    requestAnimationFrame(() => draw());
+    draw();
+    requestAnimationFrame(() => draw());       // again once attached, with the real width
     const onResize = () => { if (!box.isConnected) removeEventListener('resize', onResize); else { clearTimeout(box._r); box._r = setTimeout(draw, 80); } };
     addEventListener('resize', onResize);
     return box;
@@ -1379,7 +1392,7 @@ async function viewEntries() {
   async function loadGameMetrics(f) {
     if (!f || !f.file) return null;
     S.metricCache ||= {};
-    S.metricCache[f.file] ||= get('game/fontmetrics', { k: f.file }).catch(() => null);
+    S.metricCache[f.file] ||= get('game/fontmetrics', { k: f.file }).catch(() => null).then((r) => { (S.metRes ||= {})[f.file] = r; return r; });
     return S.metricCache[f.file];
   }
   /* Every character goes into a box as wide as the font's own advance (hmtx), which is what Ren'Py uses. A browser may take the advance from the
@@ -1403,11 +1416,12 @@ async function viewEntries() {
   }
   /* Everything the scene preview of one line needs (scene info, the picture decoded, the fonts and their widths), fetched ahead of drawing so
      that choosing a new line swaps the whole view at once instead of showing it piece by piece. Cached per line. */
+  const ctxKey = (file, line, radius) => `${file}\t${line}\t${radius}`;
   function contextFor(file, line, radius) {
     S.ctxCache ||= new Map();
-    const key = `${file}\t${line}\t${radius}`;
+    const key = ctxKey(file, line, radius);
     if (!S.ctxCache.has(key)) {
-      S.ctxCache.set(key, get('entry/scene', { file, line, radius }));
+      S.ctxCache.set(key, get('entry/scene', { file, line, radius }).then((r) => { (S.ctxDone ||= new Map()).set(key, r); return r; }));
       if (S.ctxCache.size > 60) S.ctxCache.delete(S.ctxCache.keys().next().value);
     }
     return S.ctxCache.get(key).catch((e) => { S.ctxCache.delete(key); throw e; });
@@ -1428,6 +1442,9 @@ async function viewEntries() {
       jobs.push(S.imgCache.get(sc.url));
     }
     await Promise.all(jobs);
+    S.sceneDone ||= new Map();
+    S.sceneDone.set(key, sc);
+    if (S.sceneDone.size > 80) S.sceneDone.delete(S.sceneDone.keys().next().value);
     return sc;
   }
   /* A font file of the game (found in its folder or archives) made available to the page as a FontFace; its family name, or '' when it cannot be had. */
@@ -1436,7 +1453,7 @@ async function viewEntries() {
     S.fontCache ||= {};
     S.fontCache[f.file] ||= (async () => {
       try { const face = new FontFace('game-' + f.file, `url("${f.url}")`); await face.load(); document.fonts.add(face); return 'game-' + f.file; } catch { return ''; }
-    })();
+    })().then((r) => { (S.fontRes ||= {})[f.file] = r; return r; });
     return S.fontCache[f.file];
   }
   function scriptContext(d) {
@@ -1467,15 +1484,15 @@ async function viewEntries() {
     box.append(sum, h('div', { class: 'toolbar', style: { margin: '6px 0' } }, radius, mtScene), body);
     async function fill() {
       if (!box.open) return;
-      body.replaceChildren(loading());
+      const peek = S.ctxDone?.get(ctxKey(d.file, d.line, pref('ui.sceneRadius', 6)));
+      if (!peek) body.replaceChildren(loading());
       try {
-        const r = await contextFor(d.file, d.line, pref('ui.sceneRadius', 6));
+        const r = peek || await contextFor(d.file, d.line, pref('ui.sceneRadius', 6));
         const rows = r.items.map((it) => h('tr', { class: it.current ? 'cur' : '', onclick: () => { const i = S.ent.items.findIndex((x) => x.file === d.file && x.line === it.line); if (i >= 0) select(i); else go('entries', { file: d.file, line: it.line, status: 'all' }); } },
           h('td', { class: 'num muted' }, it.line), h('td', { class: 'who' }, speakerLabel(it.who) || ''), h('td', { class: 'txt' }, fmtText(it.source ?? '')),
           h('td', { class: 'txt' }, it.status === 'todo' ? h('span', { class: 'muted' }, 'nepřeloženo') : fmtText(it.target))));
         body.replaceChildren(h('div', { class: 'tablewrap' }, h('table', { class: 'data scene-table' }, h('colgroup', null, [60, 100, 'auto', 'auto'].map((w) => h('col', { style: w === 'auto' ? {} : { width: w + 'px' } }))),
           h('thead', null, h('tr', null, ['Řádek', 'Mluvčí', 'Originál', 'Překlad'].map((x) => h('th', null, x)))), h('tbody', null, rows))));
-        body.querySelector('tr.cur')?.scrollIntoView({ block: 'nearest' });
       } catch (e) { body.replaceChildren(h('div', { class: 'notice bad' }, e.message)); }
     }
     box.addEventListener('toggle', () => { setPref('ui.sceneOpen', box.open); fill(); });
