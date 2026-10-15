@@ -9,7 +9,7 @@ from dataclasses import replace
 from datetime import date, datetime
 from pathlib import Path
 
-from . import bulk, editor, export, fixes, history as hist, publish as pub, rpy, spelling, textedit, validator
+from . import bulk, editor, export, fixes, history as hist, memory, publish as pub, rpy, spelling, textedit, validator
 from .config import Config, migrate_web_json
 from .lock import ProjectLock, ProjectLocked
 from .project import (DATA_DIR_NAME, STATUS_LABELS, STATUS_ORDER, Project, ProjectUnavailable,
@@ -61,6 +61,7 @@ class App:
         self.data_dir = None
         self.notices = []          # one-off messages for the UI (migration, load problems...)
         self._spell_cache = None
+        self._memory_cache = None
         self._val_cache = {}       # rel -> (digest, cfg signature, [(line, Issue, entry)])
         self.last_save_error = ""
         self.plock = None          # ProjectLock of the open project
@@ -1039,6 +1040,91 @@ class App:
             return out
 
     # ------------------------------------------------------------ fixing structure errors in the .rpy files
+    # ------------------------------------------------------------ translation memory / consistency / game window
+    def _memory(self):
+        """Index of everything already translated (looked up by the English original). Rebuilt when a file changes."""
+        key = tuple(sorted((rel, id(fi.parsed)) for rel, fi in self.project.files.items()))
+        if self._memory_cache and self._memory_cache[0] == key:
+            return self._memory_cache[1]
+        rows = ((rel, e.line, e.who, e.source, e.target) for rel, fi in self.project.files.items() for e in fi.parsed.entries
+                if e.source is not None and self.project.is_translated(rel, e))
+        mem = memory.Memory(rows)
+        self._memory_cache = (key, mem)
+        return mem
+
+    def entry_memory(self, rel, line):
+        """Suggestions for one line from the project's own translations: the same original translated before, and
+        originals that differ by a few words. Reuse needs a human eye (case, gender, a different variable)."""
+        self._need_project()
+        ent = next((e for e in self.project.entries(rel) if e.line == line), None) if rel in self.project.files else None
+        if ent is None or ent.source is None:
+            raise AppError("Řádek už v souboru není – obnov soubory.")
+        mem, skip = self._memory(), (rel, line)
+        mine = memory.tags_of(ent.source)
+
+        def mark(item, src):
+            item["vars_differ"] = memory.tags_of(src) != mine
+            return item
+        exact = []
+        for g in mem.exact_matches(ent.source, skip):
+            row = next((r for r in mem.rows if r["file"] == g["lines"][0]["file"] and r["line"] == g["lines"][0]["line"]), None)
+            exact.append(mark(g, row["source"] if row else ent.source))
+        similar = [mark(x, x["source"]) for x in mem.similar(ent.source, skip)]
+        return {"exact": exact, "similar": similar}
+
+    def consistency(self):
+        """Originals translated in several different ways."""
+        self._need_project()
+        groups = self._memory().groups()
+        return {"groups": groups, "total": len(groups), "lines": sum(g["total"] for g in groups)}
+
+    def consistency_unify(self, key, target, lines=None):
+        """Give every line of one original the same chosen translation (one undoable step)."""
+        self._need_project()
+        with self.lock:
+            group = next((g for g in self._memory().groups(10 ** 6) if g["key"] == str(key)), None)
+            if group is None:
+                raise AppError("Skupina se mezitím změnila – obnov soubory a zkus to znovu.")
+            target = str(target)
+            chosen = {(str(x["file"]), int(x["line"])) for x in lines} if lines else None
+            edits = [(l["file"], l["line"], target) for v in group["variants"] for l in v["lines"]
+                     if (chosen is None or (l["file"], l["line"]) in chosen)]
+            if not edits:
+                raise AppError("Není co sjednocovat.")
+            try:
+                res = fixes.apply_edits(self.project, self.data_dir, edits, f"Sjednocení překladu: {group['source'][:40]}")
+            except fixes.FixError as e:
+                raise AppError(str(e)) from e
+            finally:
+                self.project.refresh(force=True)
+                self._val_cache.clear()
+            self.store.ensure_files([r.name for r in self.project.rows()])
+            out = self._changed("unify")
+            out.update(changed=res["changed"], files=res["files"], backups=res["backups"])
+            return out
+
+    GUI_DEFAULTS = {"text_size": 33, "dialogue_width": 1116, "textbox_height": 278, "dialogue_ypos": 125}
+
+    def game_gui(self):
+        """Dialogue box metrics of the game (gui.rpy: text size, text width, box height), for the window preview.
+        Falls back to the values of Being a DIK when the game sources are not next to the translation."""
+        out = dict(self.GUI_DEFAULTS, source="výchozí hodnoty")
+        base = self._game_root() if self.project else None
+        if base is None:
+            return out
+        try:
+            text = (base / "game" / "gui.rpy").read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return out
+        found = {}
+        for m in re.finditer(r"^\s*define\s+gui\.(\w+)\s*=\s*(\d+)\b", text, re.MULTILINE):
+            found.setdefault(m.group(1), int(m.group(2)))
+        for k in self.GUI_DEFAULTS:
+            if k in found:
+                out[k] = found[k]
+        out["source"] = "gui.rpy hry" if any(k in found for k in self.GUI_DEFAULTS) else "výchozí hodnoty"
+        return out
+
     FIX_KINDS = ("speaker", "spaces", "typo")
     FIX_LABELS = {"speaker": "mluvčí / atributy", "spaces": "dvojité mezery", "typo": "překlepy"}
 
@@ -1263,6 +1349,7 @@ class App:
     def settings(self):
         d = self.config.public()
         d["ui"] = {}
+        d["game_gui"] = self.game_gui()
         return d
 
     def update_settings(self, patch):

@@ -170,6 +170,8 @@ def make_handler(sess):
                 "ignore/list": lambda: {"ok": True, **app.ignored_list()},
                 "settings": lambda: {"ok": True, **app.settings()},
                 "fix/last": lambda: {"ok": True, **app.fix_last()},
+                "entry/memory": lambda: {"ok": True, **app.entry_memory(q1(q, "file"), int(q1(q, "line", "0")))},
+                "consistency": lambda: {"ok": True, **app.consistency()},
                 "entry/context": lambda: {"ok": True, **app.entry_context(q1(q, "file"), int(q1(q, "line", "0")))},
                 "glossary/occurrences": lambda: {"ok": True, **app.glossary_occurrences(
                     q1(q, "code"), q1(q, "missing") == "1")},
@@ -259,6 +261,7 @@ def make_handler(sess):
                 "fix/apply": lambda: app.fix_apply(list(d.get("items") or []), str(d.get("file", "")), list(d.get("kinds") or []),
                                                   list(d["selections"]) if d.get("selections") is not None else None),
                 "fix/undo": lambda: app.fix_undo(),
+                "consistency/unify": lambda: app.consistency_unify(str(d.get("key", "")), str(d.get("target", "")), d.get("lines")),
                 "ignore/set": lambda: app.ignore_set(list(d.get("items") or []), bool(d.get("on", True)), str(d.get("note", ""))),
                 "entry/check": lambda: {"ok": True, **app.entry_check(str(d["file"]), ints(d["line"]), str(d.get("text", "")))},
                 "entry/save": lambda: app.entry_save(str(d["file"]), ints(d["line"]), str(d.get("text", ""))),

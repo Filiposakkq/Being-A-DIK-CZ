@@ -174,6 +174,35 @@ function fmtText(text) {
   }
   return frag;
 }
+/* Renders Ren'Py text markup as it would read in the game: {i}{b}{u}{s}{color=..}, \n and {p} as line breaks, [variables] as XXXXX;
+   waits and other tags are dropped. Only text nodes and a few styled elements are created, so nothing from the text is ever run as HTML. */
+function gameText(text) {
+  const root = document.createElement('span');
+  const stack = [root];
+  const top = () => stack[stack.length - 1];
+  const open = (tag, color) => { const el = document.createElement(tag); if (color) el.style.color = color; el.dataset.tag = tag; top().append(el); stack.push(el); };
+  const close = (tag) => { for (let i = stack.length - 1; i > 0; i--) if (stack[i].dataset.tag === tag) { stack.length = i; return; } };
+  const re = /\{\{|\[\[|\{(\/?)(i|b|u|s)\}|\{color=([^}]*)\}|\{\/color\}|\{p(?:=[^}]*)?\}|\{[^}]*\}|\[[^\]]*\]|\\n|\\"|\\\\|\\./g;
+  let last = 0, m;
+  while ((m = re.exec(text))) {
+    if (m.index > last) top().append(text.slice(last, m.index));
+    const t = m[0];
+    if (t === '{{') top().append('{');
+    else if (t === '[[') top().append('[');
+    else if (m[2]) { if (m[1]) close(m[2]); else open(m[2]); }
+    else if (m[3] !== undefined) { const c = m[3].trim(); open('span', /^#?[0-9a-fA-F]{3,8}$/.test(c) ? (c[0] === '#' ? c : '#' + c) : /^[a-z]+$/i.test(c) ? c : ''); }
+    else if (t === '{/color}') close('span');
+    else if (t === '\\n' || t.startsWith('{p')) top().append(document.createElement('br'));
+    else if (t === '\\"') top().append('"');
+    else if (t === '\\\\') top().append('\\');
+    else if (t[0] === '[') top().append('XXXXX');
+    else if (t[0] === '\\') top().append(t[1]);
+    /* any other {tag}: waits, speed, comments ... are invisible */
+    last = re.lastIndex;
+  }
+  if (last < text.length) top().append(text.slice(last));
+  return root;
+}
 const STATUS_LABEL = { done: 'Hotovo', rev: 'Korektura', proof: 'V korekci', tr: 'Přeloženo', wip: 'Rozpracováno', none: 'Nezačato', planned: 'Plánováno' };
 const ENTRY_LABEL = { translated: 'Přeloženo', approved: 'Schváleno', todo: 'Nepřeloženo' };
 const KIND_LABEL = { empty: 'prázdný', english: 'anglicky', same: 'shodné', symbols: 'jen znaky' };
@@ -1010,7 +1039,63 @@ async function viewEntries() {
     return h('div', { class: 'editor' }, h('h4', null, 'Překlad ', h('span', { class: 'muted', style: { textTransform: 'none', letterSpacing: 0 } }, '– upravuje se přímo v souboru')), ta,
       tagBar, missing, terms,
       h('div', { class: 'actions' }, save, reset, copySrc, copyTgt, undoLast),
-      h('div', { class: 'muted editnote' }, 'Nový řádek zapiš jako \\n, uvozovku jako \\". Značky {i}…{/i} a [proměnné] nech jako v originálu.'), msg);
+      h('div', { class: 'muted editnote' }, 'Nový řádek zapiš jako \\n, uvozovku jako \\". Značky {i}…{/i} a [proměnné] nech jako v originálu.'), msg,
+      gamePreview(d, ta), memoryPanel(d, ta, insert));
+  }
+  /* "Translation memory": the same / a similar original that was already translated. The match is made on the English original,
+     so Czech endings do not matter for finding it – but they do for reusing it, hence the reminder. */
+  function memoryPanel(d, ta, insert) {
+    const box = h('details', { class: 'memory' });
+    const sum = h('summary', null, 'Paměť překladů ', h('span', { class: 'muted' }, 'načítám…'));
+    box.append(sum);
+    const use = (text) => { ta.value = text; ta.dispatchEvent(new Event('input')); ta.focus(); };
+    const card = (title, item, extra) => h('div', { class: 'memitem' },
+      h('div', { class: 'memhead' }, title, extra || null),
+      h('div', { class: 'txt memtext' }, fmtText(item.target)),
+      h('div', { class: 'actions' },
+        h('button', { class: 'btn small', title: 'Nahradí celý text v poli', onclick: () => use(item.target) }, 'Použít'),
+        h('button', { class: 'btn small', title: 'Vloží text na místo kurzoru', onclick: () => insert(item.target) }, 'Vložit'),
+        item.file ? h('button', { class: 'btn small ghost', onclick: () => go('entries', { file: item.file, line: item.line, status: 'all' }) }, 'Zobrazit řádek') : null));
+    get('entry/memory', { file: d.file, line: d.line }).then((m) => {
+      const n = m.exact.length + m.similar.length;
+      sum.replaceChildren('Paměť překladů ', h('span', { class: 'muted' }, n ? `(${n})` : '(nic podobného)'));
+      if (!n) return box.append(h('div', { class: 'muted' }, 'Tenhle ani podobný originál zatím není přeložený.'));
+      box.append(h('div', { class: 'muted', style: { fontSize: '12px', margin: '4px 0' } }, 'Pozor na pád, rod a číslo: text se vkládá tak, jak byl dřív přeložený – do nové věty ho uprav.'));
+      m.exact.forEach((g) => box.append(card(h('span', null, chip('proof', 'stejný originál'), ` ×${g.count}`, g.lines.length ? h('span', { class: 'muted' }, `  (${[...new Set(g.lines.map((l) => l.who || '–'))].join(', ')})`) : null), { ...g, file: g.lines[0]?.file, line: g.lines[0]?.line }, g.vars_differ ? chip('warning', '⚠ jiné proměnné') : null)));
+      m.similar.forEach((x) => { const df = diffSpans(d.source || '', x.source); box.append(card(h('span', null, chip('info', `${Math.round(x.ratio * 100)} % podobné`)), x, h('span', null, ' ', x.vars_differ ? chip('warning', '⚠ jiné proměnné') : null, h('div', { class: 'muted memsrc' }, 'Originál tam: ', df.after)))); });
+      if (n && pref('ui.memoryOpen', true)) box.open = true;
+    }).catch(() => sum.replaceChildren('Paměť překladů ', h('span', { class: 'muted' }, '(nedostupná)')));
+    box.addEventListener('toggle', () => setPref('ui.memoryOpen', box.open));
+    return box;
+  }
+  /* Approximate look of the line in the game's dialogue box: the game's own text size and text width (from gui.rpy), so
+     you can see where it wraps and how many lines it needs. The real font is not used, so it is an estimate. */
+  function gamePreview(d, ta) {
+    const box = h('details', { class: 'gamepreview' });
+    const sum = h('summary', null, 'Náhled v okně hry ', h('span', { class: 'muted' }, ''));
+    const outer = h('div', { class: 'gwin' }), info = h('div', { class: 'muted ginfo' });
+    box.append(sum, outer, info);
+    box.open = !!pref('ui.gamepreview', false);
+    box.addEventListener('toggle', () => { setPref('ui.gamepreview', box.open); if (box.open) draw(); });
+    let gui = S.gui;
+    async function draw() {
+      if (!box.open) return;
+      if (!gui) { try { const st = await get('settings'); gui = S.gui = { ...st.game_gui, max_lines: st.validation.textbox.max_lines }; } catch { gui = { text_size: 33, dialogue_width: 1116, textbox_height: 278, max_lines: 4, source: 'výchozí hodnoty' }; } }
+      const inner = h('div', { class: 'gbox', style: { width: gui.dialogue_width + 'px', fontSize: gui.text_size + 'px' } });
+      inner.append(gameText(ta.value));
+      outer.replaceChildren(inner);
+      const k = Math.min(1, (outer.clientWidth || gui.dialogue_width) / gui.dialogue_width);
+      inner.style.transform = `scale(${k})`;
+      outer.style.height = Math.ceil(inner.offsetHeight * k) + 'px';
+      const lines = Math.max(1, Math.round(inner.offsetHeight / (gui.text_size * 1.3)));
+      const over = lines > gui.max_lines;
+      sum.lastChild.textContent = `(≈ ${lines} ${plural(lines, 'řádek', 'řádky', 'řádků')}${over ? ' – moc!' : ''})`;
+      outer.classList.toggle('over', over);
+      info.textContent = `Okno ${gui.dialogue_width} px, písmo ${gui.text_size} px (${gui.source}); limit ${gui.max_lines} ${plural(gui.max_lines, 'řádek', 'řádky', 'řádků')}. Odhad bez písma hry.`;
+    }
+    ta.addEventListener('input', () => { clearTimeout(box._t); box._t = setTimeout(draw, 150); });
+    setTimeout(draw, 0);
+    return box;
   }
   function scriptContext(d) {
     if (!d.ref) return null;
@@ -1473,7 +1558,12 @@ async function viewValidation() {
   const info = h('label', { class: 'check', title: 'Například jiný počet pauz {w} / {p}' }, h('input', { type: 'checkbox', checked: !!settings.validation.show_info, onchange: async (ev) => { try { await post('settings', { validation: { show_info: ev.target.checked } }); load(true); } catch (e) { fail(e); } } }), 'Zobrazit i drobnosti');
   const ignBtn = h('button', { class: 'btn small', title: 'Nálezy, které jsi u některých řádků nechal ignorovat' });
   const paintIgnBtn = () => { const n = S.overview?.validation?.ignored || 0; const on = pref('validation.ignored', 'hide') === 'only'; ignBtn.textContent = on ? '← Zpět na nálezy' : `Ignorované (${n})`; ignBtn.classList.toggle('primary', on); };
-  ignBtn.onclick = async () => { setPref('validation.ignored', pref('validation.ignored', 'hide') === 'only' ? 'hide' : 'only'); paintIgnBtn(); load(true); };
+  ignBtn.onclick = async () => { setPref('validation.ignored', pref('validation.ignored', 'hide') === 'only' ? 'hide' : 'only'); setPref('validation.consistency', false); paintIgnBtn(); paintConsBtn(); load(true); };
+  const consBtn = h('button', { class: 'btn small', title: 'Stejný anglický řádek přeložený různě' });
+  const consOn = () => !!pref('validation.consistency', false);
+  const special = () => consOn() || pref('validation.ignored', 'hide') === 'only';
+  const paintConsBtn = () => { consBtn.textContent = consOn() ? '← Zpět na nálezy' : 'Rozdílné překlady'; consBtn.classList.toggle('primary', consOn()); };
+  consBtn.onclick = () => { setPref('validation.consistency', !consOn()); setPref('validation.ignored', 'hide'); paintIgnBtn(); paintConsBtn(); load(true); };
   const undoFix = h('button', { class: 'btn small', style: { display: 'none' } });
   async function loadLast() {
     try {
@@ -1494,7 +1584,7 @@ async function viewValidation() {
     load(true);
   }
   function paintFilters() {
-    const ignoredMode = pref('validation.ignored', 'hide') === 'only';
+    const ignoredMode = special();
     const sc = S.val.sevCounts;
     const showInfo = !!settings.validation.show_info;
     const counts = sc ? { '': sc.error + sc.warning + (showInfo ? sc.info : 0), error: sc.error, warning: sc.warning, info: sc.info } : null;
@@ -1508,10 +1598,39 @@ async function viewValidation() {
     chipsBox.replaceChildren(...activeChips(active, resetFilters));
   }
   root.append(h('div', { class: 'filterbar' },
-      h('div', { class: 'frow' }, search, filterGroup('Soubor', fsel), filterGroup('Druh', cat), info, h('span', { class: 'spacer' }), ignBtn, undoFix, fixAll),
+      h('div', { class: 'frow' }, search, filterGroup('Soubor', fsel), filterGroup('Druh', cat), info, h('span', { class: 'spacer' }), consBtn, ignBtn, undoFix, fixAll),
       h('div', { class: 'frow' }, pillsBox, h('span', { class: 'spacer' }), counter), chipsBox),
     h('p', { class: 'muted' }, 'Jeden řádek překladu = jedna položka se všemi nálezy pod sebou. Kontrola nic nepřepisuje sama; jen tlačítko ', h('b', null, 'Opravit'), ' u chyby mluvčího / atributů po tvém potvrzení zapíše opravu podle originálu do souboru (se zálohou). ', h('b', null, 'Chyba'), ' = Ren\'Py by pravděpodobně spadl nebo je rozbitá struktura skriptu. ', h('b', null, 'Varování'), ' = podezřelé, ale může být záměr (např. češtině chybí značka, text je výrazně delší). Porovnává se vždy s originálem, ne s pevnými pravidly.'), list);
   S.val.items = [];
+  async function loadConsistency() {
+    list.replaceChildren(loading());
+    try {
+      const r = await get('consistency');
+      const hidden = new Set(pref('consistency.hidden', []));
+      const showHidden = !!pref('consistency.showHidden', false);
+      const groups = r.groups.filter((g) => showHidden || !hidden.has(g.key));
+      counter.textContent = `${fmtN(groups.length)} ${plural(groups.length, 'originál', 'originály', 'originálů')} s víc překlady (${fmtN(r.lines)} řádků celkem)`;
+      paintFilters();
+      const note = h('div', { class: 'notice' }, 'Stejný anglický řádek přeložený různě. Někdy je to správně (jiný mluvčí, rod, kontext), proto se nic nesjednocuje samo: u varianty, kterou chceš všude, klikni ',
+        h('b', null, 'Použít všude'), ' (ukáže se potvrzení, jde vrátit). ', h('b', null, 'Nechat jak je'), ' skupinu schová. ',
+        h('label', { class: 'check', style: { marginLeft: '8px' } }, h('input', { type: 'checkbox', checked: showHidden, onchange: (e) => { setPref('consistency.showHidden', e.target.checked); loadConsistency(); } }), ` Zobrazit i skryté (${hidden.size})`));
+      if (!groups.length) return list.replaceChildren(note, empty('Vše je jednotné', 'Žádný opakovaný originál nemá víc různých překladů.'));
+      const t = buildTable({ key: 'consistency', cols: [{ k: 'src', w: 300, label: 'Originál' }, { k: 'var', w: 900, label: 'Varianty překladu' }, { k: 'act', w: 140, label: '', resize: false }] });
+      for (const g of groups) {
+        const variants = g.variants.map((v) => h('div', { class: 'variant' },
+          h('div', { class: 'row' }, h('span', { class: 'chip none' }, `×${v.count}`), h('span', { class: 'txt grow' }, fmtText(v.target)),
+            h('button', { class: 'btn small', title: 'Změní ostatní varianty na tuhle', onclick: async () => {
+              const others = g.total - v.count;
+              if (!await confirmDialog('Sjednotit překlad?', `Všech ${g.total} řádků s originálem „${g.source}“ dostane překlad „${v.target}“ (změní se ${others} ${plural(others, 'řádek', 'řádky', 'řádků')}). Před zápisem se vytvoří záloha, jde to vrátit.`, 'Použít všude')) return;
+              try { const res = await post('consistency/unify', { key: g.key, target: v.target }); toast(`Sjednoceno: ${res.changed} řádků. Zpět: „Vrátit poslední změnu souboru“.`); S.files = null; await refreshHeader(); loadConsistency(); } catch (e) { fail(e); }
+            } }, 'Použít všude')),
+          h('div', { class: 'vlines' }, v.lines.slice(0, 6).map((l) => h('a', { href: '#', class: 'mono', title: l.who ? `mluvčí: ${l.who}` : '', onclick: (ev) => { ev.preventDefault(); go('entries', { file: l.file, line: l.line, status: 'all' }); } }, `${l.file.split(/[\\/]/).pop()}:${l.line}${l.who ? ' (' + l.who.split(' ')[0] + ')' : ''}`)), v.lines.length > 6 ? ` … +${v.lines.length - 6}` : '')));
+        t.tbody.append(h('tr', null, h('td', { class: 'txt' }, fmtText(g.source), h('div', { class: 'muted' }, `${g.total}× celkem`)), h('td', null, ...variants),
+          h('td', null, h('button', { class: 'btn small ghost', title: 'Tahle skupina je v pořádku, schovat ji ze seznamu', onclick: () => { const hs = new Set(pref('consistency.hidden', [])); hs.has(g.key) ? hs.delete(g.key) : hs.add(g.key); setPref('consistency.hidden', [...hs]); loadConsistency(); } }, hidden.has(g.key) ? 'Zase hlídat' : 'Nechat jak je'))));
+      }
+      list.replaceChildren(note, h('div', { class: 'tablewrap' }, t.table));
+    } catch (e) { list.replaceChildren(h('div', { class: 'notice bad' }, e.message)); }
+  }
   async function loadIgnored() {
     list.replaceChildren(loading());
     try {
@@ -1532,7 +1651,8 @@ async function viewValidation() {
     } catch (e) { list.replaceChildren(h('div', { class: 'notice bad' }, e.message)); }
   }
   async function load(reset) {
-    paintIgnBtn();
+    paintIgnBtn(); paintConsBtn();
+    if (consOn()) return loadConsistency();
     if (pref('validation.ignored', 'hide') === 'only') return loadIgnored();
     if (reset) { S.val.items = []; list.replaceChildren(loading()); loadLast(); }
     try {

@@ -166,6 +166,18 @@ expression. Tags `{i}`, variables `[name]` and `\n` are protected unless you swi
 confirmation for bulk changes, a backup of every touched file, and **one undo step** (*Vrátit poslední změnu souboru*). A replacement that would break
 the string literal (a bare `"`, a lone `\`) is skipped.
 
+## Translation memory, consistency, game window preview
+
+* **Paměť překladů** (panel under the editor): the same original that was translated before, and originals that differ by a few words (with the
+  similarity and a ⚠ when the reused text has other `[variables]`). Matching is done on the **English original**, so Czech declension does not hinder
+  finding a match; but a reused phrase may need another case, gender or number, so it is only inserted on request (*Použít* replaces the box,
+  *Vložit* inserts at the cursor) and always needs your edit.
+* **Kontrola → Rozdílné překlady**: one original translated in several ways (e.g. *Yes.* → *Ano.* / *Jo.*), with the speakers and lines. *Použít všude*
+  unifies after a confirmation (one undo step); *Nechat jak je* hides a group that is fine (different speaker, gender, context). Nothing is unified automatically.
+* **Náhled v okně hry** (under the editor): the line rendered with `{i}`, `{b}`, `{color=…}`, `\n`, `{p}`; variables as `XXXXX`; waits are dropped. Width and
+  text size come from the game's `gui.rpy` (`gui.dialogue_width`, `gui.text_size`; Being a DIK's values when the sources are not found), the
+  estimated number of lines is compared with the limit from *Nastavení*. The game's own font is not used, so it is an estimate.
+
 ## Translating in the app
 
 The line detail (*Řádky*) has an editable **Překlad** box. **Ctrl+Enter** writes the text into the `.rpy` file and jumps to the next untranslated

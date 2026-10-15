@@ -48,6 +48,24 @@ translate czech a5:
 
     # mc "Where are you going today?"
     mc "Where are you going today?"
+
+# game/script.rpy:55
+translate czech a6:
+
+    # mc "Yes."
+    mc "Ano."
+
+# game/script.rpy:56
+translate czech a7:
+
+    # de "Yes."
+    de "Jo."
+
+# game/script.rpy:57
+translate czech a8:
+
+    # mc "Where are you going tonight?"
+    mc "Kam jdeš dnes večer?"
 '''
 STRINGS = '''translate czech strings:
 
