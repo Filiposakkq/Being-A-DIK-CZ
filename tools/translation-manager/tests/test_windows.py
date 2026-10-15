@@ -79,6 +79,22 @@ class WindowTests(TempCase):
         q = parse_qs(urlparse(opened[1]).query)
         self.assertEqual(q, {"win": ["2"]})                          # unknown values are dropped, never passed on
 
+    def test_a_companion_window_is_opened_with_a_tab_and_follows_the_shared_focus(self):
+        opened = []
+        self.sess.open_window = opened.append
+        self.call("POST", "/api/window/open", {"view": "entries", "companion": "1", "tab": "scene", "file": "a.rpy", "line": 5})
+        q = parse_qs(urlparse(opened[0]).query)
+        self.assertEqual((q["companion"], q["tab"]), (["1"], ["scene"]))
+        self.call("POST", "/api/window/open", {"companion": "yes", "tab": "<x>"})
+        self.assertEqual(parse_qs(urlparse(opened[1]).query), {"win": ["2"]})
+        status, f0 = self.call("GET", "/api/focus")
+        self.assertEqual((status, f0["seq"], f0["file"]), (200, 0, ""))
+        status, f1 = self.call("POST", "/api/focus", {"file": "a.rpy", "line": 5})
+        self.assertEqual((f1["seq"], f1["file"], f1["line"]), (1, "a.rpy", 5))
+        self.call("POST", "/api/focus", {"file": "a.rpy", "line": "x"})
+        self.assertEqual(self.call("GET", "/api/focus")[1], {"ok": True, "seq": 2, "file": "a.rpy", "line": 0})
+        self.assertEqual(self.call("POST", "/api/focus", {"file": "a.rpy"}, token=False)[0], 403)
+
     def test_without_an_opener_the_page_is_told_to_fall_back(self):
         status, res = self.call("POST", "/api/window/open", {"view": "entries"})
         self.assertEqual((res["ok"], res["fallback"]), (False, True))

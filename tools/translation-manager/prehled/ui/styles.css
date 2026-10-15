@@ -359,6 +359,15 @@ td input[type=text]:focus { background: var(--panel); }
 .splitter:hover, .splitter.drag, .splitter:focus-visible { background: var(--accent); }
 .splitter:hover::after, .splitter.drag::after { background: var(--on-accent); opacity: .9; }
 .split.cols > .detail { border-left: 0; }
+/* detail beside the list (one wide monitor) and the companion window (detail only, follows the main window) */
+.split.ecols { grid-template-columns: minmax(0, 1fr) 8px clamp(320px, var(--detail-w, 620px), 72%); }
+.split.ecols > .detail { border-left: 0; border-top: 0; }
+.split.companion { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
+.split.companion > .pane, .split.companion > .splitter { display: none; }
+.split.companion > .detail { border: 0; }
+.followbar { display: flex; gap: 10px; align-items: center; margin: 0 0 10px; padding: 6px 10px; border: 1px dashed var(--line-2); border-radius: 8px; font-size: 13px; }
+.dhead .menu { left: auto; right: 0; }
+.detail { overflow-x: hidden; }
 td.whoname { font-size: 13px; color: var(--text); }
 
 /* script context of a line (read-only view of the original game script) */
@@ -429,7 +438,7 @@ details.memory > summary, details.gamepreview > summary, details.texthistory > s
 .memhead { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12.5px; }
 .memtext { margin: 3px 0; }
 .memsrc { flex-basis: 100%; }
-.gwin { margin: 8px 0 4px; overflow: hidden; border-radius: 8px; background: linear-gradient(180deg, #1c2536, #0f1522); border: 1px solid var(--line-2); }
+.gwin { margin: 8px auto 4px; overflow: hidden; border-radius: 8px; background: linear-gradient(180deg, #1c2536, #0f1522); border: 1px solid var(--line-2); }
 .gwin.over { border-color: var(--bad); box-shadow: 0 0 0 2px var(--bad-bg); }
 .gbox { position: absolute; color: #f2f4f8; line-height: 1.3; padding: 0; font-family: "Segoe UI", system-ui, sans-serif; word-wrap: break-word; }
 .gstage { position: relative; transform-origin: top left; overflow: hidden; background: #0f1522; font-family: "Segoe UI", system-ui, sans-serif; }

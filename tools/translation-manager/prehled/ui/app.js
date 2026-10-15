@@ -107,6 +107,7 @@ function speakerModeSelect(onchange) {
 const WIN_ID = Math.random().toString(36).slice(2, 10);
 const URL_Q = new URLSearchParams(location.search);
 const SECONDARY = URL_Q.has('win');
+const COMPANION = SECONDARY && URL_Q.get('companion') === '1';      // detail-only window that follows the line open in the main window
 let prefTimer = null;
 const pref = (path, def) => path.split('.').reduce((o, k) => (o && o[k] !== undefined ? o[k] : undefined), S.prefs) ?? def;
 function setPref(path, value) {
@@ -813,6 +814,21 @@ async function openWindow(opts = {}) {
     if (!window.open(`${location.origin}/?${u}`, '_blank')) fail(e);
   }
 }
+/* Companion window: follows the line open in the main window (polls the shared focus once a second; edits stay safe: an unsaved text is never replaced). */
+function startFollowing() {
+  let seen = -1;
+  setInterval(async () => {
+    if (S.follow === false || S.view !== 'entries' || document.hidden) return;
+    try {
+      const f = await get('focus');
+      if (f.seq === seen) return;
+      if ($('#editTarget')?.dataset.dirty === '1') return;      // keep what is being typed; try again on the next tick
+      seen = f.seq;
+      const cur = S.ent?.items?.[S.ent.sel];
+      if (f.file && !(cur && cur.file === f.file && cur.line === f.line)) go('entries', { file: f.file, line: f.line, status: 'all', select: true });
+    } catch { /* the main window may be restarting */ }
+  }, 1000);
+}
 async function openEditor(file, line) {
   try { const r = await post('open-editor', { file, line }); toast(r.message, r.ok ? 'ok' : 'bad', 7000); } catch (e) { fail(e); }
 }
@@ -845,7 +861,9 @@ async function viewEntries() {
   }
   const files = S.files || (S.files = (await get('files')).files);
   const e = pref('entries', {});
-  const root = h('div', { class: 'split rows', style: { '--detail-h': pref('entries.detailh', 380) + 'px' } });
+  const layoutPref = pref('entries.layout', 'auto');
+  const sideBySide = !COMPANION && (layoutPref === 'cols' || (layoutPref === 'auto' && innerWidth >= 1500));
+  const root = h('div', { class: 'split ' + (COMPANION ? 'companion' : sideBySide ? 'cols ecols' : 'rows'), style: { '--detail-h': pref('entries.detailh', 380) + 'px', '--detail-w': pref('entries.detailw', 620) + 'px' } });
   const main = h('div', { class: 'pane' });
   const detail = h('div', { class: 'detail', id: 'entryDetail' });
   const counter = h('span', { class: 'muted' });
@@ -903,12 +921,13 @@ async function viewEntries() {
         { label: 'Opravit…', hint: 'mluvčí, mezery, překlepy', run: () => fixDialog({ file: pref('entries.file', '') }, async () => { S.files = null; await refreshHeader(); load(true); }) },
         { label: 'Přeložit strojem…', hint: 'vybrané řádky, scéna, soubor', run: () => openMtDialog() },
       ], { title: 'Hromadné úpravy překladů' }),
-      pickInfo, h('span', { class: 'spacer' }), counter),
+      pickInfo, h('span', { class: 'spacer' }), counter,
+      h('button', { class: 'btn small ghost', title: sideBySide ? 'Detail dát pod seznam' : 'Detail dát vedle seznamu (hodí se na širokém monitoru: scéna a editor bez posouvání)', onclick: () => { setPref('entries.layout', sideBySide ? 'rows' : 'cols'); render(); } }, sideBySide ? '▤ Detail dole' : '◫ Detail vpravo')),
     pillsBox, moreBox, chipsBox)));
   paintFilters();
   const wrap = h('div', { class: 'pane-body' });
   main.append(wrap);
-  root.append(main, makeSplitter(root, 'v', { key: 'entries.detailh', def: 380, min: 140, maxFrac: 0.7 }), detail);
+  root.append(main, sideBySide ? makeSplitter(root, 'h', { key: 'entries.detailw', def: 620, min: 320, maxFrac: 0.72 }) : makeSplitter(root, 'v', { key: 'entries.detailh', def: 380, min: 140, maxFrac: 0.7 }), detail);
   let timer;
   const debounceLoad = () => { clearTimeout(timer); timer = setTimeout(() => load(true), 250); };
   let tbody;
@@ -996,7 +1015,7 @@ async function viewEntries() {
     tr?.scrollIntoView({ block: 'nearest' });
     const it = S.ent.items[i];
     try { S.ent.detail = await get('entry', { file: it.file, line: it.line }); } catch (err) { S.ent.detail = null; drawDetail(null, err.message); return; }
-    if (S.ent.sel === i) drawDetail(S.ent.detail);
+    if (S.ent.sel === i) { drawDetail(S.ent.detail); if (!COMPANION) { clearTimeout(S.focusT); S.focusT = setTimeout(() => post('focus', { file: it.file, line: it.line }).catch(() => {}), 120); } }
     if (i >= S.ent.items.length - 15 && S.ent.start + S.ent.items.length < S.ent.total) load(false);
   }
   function drawDetail(d, err) {
@@ -1004,6 +1023,7 @@ async function viewEntries() {
     const canApprove = d.status !== 'translated' && d.kind !== 'empty';
     const ed = translationEditor(d);
     detail.replaceChildren(
+      COMPANION ? h('div', { class: 'followbar' }, h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: S.follow !== false, onchange: (e) => { S.follow = e.target.checked; } }), ' Sledovat řádek vybraný v hlavním okně'), h('span', { class: 'muted' }, 'Druhé okno: změny se zapisují do stejných souborů.')) : null,
       h('div', { class: 'dhead' },
         h('span', { class: 'path', title: d.ref ? `původní skript: ${d.ref}` : '' }, `${d.file}:${d.line}`),
         d.unit === 'string' ? chip('choice', 'Volba') : chip('none', 'Dialog'),
@@ -1013,7 +1033,8 @@ async function viewEntries() {
         h('button', { class: 'btn small', title: 'Otevře soubor na tomhle řádku v externím editoru', onclick: () => openEditor(d.file, d.line) }, 'Editor (E)'),
         menuButton('Více', [
           ...(canApprove ? [{ label: 'Schválit všechny shodné…', hint: 'Shift+A', run: () => globalApprove() }] : []),
-          { label: 'Otevřít v novém okně', hint: 'vedle tohoto', run: () => openWindow({ view: 'entries', file: d.file, line: d.line, status: 'all' }) },
+          ...(COMPANION ? [] : [{ label: 'Detail ve druhém okně', hint: 'sleduje výběr tady', run: () => openWindow({ view: 'entries', companion: '1', tab: 'scene', file: d.file, line: d.line, status: 'all' }) }]),
+          { label: 'Otevřít v novém okně', hint: 'samostatný seznam', run: () => openWindow({ view: 'entries', file: d.file, line: d.line, status: 'all' }) },
           { label: 'Kopírovat cestu', run: () => copy(`${d.path}:${d.line}`) },
         ], { title: 'Další akce s řádkem' })),
       h('div', { class: 'pair' },
@@ -1253,9 +1274,9 @@ async function viewEntries() {
       tb.append(...(nm ? [nm] : []), dlg);
       stage.append(tb);
       outer.replaceChildren(stage);
-      const k = Math.min(1, (outer.clientWidth || W) / W);
+      const k = Math.min(1, ((box.clientWidth - 2) || W) / W, Math.max(200, innerHeight * 0.45) / H);
       stage.style.transform = `scale(${k})`;
-      outer.style.height = Math.ceil(H * k) + 'px';
+      outer.style.height = Math.ceil(H * k) + 'px'; outer.style.width = Math.ceil(W * k) + 'px';
       const lines = Math.max(1, Math.round(dlg.offsetHeight / (g.text_size * 1.3)));
       const over = lines > g.max_lines || g.dialogue_ypos + dlg.offsetHeight > g.textbox_height;
       sum.lastChild.textContent = `(≈ ${lines} ${plural(lines, 'řádek', 'řádky', 'řádků')}${over ? ' – moc!' : ''})`;
@@ -2322,7 +2343,7 @@ async function viewSettings() {
     h('fieldset', null, h('legend', null, 'Strojový překlad (nepovinné, experimentální)'), h('div', { class: 'form' },
       ...field('Služba', h('select', { id: 'set_mt_provider' }, [['', 'Vypnuto'], ['deepl', 'DeepL'], ['openai', 'OpenAI-kompatibilní (i místní)'], ['libretranslate', 'LibreTranslate']].map(([k, l]) => h('option', { value: k, selected: (s.mt?.provider || '') === k }, l))), 'Dává jen NÁVRH k jednomu řádku po kliknutí na „Návrh strojem“ v editoru; nikdy se nic samo nezapíše.'),
       ...field('Klíč k API', h('input', { type: 'password', id: 'set_mt_key', value: '', placeholder: s.mt?.has_key ? '(uložen – nech prázdné, pokud ho nechceš měnit)' : '', autocomplete: 'off' }), 'Ukládá se jako prostý text v config.json v %APPDATA%\\BaDIKTranslationManager. Do aplikace se zpět neposílá.'),
-      s.mt?.has_key ? h('label', { class: 'check' }, h('input', { type: 'checkbox', id: 'set_mt_clear' }), ' Smazat uložený klíč') : null,
+      ...(s.mt?.has_key ? [h('span'), h('label', { class: 'check' }, h('input', { type: 'checkbox', id: 'set_mt_clear' }), ' Smazat uložený klíč')] : []),
       ...field('Adresa služby', h('input', { type: 'text', id: 'set_mt_url', value: s.mt?.base_url || '', placeholder: 'jen pro vlastní server, např. http://localhost:1234/v1' })),
       ...field('Model', h('input', { type: 'text', id: 'set_mt_model', value: s.mt?.model || '', placeholder: 'jen pro OpenAI-kompatibilní, např. gpt-4o-mini' })),
       ...field('Jazyky', h('span', { class: 'row' }, h('input', { type: 'text', id: 'set_mt_src', value: s.mt?.source_lang || 'EN', style: { width: '70px' } }), ' → ', h('input', { type: 'text', id: 'set_mt_dst', value: s.mt?.target_lang || 'CS', style: { width: '70px' } }))),
@@ -2570,7 +2591,8 @@ if (new URLSearchParams(location.search).has('selftest')) {      // UI self-test
     if (st.config_error) S.notices.push(st.config_error);
     S.view = pref('view', 'overview');
     if (SECONDARY) {
-      document.title += ' – okno 2';
+      document.title += COMPANION ? ' – detail' : ' – okno 2';
+      if (COMPANION) { S.prefs.ui = { ...(S.prefs.ui || {}), detailTab: URL_Q.get('tab') || 'scene' }; startFollowing(); }
       const v = URL_Q.get('view');
       if (v && TABS.some(([k]) => k === v)) S.view = v;
       if (S.view === 'entries') S.goOpts = { file: URL_Q.get('file') || '', line: +URL_Q.get('line') || 0, status: URL_Q.get('status') || 'all', select: true };

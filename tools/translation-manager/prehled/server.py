@@ -46,6 +46,7 @@ class Session:
         self.windows = {}              # window id -> time of its last ping (the app quits when the last one is gone)
         self.open_window = None        # set by cli: callable(url) that opens one more app window
         self.base_url = ""
+        self.focus = {"seq": 0, "file": "", "line": 0}   # the line open in the main window; companion windows follow it
 
 
 def make_handler(sess):
@@ -148,6 +149,8 @@ def make_handler(sess):
             if not p.startswith("/api/"):
                 return self._send(404, "not found", "text/plain")
             r = p[5:]
+            if r == "focus":
+                return self._json({"ok": True, **sess.focus})
             if r == "ping":
                 wid = q1(q, "w")
                 if wid:
@@ -261,11 +264,20 @@ def make_handler(sess):
             def ints(v):
                 return int(v)
 
+            def set_focus():
+                line = d.get("line", 0)
+                sess.focus = {"seq": sess.focus["seq"] + 1, "file": str(d.get("file", ""))[:500], "line": int(line) if str(line).isdigit() else 0}
+                return {"ok": True, **sess.focus}
+
             def open_window():
                 """One more app window with its own list / filter state, e.g. to read the scene next to the editor."""
                 if sess.open_window is None:
                     return {"ok": False, "fallback": True, "error": "Nové okno tu nejde otevřít z aplikace."}
                 q = {"win": "2"}
+                if str(d.get("companion", "")) == "1":
+                    q["companion"] = "1"
+                if str(d.get("tab", "")) in ("check", "proof", "scene", "memory", "history", "script"):
+                    q["tab"] = str(d["tab"])
                 if str(d.get("view", "")) in ("overview", "files", "entries", "validation", "glossary", "publish", "settings"):
                     q["view"] = str(d["view"])
                 if d.get("file"):
@@ -305,6 +317,7 @@ def make_handler(sess):
                 "proof/clear-file": lambda: app.proof_clear_file(str(d["file"])),
                 "open-url": lambda: app.open_link(str(d.get("id", ""))),
                 "window/open": lambda: open_window(),
+                "focus": lambda: set_focus(),
                 "fix/preview": lambda: {"ok": True, **app.fix_preview(list(d.get("items") or []), str(d.get("file", "")), list(d.get("kinds") or []))},
                 "replace/preview": lambda: {"ok": True, **app.replace_preview(d.get("find", ""), d.get("replace", ""), str(d.get("mode", "plain")), bool(d.get("case")), list(d.get("files") or []), bool(d.get("protect", True)))},
                 "replace/apply": lambda: app.replace_apply(list(d.get("selections") or []), d.get("find", ""), d.get("replace", ""), str(d.get("mode", "plain")), bool(d.get("case")), list(d.get("files") or []), bool(d.get("protect", True))),

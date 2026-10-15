@@ -156,6 +156,11 @@
       ok('editor má náhled v okně hry', gp, 'chybí');
       if (gp) { gp.open = true; gp.dispatchEvent(new Event('toggle')); ok('náhled hry spočítá řádky', await waitFor(() => /řádek|řádky|řádků/.test(gp.querySelector('summary').textContent), 4000), gp.querySelector('summary').textContent); ok('náhled kreslí okno hry s textem a jménem', await waitFor(() => gp.querySelector('.gstage .gtextbox .gbox')?.textContent.length > 0, 4000), 'chybí .gstage'); const sc = await get('game/scene', { file: S.ent.items[dialogue].file, line: S.ent.items[dialogue].line }); ok('API scény vrací stav a rozměry okna', typeof sc.available === 'boolean' && sc.gui.screen_width > 0 && sc.gui.textbox_height > 0, JSON.stringify(sc).slice(0, 100)); gp.open = false; gp.dispatchEvent(new Event('toggle')); }
     }
+    const fo = await post('focus', { file: S.ent.items[0]?.file || 'x', line: S.ent.items[0]?.line || 1 });
+    ok('hlavní okno sdílí vybraný řádek s doprovodným oknem', (await get('focus')).seq === fo.seq && fo.seq > 0, JSON.stringify(fo));
+    const lay = [...document.querySelectorAll('#view .frow button')].find((b) => /Detail (vpravo|dole)/.test(b.textContent));
+    ok('seznam řádků má přepínač rozložení detailu', !!lay, 'chybí');
+    if (lay) { const before = !!document.querySelector('#view .split.ecols'); lay.click(); await sleep(400); ok('přepínač změní rozložení (vedle / pod)', before !== !!document.querySelector('#view .split.ecols'), 'beze změny'); setPref('entries.layout', 'rows'); }
     const tg = await post('mt/targets', { file: '' });
     ok('API strojového překladu vrací cíle a počet znaků', Array.isArray(tg.items) && tg.total === tg.items.length && tg.chars >= 0, JSON.stringify(tg).slice(0, 80));
     mtDialog({ picked: [], anchor: null, file: '' }, null);

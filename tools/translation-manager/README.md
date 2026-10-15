@@ -193,6 +193,12 @@ preferences (the others do not write them, so they never overwrite each other); 
 picked up by the other when it gets the focus back (counters and the open line refresh). In the desktop window this opens another native window, in the browser
 mode an app window, and as a last resort a browser tab.
 
+**Detail in a second window (companion)**: *Více → Detail ve druhém okně* opens a window with **only the line detail** (the *Scéna* tab first: picture, box,
+editor) that **follows the line you select in the main window** (the main window publishes it, the companion checks once a second; an unsaved text in the
+companion is never replaced; the *Sledovat…* box turns following off). Edits made there go to the same files. For one monitor, **◫ Detail vpravo** in *Řádky*
+puts the detail beside the list instead of under it (automatic on screens 1500 px wide and more; the choice is remembered), and the scene picture is scaled
+to fit the height too, so the picture and the editor are visible without scrolling.
+
 ## Shortcuts, command palette, scene view
 
 * **Shortcuts are customizable** (*Nastavení → Klávesové zkratky*): press **Změnit** and then the new key; **+** adds a second one, **Odebrat** removes them,
