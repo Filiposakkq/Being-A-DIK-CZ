@@ -95,6 +95,30 @@
       closeDialog();
     }
   });
+  await step('Najít a nahradit', async () => {
+    await openView('entries', { file: '', status: 'all' });
+    const btn = await waitFor(() => [...document.querySelectorAll('#view button')].find((b) => b.textContent.includes('Najít a nahradit')));
+    ok('tlačítko „Najít a nahradit“ existuje', btn, 'chybí');
+    if (btn) {
+      btn.click();
+      const inputs = await waitFor(() => { const i = document.querySelectorAll('#dlg[open] input[type=text]'); return i.length >= 2 ? i : null; }, 4000);
+      ok('dialog hledání se otevře', inputs, 'dialog se neotevřel');
+      if (inputs) {
+        ok('dialog nabízí režimy hledání', document.querySelectorAll('#dlg .seg button').length >= 4, 'chybí režimy');
+        inputs[0].value = 'a'; inputs[0].dispatchEvent(new Event('input'));
+        const shown = await waitFor(() => document.querySelector('#dlg .tablewrap, #dlg .empty, #dlg .notice.bad'), 5000);
+        ok('náhled hledání se vykreslí', shown && !document.querySelector('#dlg .notice.bad'), 'náhled selhal');
+        inputs[0].value = '('; inputs[0].dispatchEvent(new Event('input'));
+        [...document.querySelectorAll('#dlg .seg button')].find((b) => b.textContent.includes('Regulární'))?.click();
+        ok('špatný regulární výraz se ohlásí chybou, ne výjimkou', await waitFor(() => document.querySelector('#dlg .notice.bad'), 5000), 'chyba se nezobrazila');
+      }
+      closeDialog();
+    }
+  });
+  await step('Opravit (bezpečné opravy)', async () => {
+    const pv = await post('fix/preview', { kinds: ['speaker', 'spaces', 'typo'] });
+    ok('náhled oprav vrací položky s výchozím zaškrtnutím', Array.isArray(pv.items) && pv.items.every((i) => 'default' in i && 'kind' in i), 'špatný tvar odpovědi');
+  });
   await step('Kontrola', async () => {
     await openView('validation');
     await waitFor(() => document.querySelector('#view .tablewrap, #view .empty'));

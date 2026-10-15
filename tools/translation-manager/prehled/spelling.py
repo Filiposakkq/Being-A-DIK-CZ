@@ -88,7 +88,8 @@ class Spelling:
             else:
                 msg = f"Překlep? „{w}“ → „{better}“."
                 sev = "warning"
-            out.append(Issue(sev, "typo-suspect", msg, category="text"))
+            out.append(Issue(sev, "typo-suspect", msg, category="text",
+                             extra={"fixable": True, "kind": "typo", "word": w, "better": better, "typo_kind": kind}))
             if len(out) >= 3:
                 break
         return out

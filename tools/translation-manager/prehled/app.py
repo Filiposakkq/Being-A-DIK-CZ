@@ -9,7 +9,7 @@ from dataclasses import replace
 from datetime import date, datetime
 from pathlib import Path
 
-from . import bulk, editor, export, fixes, history as hist, publish as pub, rpy, spelling, validator
+from . import bulk, editor, export, fixes, history as hist, publish as pub, rpy, spelling, textedit, validator
 from .config import Config, migrate_web_json
 from .lock import ProjectLock, ProjectLocked
 from .project import (DATA_DIR_NAME, STATUS_LABELS, STATUS_ORDER, Project, ProjectUnavailable,
@@ -1039,21 +1039,76 @@ class App:
             return out
 
     # ------------------------------------------------------------ fixing structure errors in the .rpy files
-    def fix_preview(self, items=None, file=""):
-        self._need_project()
-        with self.lock:
-            planned = fixes.plan(self.project, items, file)
-            return {"items": planned, "total": len(planned), "fixable": sum(1 for p in planned if not p["skip"])}
+    FIX_KINDS = ("speaker", "spaces", "typo")
+    FIX_LABELS = {"speaker": "mluvčí / atributy", "spaces": "dvojité mezery", "typo": "překlepy"}
 
-    def fix_apply(self, items=None, file=""):
-        """Copy speaker / attributes / trailing code from the original into the translation lines."""
+    def fix_preview(self, items=None, file="", kinds=None):
+        """Every safe fix that could be applied. Nothing is written.
+
+        kinds: "speaker" (copy speaker / attributes / trailing code from the original), "spaces" (collapse double spaces),
+        "typo" (apply the spelling hints). Variables and tags are never touched – their order may differ legitimately.
+        Each item has `default` (the checkbox state a UI should start with; doubtful ones are off) and `skip` (reason when
+        it cannot be applied)."""
+        self._need_project()
+        kinds = [k for k in (kinds or ["speaker"]) if k in self.FIX_KINDS]
+        wanted = {(str(i["file"]), int(i["line"])) for i in items} if items else None
+        with self.lock:
+            out = []
+            if "speaker" in kinds:
+                for p in fixes.plan(self.project, items, file):
+                    out.append({"file": p["file"], "line": p["line"], "kind": "speaker", "before": p["before"],
+                                "after": p["after"], "skip": p["skip"], "default": not p["skip"], "code": True,
+                                "note": "mluvčí / atributy podle originálu"})
+            for p in textedit.plan_text_fixes(self.project, self._spell(), kinds, wanted, file):
+                out.append(dict(p, skip="", code=False))
+            out.sort(key=lambda r: (r["file"].lower(), r["line"], r["kind"]))
+            counts = {k: sum(1 for r in out if r["kind"] == k) for k in kinds}
+            return {"items": out, "total": len(out), "fixable": sum(1 for r in out if not r["skip"]), "counts": counts}
+
+    def fix_apply(self, items=None, file="", kinds=None, selections=None):
+        """Apply fixes. `selections` = [{file, line, kind}] picks exactly what the user ticked in the preview;
+        without it every applicable fix of `kinds` (default: speaker) is applied (older callers)."""
         self._need_project()
         with self.lock:
-            planned = fixes.plan(self.project, items, file)
-            if not planned:
+            if selections is not None:
+                chosen = {(str(x["file"]), int(x["line"]), str(x["kind"])) for x in selections}
+                kinds = sorted({k for _f, _l, k in chosen})
+                items = [{"file": f, "line": l} for f, l, _k in chosen] or None
+                if not chosen:
+                    raise AppError("Není vybrané nic k opravě.")
+            else:
+                chosen = None
+            plan = self.fix_preview(items, file, kinds)["items"]
+            todo = [p for p in plan if not p["skip"] and (chosen is None or (p["file"], p["line"], p["kind"]) in chosen)]
+            skipped = [(p["file"], p["line"], p["skip"]) for p in plan if p["skip"]]
+            if not todo:
                 raise AppError("Není co opravovat.")
+            fixed, backups = 0, []
             try:
-                res = fixes.apply(self.project, self.data_dir, planned)
+                speaker = {(p["file"], p["line"]) for p in todo if p["kind"] == "speaker"}
+                if speaker:
+                    res = fixes.apply(self.project, self.data_dir, [p for p in fixes.plan(self.project, None, "")
+                                                                    if (p["file"], p["line"]) in speaker and not p["skip"]])
+                    fixed += res["fixed"]
+                    backups += res["backups"]
+                    skipped += res["skipped"]
+                    self.project.refresh(force=True)
+                    self._val_cache.clear()
+                texts = {(p["file"], p["line"], p["kind"]) for p in todo if p["kind"] != "speaker"}
+                if texts:
+                    by_line = {}
+                    for f, l, k in texts:
+                        by_line.setdefault((f, l), set()).add(k)
+                    pick = {}
+                    for (f, l), ks in by_line.items():                       # one line can carry several kinds: chain them
+                        e = next((x for x in self.project.entries(f) if x.line == l), None)
+                        if e is not None and e.source is not None:
+                            pick[(f, l)] = textedit.chain_fixes(self._spell(), e.source, e.target, ks)
+                    kinds_txt = ", ".join(self.FIX_LABELS[k] for k in sorted({k for _f, _l, k in texts}))
+                    res = fixes.apply_edits(self.project, self.data_dir, [(f, l, t) for (f, l), t in pick.items()],
+                                            f"Opravy textu ({kinds_txt})")
+                    fixed += res["changed"]
+                    backups += res["backups"]
             except fixes.FixError as e:
                 raise AppError(str(e)) from e
             finally:
@@ -1061,7 +1116,75 @@ class App:
                 self._val_cache.clear()
             self.store.ensure_files([r.name for r in self.project.rows()])
             out = self._changed("fix")
-            out.update(res)
+            out.update(fixed=fixed, skipped=skipped, backups=backups)
+            return out
+
+    # ------------------------------------------------------------ find and replace in translations
+    def _replace_plan(self, find, replace, mode, case, files, protect, limit):
+        try:
+            rep = textedit.make_replacer(str(find), str(replace), mode, bool(case))
+        except ValueError as e:
+            raise AppError(str(e)) from e
+        files = [str(f) for f in (files or [])]
+        unknown = [f for f in files if f not in self.project.files]
+        if unknown:
+            raise AppError("Neznámý soubor: " + unknown[0])
+        items, matches, truncated = [], 0, False
+        for rel in sorted(files or self.project.files, key=str.lower):
+            for e in self.project.entries(rel):
+                if not e.target or (e.pending and e.category and not self.project.is_translated(rel, e)):
+                    continue
+                try:
+                    new, n = rep(e.target, bool(protect))
+                except ValueError as err:
+                    raise AppError(str(err)) from err
+                if not n or new == e.target:
+                    continue
+                skip = ""
+                try:
+                    fixes.check_literal(new)
+                except fixes.FixError as err:
+                    skip = str(err)
+                if len(items) >= limit:
+                    truncated = True
+                    break
+                matches += n
+                items.append({"file": rel, "line": e.line, "who": e.who, "source": e.source, "before": e.target,
+                              "after": new, "count": n, "skip": skip})
+            if truncated:
+                break
+        return items, matches, truncated
+
+    def replace_preview(self, find, replace, mode="plain", case=False, files=None, protect=True, limit=2000):
+        """Lines of already translated text that the search would change, with the new text. Nothing is written."""
+        self._need_project()
+        with self.lock:
+            items, matches, truncated = self._replace_plan(find, replace, mode, case, files, protect, max(1, min(int(limit), 20000)))
+            return {"items": items, "total": len(items), "matches": matches, "truncated": truncated,
+                    "applicable": sum(1 for i in items if not i["skip"])}
+
+    def replace_apply(self, selections, find, replace, mode="plain", case=False, files=None, protect=True):
+        """Write the replacement into the ticked lines (one undoable step, backup of every touched file)."""
+        self._need_project()
+        with self.lock:
+            chosen = {(str(x["file"]), int(x["line"])) for x in (selections or [])}
+            if not chosen:
+                raise AppError("Není vybraný žádný řádek.")
+            items, _m, _t = self._replace_plan(find, replace, mode, case, files, protect, 20000)
+            edits = [(i["file"], i["line"], i["after"]) for i in items if not i["skip"] and (i["file"], i["line"]) in chosen]
+            if not edits:
+                raise AppError("Vybrané řádky se mezitím změnily – zobraz náhled znovu.")
+            label = f"Nahrazení „{str(find)[:30]}“ → „{str(replace)[:30]}“"
+            try:
+                res = fixes.apply_edits(self.project, self.data_dir, edits, label)
+            except fixes.FixError as e:
+                raise AppError(str(e)) from e
+            finally:
+                self.project.refresh(force=True)
+                self._val_cache.clear()
+            self.store.ensure_files([r.name for r in self.project.rows()])
+            out = self._changed("replace")
+            out.update(changed=res["changed"], files=res["files"], backups=res["backups"])
             return out
 
     def entry_check(self, rel, line, text):

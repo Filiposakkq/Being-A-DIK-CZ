@@ -153,6 +153,19 @@ file changed on disk since it was loaded (refresh first) or when the fix would m
 untranslated) – those are left for manual fixing. **Vrátit poslední opravu** restores the files of the last fix from their backups, but only if they were not edited since (the file's hash is compared), so later work is never thrown away. Line endings and a BOM are preserved. Save the file in your editor first; unsaved editor
 changes would be overwritten.
 
+## Safe fixes and find & replace
+
+**Opravit…** (*Kontrola*, or the *Opravit* button of a finding) shows a preview with **one tick box per line** and fixes three kinds: speaker / attributes /
+trailing code copied from the original, double spaces between words, and typo hints (missing diacritics, swapped or doubled letters). Doubtful ones
+(short words such as *byt / být*) start unticked; *Jen doporučené* resets to the safe selection. **Variables and tags are never fixed automatically** –
+in Czech their order often differs from English, so such findings are frequently false positives; ignore them (*Ignorovat…*) or fix them by hand.
+
+**Najít a nahradit…** (*Řádky*) searches the translated text of all or chosen files: *Text*, *Celé slovo*, *Podle kmene* (finds other forms of a word, e.g.
+`dikmince → dikminci`, and keeps their endings; works well only for words that decline the same way, so always check the preview) or a regular
+expression. Tags `{i}`, variables `[name]` and `\n` are protected unless you switch that off. Preview with a tick per line and a marked diff, a double
+confirmation for bulk changes, a backup of every touched file, and **one undo step** (*Vrátit poslední změnu souboru*). A replacement that would break
+the string literal (a bare `"`, a lone `\`) is skipped.
+
 ## Translating in the app
 
 The line detail (*Řádky*) has an editable **Překlad** box. **Ctrl+Enter** writes the text into the `.rpy` file and jumps to the next untranslated

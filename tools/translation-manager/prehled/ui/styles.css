@@ -416,3 +416,7 @@ td.whoname { font-size: 13px; color: var(--text); }
 .finding .fmsg { flex: 1 1 260px; min-width: 0; }
 .finding .fact { display: inline-flex; gap: 4px; margin-left: auto; }
 .fall { padding-top: 4px; }
+
+/* v1.4: diff marks in the fix / replace previews */
+mark.diff-del { background: var(--bad-bg); color: var(--bad); border-radius: 3px; padding: 0 2px; text-decoration: line-through; }
+mark.diff-add { background: var(--good-bg); color: var(--good); border-radius: 3px; padding: 0 2px; }

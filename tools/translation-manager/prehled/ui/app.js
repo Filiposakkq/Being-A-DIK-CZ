@@ -815,6 +815,7 @@ async function viewEntries() {
   }
   main.append(h('div', { class: 'pane-head' }, h('div', { class: 'filterbar' },
     h('div', { class: 'frow' }, search, filterGroup('Soubor', fileSel), moreBtn,
+      h('button', { class: 'btn small', title: 'Hledat a nahrazovat v přeloženém textu (celý projekt nebo vybrané soubory)', onclick: () => replaceDialog(async () => { S.files = null; await refreshHeader(); load(true); }, S.fl.picked.size ? [...S.fl.picked] : (pref('entries.file', '') ? [pref('entries.file', '')] : [])) }, 'Najít a nahradit…'),
       h('button', { class: 'btn small', title: 'Hromadně schválí řádky, které se překládat nemusí (jen znaky, citoslovce, jména)', onclick: () => ruleApproveDialog(async () => { S.files = null; await refreshHeader(); load(true); }, S.fl.picked.size ? [...S.fl.picked] : (pref('entries.file', '') ? [pref('entries.file', '')] : [])) }, 'Schválit podle pravidla…'),
       h('span', { class: 'spacer' }), counter),
     pillsBox, moreBox, chipsBox)));
@@ -909,7 +910,7 @@ async function viewEntries() {
         x.ignored ? h('span', { class: 'muted' }, x.ignore_note ? ` – ${x.ignore_note}` : '') : null,
         h('div', null, x.ignored ? h('button', { class: 'btn small ghost', onclick: () => unignore([{ file: d.file, line: d.line, code: x.code }], () => { S.ent.api.reload(); }) }, 'Přestat ignorovat')
           : h('button', { class: 'btn small ghost', title: 'Schová tenhle nález u tohoto řádku (jde vrátit)', onclick: () => ignoreDialog(d.issues.filter((y) => !y.ignored).map((y) => ({ file: d.file, line: d.line, code: y.code, severity: y.severity, message: y.message })).sort((a, b) => (a.code === x.code ? -1 : b.code === x.code ? 1 : 0)), () => { S.ent.api.reload(); }) }, 'Ignorovat…')),
-        x.fixable ? h('div', null, h('button', { class: 'btn small primary', onclick: () => fixDialog({ items: [{ file: d.file, line: d.line }] }, () => { load(true); }) }, 'Opravit podle originálu')) : null,
+        x.fixable ? h('div', null, h('button', { class: 'btn small primary', onclick: () => fixDialog({ items: [{ file: d.file, line: d.line }], kinds: [x.kind || 'speaker'] }, () => { load(true); }) }, x.kind === 'speaker' || !x.kind ? 'Opravit podle originálu' : 'Opravit…')) : null,
         x.ratio ? h('div', { class: 'muted' }, `Délka: originál ${x.source_len}, překlad ${x.target_len} znaků (poměr ${String(x.ratio).replace('.', ',')}). Rozhodni sám, jestli je to záměr.`) : null))) : null,
       d.status !== 'todo' ? h('div', { class: 'proofbox' },
         h('div', { class: 'row' }, h('h4', { style: { margin: 0 } }, 'Korektura'), proofChip(d.proof) || h('span', { class: 'muted' }, 'zatím nezkontrolováno'),
@@ -1163,28 +1164,162 @@ async function globalApproveDialog(d, done) {
 }
 
 /* Fix speaker / attributes / trailing code from the original (the only operation that edits the .rpy files). */
-async function fixDialog({ items = [], file = '' }, done) {
+/* Shows what changed between two texts: common start / end stay plain, the middle is marked. */
+function diffSpans(before, after) {
+  const n = Math.min(before.length, after.length);
+  let i = 0;
+  while (i < n && before[i] === after[i]) i++;
+  let j = 0;
+  while (j < n - i && before[before.length - 1 - j] === after[after.length - 1 - j]) j++;
+  const part = (str, cls) => h('span', null, str.slice(0, i), h('mark', { class: cls }, str.slice(i, str.length - j) || '∅'), str.slice(str.length - j));
+  return { before: part(before, 'diff-del'), after: part(after, 'diff-add') };
+}
+
+/* Safe fixes: speaker / attributes from the original, double spaces, typo hints. Every line is ticked or unticked
+   by the user; doubtful ones start unticked. Variables and tags are never offered (their order may legitimately differ). */
+const FIX_KIND_LABEL = { speaker: 'Mluvčí / atributy', spaces: 'Dvojité mezery', typo: 'Překlepy' };
+const FIX_KIND_HELP = {
+  speaker: 'Mluvčí, atributy a kód za textem se zkopírují z originálu (řádek s #). Text překladu se nemění.',
+  spaces: 'Několik mezer za sebou mezi slovy se změní na jednu (jen když je originál nemá taky).',
+  typo: 'Návrhy podle slovníku z tvého vlastního překladu. Krátká a nejistá slova jsou odškrtnutá, protože může jít o falešný poplach (byt / být). Zaškrtni jen to, co opravdu chceš.',
+};
+async function fixDialog({ items = [], file = '', kinds = ['speaker', 'spaces', 'typo'] }, done) {
   let data;
-  try { data = await post('fix/preview', { items, file }); } catch (e) { return fail(e); }
+  try { data = await post('fix/preview', { items, file, kinds }); } catch (e) { return fail(e); }
   if (!data.total) return toast('Není co opravovat.', 'ok');
-  const rows = data.items.slice(0, 300).map((it) => h('tr', null,
-    h('td', null, fname(it.file), h('span', { class: 'mono muted' }, `řádek ${it.line}`)),
-    h('td', { class: 'mono txt' }, it.before), h('td', { class: 'mono txt' }, it.skip ? h('span', { class: 'muted' }, it.skip) : it.after)));
-  const t = h('table', { class: 'data' }, h('colgroup', null, [150, 270, 300].map((w) => h('col', { style: { width: w + 'px' } }))),
-    h('thead', null, h('tr', null, ['Kde', 'Teď', 'Po opravě (podle originálu)'].map((x) => h('th', null, x)))), h('tbody', null, rows));
-  t.style.width = '720px';
+  const key = (it) => `${it.file}|${it.line}|${it.kind}`;
+  const sel = new Set(data.items.filter((it) => it.default && !it.skip).map(key));
+  let only = kinds.length === 1 ? kinds[0] : '';
+  const head = h('div'), listBox = h('div'), info = h('span', { class: 'grow' });
+  const go = h('button', { class: 'btn primary', disabled: true });
+  const visible = () => data.items.filter((it) => !only || it.kind === only).slice(0, 600);
+  function paint() {
+    const seg = h('div', { class: 'seg' }, h('button', { class: only === '' ? 'on' : '', onclick: () => { only = ''; paint(); } }, `Vše (${data.total})`),
+      ...Object.keys(data.counts).filter((k) => data.counts[k]).map((k) => h('button', { class: only === k ? 'on' : '', onclick: () => { only = k; paint(); } }, `${FIX_KIND_LABEL[k]} (${data.counts[k]})`)));
+    const vis = visible();
+    head.replaceChildren(
+      only ? h('p', null, FIX_KIND_HELP[only]) : h('p', { class: 'muted' }, 'Vyber, co se má opravit. Před zápisem se vytvoří záloha souboru ve složce ', h('b', null, '_progress_data/backups'), '; změnu jde vrátit tlačítkem „Vrátit poslední změnu souboru“. Soubory musí být uložené v editoru.'),
+      h('div', { class: 'toolbar' }, seg, h('span', { class: 'spacer' }),
+        h('button', { class: 'btn small', onclick: () => { vis.forEach((it) => { if (!it.skip) sel.add(key(it)); }); paint(); } }, 'Vybrat vše'),
+        h('button', { class: 'btn small', onclick: () => { vis.forEach((it) => sel.delete(key(it))); paint(); } }, 'Nic'),
+        h('button', { class: 'btn small', title: 'Jen to, co je bezpečné (nejisté návrhy zůstanou odškrtnuté)', onclick: () => { vis.forEach((it) => { if (it.default && !it.skip) sel.add(key(it)); else sel.delete(key(it)); }); paint(); } }, 'Jen doporučené')));
+    const rows = vis.map((it) => {
+      const d = it.code ? null : diffSpans(it.before, it.after);
+      return h('tr', null,
+        h('td', { class: 'center' }, h('input', { type: 'checkbox', checked: sel.has(key(it)), disabled: !!it.skip, onchange: (e) => { e.target.checked ? sel.add(key(it)) : sel.delete(key(it)); paint2(); } })),
+        h('td', null, fname(it.file), h('span', { class: 'mono muted' }, `řádek ${it.line}`), only ? null : h('div', null, chip('none', FIX_KIND_LABEL[it.kind]))),
+        h('td', { class: it.code ? 'mono txt' : 'txt' }, d ? d.before : it.before),
+        h('td', { class: it.code ? 'mono txt' : 'txt' }, it.skip ? h('span', { class: 'muted' }, it.skip) : (d ? d.after : it.after), !it.code && it.note ? h('div', { class: 'muted', style: { fontSize: '12px' } }, it.note) : null));
+    });
+    const t = h('table', { class: 'data' }, h('colgroup', null, [44, 190, 340, 340].map((w) => h('col', { style: { width: w + 'px' } }))),
+      h('thead', null, h('tr', null, ['', 'Kde', 'Teď', 'Po opravě'].map((x) => h('th', null, x)))), h('tbody', null, rows));
+    t.style.width = '914px';
+    listBox.replaceChildren(vis.length < data.items.filter((it) => !only || it.kind === only).length ? h('p', { class: 'muted' }, 'Zobrazeno prvních 600 řádků.') : null, h('div', { class: 'tablewrap', style: { maxHeight: '46vh' } }, t));
+    paint2();
+  }
+  function paint2() {
+    const n = sel.size;
+    go.disabled = !n;
+    go.textContent = `Opravit ${n} ${plural(n, 'řádek', 'řádky', 'řádků')}`;
+    info.textContent = `Vybráno ${n} z ${data.fixable} použitelných`;
+  }
+  go.onclick = async () => {
+    const selections = data.items.filter((it) => sel.has(key(it))).map((it) => ({ file: it.file, line: it.line, kind: it.kind }));
+    try {
+      const r = await post('fix/apply', { selections });
+      toast(`Opraveno ${r.fixed} ${plural(r.fixed, 'řádek', 'řádky', 'řádků')}` + (r.skipped.length ? `, přeskočeno ${r.skipped.length}` : '') + '. Zpět: „Vrátit poslední změnu souboru“.', r.skipped.length ? 'bad' : 'ok', 8000);
+      S.files = null; await refreshHeader(); done?.();
+    } catch (e) { fail(e); return false; }
+  };
+  const body = h('div', null, head, listBox);
+  paint();
+  dialog({ title: 'Opravit', body, buttons: [{ label: 'Zrušit' }, { node: h('span', { style: { display: 'contents' } }, info, go) }] });
+}
+
+/* Find and replace in the translated texts of all or chosen files, with a preview you tick line by line. */
+async function replaceDialog(done, preselected = []) {
+  const allFiles = (S.files || []).map((x) => x.name);
+  const chosen = new Set(preselected.filter((n) => allFiles.includes(n)));
+  const st = { mode: 'plain', scope: chosen.size ? 'chosen' : 'all', armed: false };
+  let data = null, seq = 0, timer;
+  const sel = new Set();
+  const find = h('input', { type: 'text', placeholder: 'Co hledat', style: { flex: 1 } });
+  const repl = h('input', { type: 'text', placeholder: 'Čím nahradit (může být prázdné)', style: { flex: 1 } });
+  const caseBox = h('input', { type: 'checkbox' }), protBox = h('input', { type: 'checkbox', checked: true });
+  const MODES = [['plain', 'Text'], ['word', 'Celé slovo'], ['stem', 'Podle kmene (pokusné)'], ['regex', 'Regulární výraz']];
+  const modeSeg = h('div', { class: 'seg' }), scopeBox = h('div'), results = h('div'), info = h('span', { class: 'grow' });
+  const go = h('button', { class: 'btn primary', disabled: true }, 'Nahradit');
+  const MODE_HELP = { plain: 'Najde text kdekoli (i uvnitř slov).', word: 'Najde jen celé slovo.', stem: 'Najde i jiné tvary slova podle kmene (dikmince → dikminci) a ponechá jejich koncovku. Funguje dobře jen u slov se stejným skloňováním – vždy zkontroluj náhled.', regex: 'Regulární výraz Pythonu; v náhradě lze použít \\1, \\2…' };
+  const hint = h('div', { class: 'muted' });
+  function paintMode() {
+    modeSeg.replaceChildren(...MODES.map(([k, l]) => h('button', { class: st.mode === k ? 'on' : '', onclick: () => { st.mode = k; paintMode(); schedule(); } }, l)));
+    hint.textContent = MODE_HELP[st.mode];
+  }
+  function paintScope() {
+    const segBtn = (k, l) => h('button', { class: st.scope === k ? 'on' : '', onclick: () => { st.scope = k; paintScope(); schedule(); } }, l);
+    const list = h('div', { class: 'filepick' });
+    const q = h('input', { type: 'search', class: 'search', placeholder: 'Hledat soubor…', style: { maxWidth: '240px' } });
+    const count = h('span', { class: 'muted' }, `vybráno ${chosen.size}`);
+    const fill = () => { const t = q.value.toLowerCase(); list.replaceChildren(...allFiles.filter((n) => !t || n.toLowerCase().includes(t)).map((n) => h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: chosen.has(n), onchange: (e) => { e.target.checked ? chosen.add(n) : chosen.delete(n); count.textContent = `vybráno ${chosen.size}`; schedule(); } }), ' ', n))); };
+    q.oninput = fill;
+    scopeBox.replaceChildren(h('div', { class: 'toolbar' }, h('b', null, 'Kde:'), h('div', { class: 'seg' }, segBtn('all', `Všechny soubory (${allFiles.length})`), segBtn('chosen', 'Jen vybrané soubory')),
+      st.scope === 'chosen' ? [count, h('button', { class: 'btn small', onclick: () => { allFiles.forEach((n) => chosen.add(n)); fill(); count.textContent = `vybráno ${chosen.size}`; schedule(); } }, 'Vše'), h('button', { class: 'btn small', onclick: () => { chosen.clear(); fill(); count.textContent = 'vybráno 0'; schedule(); } }, 'Nic'), q] : null), st.scope === 'chosen' ? list : null);
+    if (st.scope === 'chosen') fill();
+  }
+  const request = () => ({ find: find.value, replace: repl.value, mode: st.mode, case: caseBox.checked, protect: protBox.checked, files: st.scope === 'chosen' ? [...chosen] : [] });
+  function schedule() { clearTimeout(timer); timer = setTimeout(preview, 350); }
+  async function preview() {
+    const my = ++seq;
+    if (!find.value) { data = null; sel.clear(); results.replaceChildren(empty('Zadej hledaný text', 'Náhled se ukáže hned, nic se nezapisuje, dokud nepotvrdíš.')); paint2(); return; }
+    if (st.scope === 'chosen' && !chosen.size) { data = null; results.replaceChildren(empty('Vyber soubory', 'Zaškrtni aspoň jeden soubor, nebo přepni na „Všechny soubory“.')); paint2(); return; }
+    results.replaceChildren(loading());
+    let r;
+    try { r = await post('replace/preview', request()); } catch (e) { if (my === seq) { data = null; sel.clear(); results.replaceChildren(h('div', { class: 'notice bad' }, e.message)); paint2(); } return; }
+    if (my !== seq) return;
+    data = r; sel.clear(); r.items.forEach((it, i) => { if (!it.skip) sel.add(i); }); st.armed = false; paintResults();
+  }
+  function paintResults() {
+    if (!data.items.length) { results.replaceChildren(empty('Nic nenalezeno', 'V přeložených řádcích hledaný text není (nepřeložené řádky se nehledají).')); return paint2(); }
+    const shown = data.items.slice(0, 500);
+    const rows = shown.map((it, i) => { const d = diffSpans(it.before, it.after); return h('tr', null,
+      h('td', { class: 'center' }, h('input', { type: 'checkbox', checked: sel.has(i), disabled: !!it.skip, onchange: (e) => { e.target.checked ? sel.add(i) : sel.delete(i); st.armed = false; paint2(); } })),
+      h('td', null, fname(it.file), h('span', { class: 'mono muted' }, `řádek ${it.line}`)), h('td', { class: 'txt' }, d.before),
+      h('td', { class: 'txt' }, it.skip ? h('span', { class: 'muted' }, it.skip) : d.after), h('td', { class: 'num' }, it.count)); });
+    const t = h('table', { class: 'data' }, h('colgroup', null, [44, 200, 330, 330, 50].map((w) => h('col', { style: { width: w + 'px' } }))),
+      h('thead', null, h('tr', null, ['', 'Kde', 'Teď', 'Po nahrazení', '×'].map((x) => h('th', null, x)))), h('tbody', null, rows));
+    t.style.width = '954px';
+    results.replaceChildren(h('div', { class: 'toolbar' }, h('span', { class: 'muted' }, `${data.total} ${plural(data.total, 'řádek', 'řádky', 'řádků')}, ${data.matches} ${plural(data.matches, 'výskyt', 'výskyty', 'výskytů')}` + (data.truncated ? ' (zobrazeno jen prvních 2000)' : '')), h('span', { class: 'spacer' }),
+      h('button', { class: 'btn small', onclick: () => { shown.forEach((it, i) => { if (!it.skip) sel.add(i); }); paintResults(); } }, 'Vybrat vše'), h('button', { class: 'btn small', onclick: () => { sel.clear(); paintResults(); } }, 'Nic')),
+      data.items.length > 500 ? h('p', { class: 'muted' }, 'Zobrazeno prvních 500; nahradí se jen zobrazené.') : null, h('div', { class: 'tablewrap', style: { maxHeight: '40vh' } }, t));
+    paint2();
+  }
+  function paint2() {
+    const n = sel.size;
+    go.disabled = !n;
+    go.classList.toggle('danger', st.armed);
+    go.textContent = st.armed ? `Potvrdit: nahradit v ${n} ${plural(n, 'řádku', 'řádcích', 'řádcích')}` : `Nahradit (${n})`;
+    info.textContent = data ? `Vybráno ${n} z ${data.applicable}` + (n > 1 ? ' · hromadná změna se musí potvrdit dvakrát' : '') : '';
+  }
+  go.onclick = async () => {
+    if (sel.size > 1 && !st.armed) { st.armed = true; paint2(); setTimeout(() => { st.armed = false; paint2(); }, 8000); return false; }
+    try {
+      const shown = data.items.slice(0, 500);
+      const r = await post('replace/apply', { ...request(), selections: [...sel].map((i) => ({ file: shown[i].file, line: shown[i].line })) });
+      toast(`Nahrazeno v ${r.changed} ${plural(r.changed, 'řádku', 'řádcích', 'řádcích')} (${r.files} ${plural(r.files, 'soubor', 'soubory', 'souborů')}). Zpět: „Vrátit poslední změnu souboru“.`, 'ok', 8000);
+      S.files = null; await refreshHeader(); done?.();
+    } catch (e) { fail(e); return false; }
+  };
+  [find, repl].forEach((i) => i.addEventListener('input', schedule));
+  [caseBox, protBox].forEach((i) => i.addEventListener('change', schedule));
+  paintMode(); paintScope();
   const body = h('div', null,
-    h('p', null, 'Mluvčí, atributy a kód za textem se zkopírují z originálu (řádek s #). Samotný text překladu se nemění. Před zápisem se vytvoří záloha souboru ve složce ', h('b', null, '_progress_data/backups'), '. Soubory musí být uložené v editoru – otevřené neuložené změny by se přepsaly.'),
-    data.items.length > 300 ? h('p', { class: 'muted' }, `Zobrazeno prvních 300 z ${data.total}.`) : null,
-    h('div', { class: 'tablewrap', style: { maxHeight: '50vh' } }, t));
-  dialog({ title: `Opravit podle originálu (${data.fixable})`, body,
-    buttons: [{ label: 'Zrušit' }, { label: `Opravit ${data.fixable} řádků`, kind: 'primary', disabled: !data.fixable, onclick: async () => {
-      try {
-        const r = await post('fix/apply', { items, file });
-        toast(`Opraveno ${r.fixed} řádků` + (r.skipped.length ? `, přeskočeno ${r.skipped.length}` : '') + '. Záloha souboru je v _progress_data/backups.', r.skipped.length ? 'bad' : 'ok', 8000);
-        S.files = null; await refreshHeader(); done?.();
-      } catch (e) { fail(e); }
-    } }] });
+    h('p', { class: 'muted' }, 'Hledá a nahrazuje v už přeloženém textu. Značky {i}, proměnné [jméno] a zápisy \\n se ve výchozím nastavení nikdy nemění. Před zápisem se vytvoří záloha; změnu jde vrátit jedním krokem.'),
+    h('div', { class: 'row', style: { marginBottom: '8px' } }, find, repl),
+    h('div', { class: 'toolbar' }, modeSeg, h('label', { class: 'check' }, caseBox, ' Rozlišovat velikost písmen'), h('label', { class: 'check' }, protBox, ' Nehýbat značky a proměnné')), hint, scopeBox, results);
+  S.dlgDirty = true;
+  dialog({ title: 'Najít a nahradit', body, buttons: [{ label: 'Zavřít' }, { node: h('span', { style: { display: 'contents' } }, info, go) }] });
+  setTimeout(() => find.focus(), 0);
+  preview();
 }
 
 /* Approve lines by a simple rule (symbols only, interjections, names from the glossary). Goes through the normal approval. */
@@ -1351,7 +1486,7 @@ async function viewValidation() {
     if (!await confirmDialog('Vrátit poslední změnu souboru?', 'Soubory změněné poslední změnou (oprava mluvčích nebo úprava textu) se vrátí do stavu před ní, ze zálohy. Pokud se od té doby změnily, vrácení se odmítne.', 'Vrátit změnu')) return;
     try { const r = await post('fix/undo'); toast(`Vráceno: ${r.label || 'poslední změna'} (${r.lines} řádků).`); S.files = null; await refreshHeader(); load(true); } catch (e) { fail(e); }
   };
-  const fixAll = h('button', { class: 'btn small', title: 'Zkopíruje mluvčího, atributy a kód za textem z originálu u všech takových chyb (po zobrazení náhledu)', onclick: () => fixDialog({ file: pref('validation.file', '') }, () => load(true)) }, 'Opravit mluvčí / atributy…');
+  const fixAll = h('button', { class: 'btn small', title: 'Bezpečné opravy: mluvčí / atributy podle originálu, dvojité mezery, překlepy. Ukáže náhled, kde si každý řádek zaškrtneš.', onclick: () => fixDialog({ file: pref('validation.file', '') }, () => load(true)) }, 'Opravit…');
   const pillsBox = h('div', { class: 'frow pills', role: 'group', 'aria-label': 'Závažnost' }), chipsBox = h('div', { class: 'frow fchips' });
   function resetFilters() {
     for (const k of ['file', 'category', 'q', 'severity']) setPref('validation.' + k, '');
@@ -1414,7 +1549,7 @@ async function viewValidation() {
     return h('div', { class: 'finding ' + x.severity },
       chip(x.severity, SEV_LABEL[x.severity]), h('span', { class: 'fmsg' }, x.message),
       h('span', { class: 'fact' },
-        x.extra?.fixable ? h('button', { class: 'btn small primary', title: `Zkopíruje mluvčího a atributy z originálu („${g.src_who}“)`, onclick: () => fixDialog({ items: [{ file: g.file, line: g.line }] }, () => load(true)) }, 'Opravit') : null,
+        x.extra?.fixable ? h('button', { class: 'btn small primary', title: x.extra.kind === 'speaker' ? `Zkopíruje mluvčího a atributy z originálu („${g.src_who}“)` : 'Ukáže náhled opravy', onclick: () => fixDialog({ items: [{ file: g.file, line: g.line }], kinds: [x.extra.kind || 'speaker'] }, () => load(true)) }, 'Opravit') : null,
         g.line && x.code !== 'duplicate-id' ? h('button', { class: 'btn small ghost', title: 'Schová tenhle nález u tohoto řádku (jde vrátit)', onclick: () => ignoreDialog([{ file: g.file, line: g.line, code: x.code, severity: x.severity, message: x.message }], () => load(true)) }, 'Ignorovat…') : null));
   }
   function paintList() {
