@@ -17,6 +17,8 @@ import re
 from collections import Counter
 from dataclasses import dataclass, field
 
+from .util import fold
+
 # Tags that must be closed.
 PAIRED_TAGS = {"i", "b", "u", "s", "plain", "color", "size", "font", "a", "alpha", "k",
                "outlinecolor", "rb", "rt", "art", "cps", "language", "shader"}
@@ -36,7 +38,7 @@ class Issue:
     severity: str
     code: str
     message: str
-    category: str = "syntax"      # syntax | structure | length
+    category: str = "syntax"      # syntax | structure | length | text
     extra: dict = field(default_factory=dict)
 
     def to_dict(self):
@@ -246,6 +248,89 @@ def check_text(source, target):
     return issues
 
 
+# ---------------------------------------------------------------- text quality checks (category "text")
+# Common English function words that are not Czech words; "i", "most", "had" are Czech too and interjections
+# (hello, okay...) are often kept on purpose, so neither counts.
+_NOT_ENGLISH_EVIDENCE = {"i", "most", "had", "yes", "okay", "ok", "oh", "hey", "hi", "hello", "please", "thanks",
+                         "thank", "sorry", "well", "right", "really", "maybe", "being"}
+ENGLISH_EVIDENCE = None     # filled lazily from rpy.EN_WORDS (avoids an import cycle at module load)
+_WORD_RE = re.compile(r"[^\W\d_]+(?:'[^\W\d_]+)?", re.UNICODE)
+_REPEAT_RE = re.compile(r"\b([^\W\d_]{2,})\s+\1\b", re.IGNORECASE | re.UNICODE)
+# words that are legitimately doubled in Czech speech ("to to je", "tak tak", "ne ne")
+REPEAT_OK = {"to", "tak", "ne", "no", "ať", "jo", "hej", "ha", "ah", "se", "si", "že", "jak", "co", "ani", "už",
+             "ale", "čuk", "haha", "hihi", "ho", "bla", "ještě", "moc", "hodně", "hrozně", "pořád", "dobře", "fajn", "ok", "hmm", "ach"}
+
+
+def plain_text(text):
+    """What the player reads: tags and [variables] removed, \n as a space."""
+    out = re.sub(r"\{\{", "{", text)
+    out = re.sub(r"\{[^}]*\}", "", out)
+    out = re.sub(r"\[\[", "[", out)
+    out = re.sub(r"\[[^\]]*\]", " ", out)
+    return out.replace("\n", " ").replace('\\"', '"')
+
+
+def check_quality(source, target):
+    """Cheap human-error checks on the visible text. Always relative to the source; warnings only."""
+    global ENGLISH_EVIDENCE
+    if ENGLISH_EVIDENCE is None:
+        from .rpy import EN_WORDS
+        ENGLISH_EVIDENCE = set(EN_WORDS) - _NOT_ENGLISH_EVIDENCE
+    issues = []
+    ps, pt = plain_text(source), plain_text(target)
+
+    # numbers must survive the translation
+    ns, nt = Counter(re.findall(r"\d+", ps)), Counter(re.findall(r"\d+", pt))
+    if ns != nt:
+        # a number written out in words ("14" -> "čtrnáct") is normal Czech; changed digits are suspicious
+        sev = "info" if ns and not nt else "warning"
+        issues.append(Issue(sev, "numbers-differ",
+                            f"Čísla se liší od originálu (originál: {', '.join(sorted(ns.elements())) or '—'}; "
+                            f"překlad: {', '.join(sorted(nt.elements())) or '—'}).", category="text"))
+
+    # double spaces inside the text
+    if re.search(r"\S {2,}\S", target) and not re.search(r"\S {2,}\S", source):
+        issues.append(Issue("warning", "double-space", "V překladu je dvojitá mezera.", category="text"))
+
+    # the same word twice in a row (typo), unless the source does it as well or Czech does it normally
+    src_rep = {m.group(1).lower() for m in _REPEAT_RE.finditer(ps)}
+    for m in _REPEAT_RE.finditer(pt):
+        w = m.group(1).lower()
+        if w not in REPEAT_OK and w not in src_rep:
+            issues.append(Issue("warning", "repeated-word", f"Dvakrát za sebou stejné slovo: „{w} {w}“.", category="text"))
+            break
+
+    # English left in a translated line
+    words = [w.lower() for w in _WORD_RE.findall(pt)]
+    hits = [w for w in words if w in ENGLISH_EVIDENCE]
+    if len(hits) >= 3 or (len(hits) >= 2 and len(hits) / max(1, len(words)) >= 0.4):
+        issues.append(Issue("warning", "english-left",
+                            f"V překladu zůstala angličtina ({', '.join(sorted(set(hits))[:5])}). Nezapomněl/a ses část nepřeložit?",
+                            category="text"))
+    return issues
+
+
+def _stem(word):
+    folded = fold(word)
+    return folded[:max(3, len(folded) - 2)]
+
+
+def check_terms(source, target, terms):
+    """Glossary terms: when the original uses the English term, the translation should use the Czech one
+    (any ending). `terms` = {english: czech}. Info only – Czech declension makes this approximate."""
+    issues = []
+    ps = plain_text(source).lower()
+    t_stems = {_stem(w) for w in _WORD_RE.findall(plain_text(target))}
+    for en, cz in terms.items():
+        if not en or not cz or not re.search(r"(?<!\w)" + re.escape(en.lower()) + r"(?!\w)", ps):
+            continue
+        cz_stems = [_stem(w) for w in _WORD_RE.findall(cz)]
+        if cz_stems and not all(any(len(ts) >= 3 and (ts.startswith(cs) or cs.startswith(ts)) for ts in t_stems) for cs in cz_stems):
+            issues.append(Issue("info", "term-inconsistent",
+                                f"Termín „{en}“ se ve Slovníku překládá jako „{cz}“, ale v překladu to nevidím.", category="text"))
+    return issues
+
+
 def visible_length(text):
     """Characters a player would see: tags removed, variables counted as a short name."""
     out = re.sub(r"\{\{", "{", text)
@@ -279,7 +364,7 @@ def check_length(source, target, cfg=None):
     return []
 
 
-def check_entry(entry, length_cfg=None):
+def check_entry(entry, length_cfg=None, terms=None):
     """All issues for one parsed Entry (see rpy.Entry). Untranslated lines are not validated."""
     if entry.pending and entry.category:
         return []
@@ -291,23 +376,26 @@ def check_entry(entry, length_cfg=None):
         if " ".join(entry.who.split()) != " ".join(entry.src_who.split()):
             issues.append(Issue("error", "speaker-changed",
                                 f"Mluvčí / atributy se liší od originálu: „{entry.src_who}“ → „{entry.who}“.",
-                                category="structure"))
+                                category="structure", extra={"fixable": True}))
         if " ".join(entry.suffix.split()) != " ".join(entry.src_suffix.split()):
             issues.append(Issue("error", "suffix-changed",
                                 f"Kód za textem se liší od originálu: „{entry.src_suffix}“ → „{entry.suffix}“.",
-                                category="structure"))
+                                category="structure", extra={"fixable": True}))
     if entry.target.strip() == "" and entry.source.strip() != "":
         return issues
     issues += check_text(entry.source, entry.target)
     issues += check_length(entry.source, entry.target, length_cfg)
+    issues += check_quality(entry.source, entry.target)
+    if terms:
+        issues += check_terms(entry.source, entry.target, terms)
     return issues
 
 
-def check_parsed(parsed, length_cfg=None):
+def check_parsed(parsed, length_cfg=None, terms=None):
     """Issues for a whole ParsedFile: [(line, Issue, entry|None)] sorted by line."""
     out = []
     for e in parsed.entries:
-        for iss in check_entry(e, length_cfg):
+        for iss in check_entry(e, length_cfg, terms):
             out.append((e.line, iss, e))
     for line, code, msg in parsed.structure:
         out.append((line, Issue("error", code, msg, category="structure"), None))

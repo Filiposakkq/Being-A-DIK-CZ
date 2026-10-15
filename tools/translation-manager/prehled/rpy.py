@@ -230,7 +230,15 @@ def parse_text(text, digest=""):
 
 
 def parse_bytes(data):
-    return parse_text(data.decode("utf-8-sig", errors="replace"), hashlib.sha1(data).hexdigest())
+    try:
+        text, bad = data.decode("utf-8-sig"), False
+    except UnicodeDecodeError:
+        text, bad = data.decode("utf-8-sig", errors="replace"), True
+    out = parse_text(text, hashlib.sha1(data).hexdigest())
+    if bad:
+        out.structure.append((1, "bad-encoding", "Soubor není platné UTF-8 (nějaké znaky se nepodařilo přečíst). "
+                              "Ren'Py čte skripty jako UTF-8 – ulož ho v editoru jako „UTF-8“."))
+    return out
 
 
 def count(entries, approved=(), symbols_as_done=None):

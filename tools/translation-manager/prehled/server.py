@@ -85,6 +85,18 @@ def make_handler(sess):
             for i in range(0, len(data), self.CHUNK):
                 self.wfile.write(data[i:i + self.CHUNK])
 
+        def _drain(self):
+            """Read and discard the request body before an early reply. Closing a socket that still has unread
+            data makes Windows reset the connection, so the client sometimes never sees the 403 / 413."""
+            try:
+                n = int(self.headers.get("Content-Length", 0))
+                if 0 < n <= MAX_BODY:
+                    self.rfile.read(n)
+                elif n > MAX_BODY:
+                    self.close_connection = True
+            except (ValueError, OSError):
+                self.close_connection = True
+
         def _json(self, payload, code=200):
             self._send(code, json.dumps(payload, ensure_ascii=False), "application/json; charset=utf-8")
 
@@ -165,6 +177,7 @@ def make_handler(sess):
         # ---------------------------------------------------------- POST
         def do_POST(self):
             if not self._host_ok():
+                self._drain()
                 return self._send(403, "forbidden", "text/plain")
             url = urlparse(self.path)
             if url.path == "/api/bye":      # sendBeacon cannot set headers
@@ -172,6 +185,7 @@ def make_handler(sess):
                     sess.bye_at = time.time()
                 return self._send(200, "ok", "text/plain")
             if self.headers.get("X-Token") != sess.token:
+                self._drain()
                 return self._json({"ok": False, "error": "Zakázáno (neplatný token)."}, 403)
             try:
                 length = int(self.headers.get("Content-Length", 0))
@@ -231,6 +245,8 @@ def make_handler(sess):
                 "proof/upto": lambda: app.proof_upto(str(d["file"]), ints(d["line"])),
                 "proof/clear-file": lambda: app.proof_clear_file(str(d["file"])),
                 "open-url": lambda: app.open_link(str(d.get("id", ""))),
+                "fix/preview": lambda: {"ok": True, **app.fix_preview(list(d.get("items") or []), str(d.get("file", "")))},
+                "fix/apply": lambda: app.fix_apply(list(d.get("items") or []), str(d.get("file", ""))),
                 "undo": lambda: app.undo(),
                 "open-editor": lambda: app.open_editor(str(d["file"]), ints(d.get("line", 1))),
                 "settings": lambda: {"ok": True, **app.update_settings(d)},

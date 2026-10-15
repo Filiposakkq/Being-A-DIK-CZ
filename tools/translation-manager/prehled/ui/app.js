@@ -790,6 +790,7 @@ async function viewEntries() {
       h('h4', { style: { marginTop: '10px' } }, 'Originál'), h('div', { class: 'textbox' }, fmtText(d.source ?? '(zdroj nenalezen)')),
       h('h4', null, 'Překlad'), h('div', { class: 'textbox' }, fmtText(d.target)),
       d.issues.length ? h('div', null, h('h4', null, 'Kontrola'), d.issues.map((x) => h('div', { class: 'issue ' + x.severity }, chip(x.severity, SEV_LABEL[x.severity]), ' ', x.message,
+        x.fixable ? h('div', null, h('button', { class: 'btn small primary', onclick: () => fixDialog({ items: [{ file: d.file, line: d.line }] }, () => { load(true); }) }, 'Opravit podle originálu')) : null,
         x.ratio ? h('div', { class: 'muted' }, `Délka: originál ${x.source_len}, překlad ${x.target_len} znaků (poměr ${String(x.ratio).replace('.', ',')}). Rozhodni sám, jestli je to záměr.`) : null))) : null,
       (d.before.length || d.after.length) ? h('div', null, h('h4', { style: { marginTop: '10px' } }, 'Okolí v souboru'),
         d.before.map((x) => ctxLine(x)), h('div', { class: 'ctx' }, h('b', null, `▶ ${d.line}`)), d.after.map((x) => ctxLine(x))) : null);
@@ -923,6 +924,31 @@ async function globalApproveDialog(d, done) {
   loadPreview();
 }
 
+/* Fix speaker / attributes / trailing code from the original (the only operation that edits the .rpy files). */
+async function fixDialog({ items = [], file = '' }, done) {
+  let data;
+  try { data = await post('fix/preview', { items, file }); } catch (e) { return fail(e); }
+  if (!data.total) return toast('Není co opravovat.', 'ok');
+  const rows = data.items.slice(0, 300).map((it) => h('tr', null,
+    h('td', null, fname(it.file), h('span', { class: 'mono muted' }, `řádek ${it.line}`)),
+    h('td', { class: 'mono txt' }, it.before), h('td', { class: 'mono txt' }, it.skip ? h('span', { class: 'muted' }, it.skip) : it.after)));
+  const t = h('table', { class: 'data' }, h('colgroup', null, [150, 270, 300].map((w) => h('col', { style: { width: w + 'px' } }))),
+    h('thead', null, h('tr', null, ['Kde', 'Teď', 'Po opravě (podle originálu)'].map((x) => h('th', null, x)))), h('tbody', null, rows));
+  t.style.width = '720px';
+  const body = h('div', null,
+    h('p', null, 'Mluvčí, atributy a kód za textem se zkopírují z originálu (řádek s #). Samotný text překladu se nemění. Před zápisem se vytvoří záloha souboru ve složce ', h('b', null, '_progress_data/backups'), '. Soubory musí být uložené v editoru – otevřené neuložené změny by se přepsaly.'),
+    data.items.length > 300 ? h('p', { class: 'muted' }, `Zobrazeno prvních 300 z ${data.total}.`) : null,
+    h('div', { class: 'tablewrap', style: { maxHeight: '50vh' } }, t));
+  dialog({ title: `Opravit podle originálu (${data.fixable})`, body,
+    buttons: [{ label: 'Zrušit' }, { label: `Opravit ${data.fixable} řádků`, kind: 'primary', disabled: !data.fixable, onclick: async () => {
+      try {
+        const r = await post('fix/apply', { items, file });
+        toast(`Opraveno ${r.fixed} řádků` + (r.skipped.length ? `, přeskočeno ${r.skipped.length}` : '') + '. Záloha souboru je v _progress_data/backups.', r.skipped.length ? 'bad' : 'ok', 8000);
+        S.files = null; await refreshHeader(); done?.();
+      } catch (e) { fail(e); }
+    } }] });
+}
+
 /* ================================================================ VALIDATION */
 async function viewValidation() {
   const o = S.goOpts; S.goOpts = null;
@@ -934,14 +960,15 @@ async function viewValidation() {
   const files = S.files || (S.files = (await get('files')).files);
   const sev = h('div', { class: 'seg' }, [['', 'Chyby + varování'], ['error', 'Jen chyby'], ['warning', 'Jen varování'], ['info', 'Jen info']].map(([k, l]) =>
     h('button', { class: (v.severity || '') === k ? 'on' : '', onclick: (ev) => { setPref('validation.severity', k); sev.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b === ev.currentTarget)); load(true); } }, l)));
-  const cat = h('select', { onchange: (ev) => { setPref('validation.category', ev.target.value); load(true); } }, [['', 'Všechny druhy'], ['syntax', 'Značky a proměnné'], ['structure', 'Struktura (mluvčí, bloky)'], ['length', 'Délka textu']].map(([k, l]) => h('option', { value: k }, l)));
+  const cat = h('select', { onchange: (ev) => { setPref('validation.category', ev.target.value); load(true); } }, [['', 'Všechny druhy'], ['syntax', 'Značky a proměnné'], ['structure', 'Struktura (mluvčí, bloky)'], ['length', 'Délka textu'], ['text', 'Text (čísla, angličtina, překlepy)']].map(([k, l]) => h('option', { value: k }, l)));
   cat.value = v.category || '';
   const fsel = h('select', { style: { maxWidth: '320px' }, onchange: (ev) => { setPref('validation.file', ev.target.value); load(true); } }, h('option', { value: '' }, 'Všechny soubory'), files.map((f) => h('option', { value: f.name }, f.name)));
   fsel.value = v.file || '';
   const search = h('input', { type: 'search', class: 'search', id: 'search', placeholder: 'Hledat… (Ctrl+F)', value: v.q || '', oninput: (ev) => { setPref('validation.q', ev.target.value); clearTimeout(S.valTimer); S.valTimer = setTimeout(() => load(true), 250); } });
   const info = h('label', { class: 'check', title: 'Například jiný počet pauz {w} / {p}' }, h('input', { type: 'checkbox', checked: !!settings.validation.show_info, onchange: async (ev) => { try { await post('settings', { validation: { show_info: ev.target.checked } }); load(true); } catch (e) { fail(e); } } }), 'Zobrazit i drobnosti');
-  root.append(h('div', { class: 'toolbar' }, sev, cat, fsel, search, info, h('span', { class: 'spacer' }), counter),
-    h('p', { class: 'muted' }, 'Kontrola nikdy nic nepřepisuje. ', h('b', null, 'Chyba'), ' = Ren\'Py by pravděpodobně spadl nebo je rozbitá struktura skriptu. ', h('b', null, 'Varování'), ' = podezřelé, ale může být záměr (např. češtině chybí značka, text je výrazně delší). Porovnává se vždy s originálem, ne s pevnými pravidly.'), list);
+  const fixAll = h('button', { class: 'btn', title: 'Zkopíruje mluvčího, atributy a kód za textem z originálu u všech takových chyb (po zobrazení náhledu)', onclick: () => fixDialog({ file: pref('validation.file', '') }, () => load(true)) }, 'Opravit mluvčí / atributy…');
+  root.append(h('div', { class: 'toolbar' }, sev, cat, fsel, search, info, h('span', { class: 'spacer' }), fixAll, counter),
+    h('p', { class: 'muted' }, 'Kontrola nic nepřepisuje sama; jen tlačítko ', h('b', null, 'Opravit'), ' u chyby mluvčího / atributů po tvém potvrzení zapíše opravu podle originálu do souboru (se zálohou). ', h('b', null, 'Chyba'), ' = Ren\'Py by pravděpodobně spadl nebo je rozbitá struktura skriptu. ', h('b', null, 'Varování'), ' = podezřelé, ale může být záměr (např. češtině chybí značka, text je výrazně delší). Porovnává se vždy s originálem, ne s pevnými pravidly.'), list);
   S.val.items = [];
   async function load(reset) {
     if (reset) { S.val.items = []; list.replaceChildren(loading()); }
@@ -960,7 +987,8 @@ async function viewValidation() {
       t.tbody.append(h('tr', null, h('td', null, chip(it.severity, SEV_LABEL[it.severity])),
         h('td', null, fname(it.file), h('span', { class: 'mono muted' }, `řádek ${it.line}`)), h('td', null, it.message),
         h('td', { class: 'txt' }, fmtText(it.source)), h('td', { class: 'txt' }, fmtText(it.target)),
-        h('td', null, h('button', { class: 'btn small', title: 'Zobrazit v seznamu řádků', onclick: () => go('entries', { file: it.file, line: it.line, status: 'all' }) }, 'Zobrazit'), ' ',
+        h('td', null, it.extra?.fixable ? h('button', { class: 'btn small primary', title: `Zkopíruje mluvčího a atributy z originálu („${it.src_who}“)`, onclick: () => fixDialog({ items: [{ file: it.file, line: it.line }] }, () => load(true)) }, 'Opravit') : null, ' ',
+          h('button', { class: 'btn small', title: 'Zobrazit v seznamu řádků', onclick: () => go('entries', { file: it.file, line: it.line, status: 'all' }) }, 'Zobrazit'), ' ',
           h('button', { class: 'btn small ghost', title: 'Otevřít v editoru', onclick: () => openEditor(it.file, it.line) }, 'Editor'))));
     }
     list.replaceChildren(h('div', { class: 'tablewrap' }, t.table), S.val.items.length < S.val.total ? h('div', { class: 'more' }, h('button', { class: 'btn', onclick: () => load(false) }, `Načíst další (${fmtN(S.val.items.length)} z ${fmtN(S.val.total)})`)) : null);

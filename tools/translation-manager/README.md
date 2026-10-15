@@ -41,7 +41,7 @@ The top bar has icon links to Ko-fi, GitHub and the project website; the app onl
 
 ## Where data lives
 
-Everything for a project is in `<translation folder>\_progress_data\` (CSV, Excel-friendly; the `.rpy` files are never modified):
+Everything for a project is in `<translation folder>\_progress_data\` (CSV, Excel-friendly). The `.rpy` files are modified in exactly one case: the explicit *Opravit* button for a changed speaker / trailing code ([see Validation](#validation)):
 
 | File | Content |
 |---|---|
@@ -126,7 +126,7 @@ a field. Filters, sorting, column and pane sizes are remembered (stored by the a
 
 ## Validation
 
-Compares each translation with its source; never rewrites anything. Only known Ren'Py tags count as tags; `{{`, `[[`, `{}` and `{#…}` are
+Compares each translation with its source; the check itself never rewrites anything. Only known Ren'Py tags count as tags; `{{`, `[[`, `{}` and `{#…}` are
 handled as Ren'Py does; comparisons are relative to the source (a tag the English also leaves open is not blamed on the translator; word order
 and length may differ freely).
 
@@ -134,11 +134,23 @@ and length may differ freely).
 |---|---|
 | **Chyba** | stray / mis-nested closing tag, unterminated `[var` / `{tag`, a `[variable]` the source doesn't have, changed `{}` / `%s`, changed speaker or trailing code (`with vpunch`), lone `\` |
 | **Varování** | a source tag or `[variable]` missing, extra tag, changed tag argument, missing `{nw}`/`{fast}`, different `\n` count, unclosed tag the source closes, length far from the source |
-| **Info** (hidden by default) | different number of `{w}` / `{p}` pauses, dropped `{#…}` |
+| **Varování – Text** | digits that differ from the source, double space, the same word twice in a row, English left in a translated line (≥ 3 English function words) |
+| **Info** (hidden by default) | different number of `{w}` / `{p}` pauses, dropped `{#…}`, a number written out in words, a glossary *term* whose Czech form is not found in the translation |
 
 Length warnings are a review aid with thresholds in *Nastavení* (default: warn above 2.2× or below 0.45× of the visible length and only if the
-absolute difference is large; tags and `[variables]` don't count, very short sources are skipped). Not checked: spelling, grammar, meaning,
-terminology consistency, leftover English words, text overflow.
+absolute difference is large; tags and `[variables]` don't count, very short sources are skipped). A file that is not valid UTF-8 is reported
+as an error (Ren'Py reads scripts as UTF-8). Not checked: spelling, grammar, meaning, text overflow. The term check is approximate (Czech endings
+are matched by word stem) and therefore only an info.
+
+### Fixing a changed speaker (the only write to `.rpy` files)
+
+For *Mluvčí / atributy se liší od originálu* and *Kód za textem se liší* the **Opravit** button (per row, in the line detail, and *Opravit
+mluvčí / atributy…* for all of them) copies the speaker, image attributes and trailing code from the original comment above the line.
+The quoted text is never touched. Flow: preview of every change (before → after) → confirm → backup of the file in
+`_progress_dataackups` (always, up to 50 per file) → atomic write → file parsed again and verified (otherwise restored). Refused when the
+file changed on disk since it was loaded (refresh first) or when the fix would make a translated line identical to the original (counted as
+untranslated) – those are left for manual fixing. Line endings and a BOM are preserved. Save the file in your editor first; unsaved editor
+changes would be overwritten.
 
 ## Completion estimate
 
