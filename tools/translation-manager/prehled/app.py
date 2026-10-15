@@ -1252,6 +1252,12 @@ class App:
         except (gameimages.rpa.RpaError, OSError) as e:
             raise AppError(str(e)) from e
 
+    def game_characters(self):
+        """{speaker code: {name, color}} from the game's `define x = Character(...)` lines (empty without the game sources)."""
+        self._need_project()
+        gi = self._game_images()
+        return {"characters": dict(gi.characters) if gi is not None else {}}
+
     def game_font_metrics(self, name):
         """Advance widths (from hmtx) of a game font, so the scene preview can place characters like Ren'Py does."""
         data, _mime = self.game_font(name)

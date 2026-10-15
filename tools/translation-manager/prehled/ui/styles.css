@@ -511,3 +511,32 @@ details.inpane > summary { margin-bottom: 4px; }
 table.entries tr.picked td { background: var(--accent-bg, rgba(90, 140, 255, .18)); }
 .pickinfo { display: inline-flex; gap: 6px; align-items: center; font-size: 13px; }
 .mtedit { width: 100%; box-sizing: border-box; }
+
+/* ---- v1.6: focus mode, film layout, speaker badges, bubbles, icons */
+.btn.icon svg { display: block; }
+.sbadge { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%; font-size: 11px; font-weight: 700; line-height: 1; vertical-align: middle; flex: none; }
+body.focus .topbar, body.focus .tabs, body.focus .statusbar { display: none; }
+body.focus #app { grid-template-rows: 1fr; }
+.focusbar { position: fixed; top: 8px; right: 12px; z-index: 40; display: flex; gap: 6px; align-items: center; padding: 5px 8px; background: var(--panel); border: 1px solid var(--line-2); border-radius: 999px; box-shadow: var(--shadow); }
+.focusbar .menu { right: 0; left: auto; }
+body.focus .pane-head { padding-right: 330px; }
+.split.film { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+.split.film > .splitter { display: none; }
+.split.film > .pane { min-height: 0; }
+.split.film > .pane .pane-body { display: none; }
+.split.film > .detail { border-top: 1px solid var(--line); border-left: 0; padding-top: 10px; }
+.filmstrip { display: flex; gap: 8px; overflow-x: auto; padding: 4px 2px 10px; margin: 8px 0; scroll-behavior: smooth; }
+.fcard { flex: 0 0 190px; text-align: left; border: 1px solid var(--line); background: var(--panel-2); color: var(--text); border-radius: 10px; padding: 7px 9px; cursor: pointer; font: inherit; transition: border-color .12s, background .12s, transform .12s; }
+.fcard:hover { border-color: var(--line-2); transform: translateY(-1px); }
+.fcard.cur { border-color: var(--accent); background: var(--accent-bg-soft); }
+.fcard.st-todo { border-style: dashed; }
+.fcard .fhead { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+.fcard .fnum { color: var(--muted); font-size: 12px; font-family: var(--mono); }
+.fcard .ftxt { font-size: 13px; line-height: 1.35; max-height: 4.1em; overflow: hidden; }
+.bubbles { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
+.bubble { border-left: 4px solid var(--sc, var(--line-2)); background: var(--panel-2); border-radius: 4px 12px 12px 4px; padding: 8px 12px; cursor: pointer; transition: background .12s; }
+.bubble:hover { background: var(--hover); }
+.bubble.cur { background: var(--accent-bg-soft); box-shadow: 0 0 0 1px var(--accent) inset; }
+.bubble .bwho { display: flex; align-items: center; gap: 6px; font-size: 12.5px; margin-bottom: 3px; }
+.bubble .btxt { font-size: 15px; }
+.bubble .bsrc { font-size: 12.5px; margin-top: 3px; }
