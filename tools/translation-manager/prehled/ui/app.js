@@ -428,6 +428,10 @@ function menuButton(label, items, { primary = false, title = '' } = {}) {
     if (!menu.hidden) return close();
     menu.replaceChildren(...items.map((it) => h('button', { class: 'menuitem', role: 'menuitem', onclick: () => { close(); it.run(); } }, h('span', null, it.label), it.hint ? h('span', { class: 'muted' }, it.hint) : null)));
     menu.hidden = false; btn.setAttribute('aria-expanded', 'true');
+    menu.classList.remove('flip-x', 'flip-y');           // keep the menu on the screen: open to the left / upwards when it would leave it
+    const box = menu.getBoundingClientRect();
+    if (box.right > innerWidth - 8) menu.classList.add('flip-x');
+    if (box.bottom > innerHeight - 8 && btn.getBoundingClientRect().top > box.height + 16) menu.classList.add('flip-y');
     document.addEventListener('mousedown', onDoc, true);
   };
   wrap.addEventListener('keydown', (e) => { if (e.key === 'Escape') { close(); btn.focus(); } });
@@ -1218,7 +1222,7 @@ async function viewEntries() {
     const it = S.ent.items[i];
     if (!COMPANION) { announceFocus(it); setPref('ui.last', { file: it.file, line: it.line }); }
     const tab = pref('ui.detailTab', 'scene');
-    const pre = (COMPANION ? (S.compFull || tab === 'scene') : (tab === 'scene' && !(S.companionOpen && pref('ui.slimMain', true)))) ? prefetchScene(it.file, it.line).catch(() => {}) : null;
+    const pre = (COMPANION ? (S.compFull || tab === 'scene') : (film || (tab === 'scene' && !(S.companionOpen && pref('ui.slimMain', true))))) ? prefetchScene(it.file, it.line).catch(() => {}) : null;
     try { S.ent.detail = await get('entry', { file: it.file, line: it.line }); } catch (err) { S.ent.detail = null; drawDetail(null, err.message); return; }
     if (pre) await pre;
     if (S.ent.sel === i) { const top = detail.scrollTop; drawDetail(S.ent.detail); detail.scrollTop = top; requestAnimationFrame(() => { if (S.ent.sel === i) detail.scrollTop = top; }); }
