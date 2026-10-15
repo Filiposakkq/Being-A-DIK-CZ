@@ -4,12 +4,13 @@ import os
 import re
 import shutil
 import threading
+import urllib.parse
 import webbrowser
 from dataclasses import replace
 from datetime import date, datetime
 from pathlib import Path
 
-from . import (__version__, bulk, editor, export, fixes, history as hist, lint, memory, mt, publish as pub, rpy, snapshots,
+from . import (__version__, bulk, editor, export, fixes, gameimages, history as hist, lint, memory, mt, publish as pub, rpy, snapshots,
                spelling, textedit, texthistory, validator)
 from .config import Config, migrate_web_json
 from .lock import ProjectLock, ProjectLocked
@@ -66,6 +67,7 @@ class App:
         self.texthist = None       # TextHistory of the open project
         self.linter = lint.Linter()
         self._mt_http = None       # replaced in tests
+        self._gi = None            # (game folder, GameImages)
         self._val_cache = {}       # rel -> (digest, cfg signature, [(line, Issue, entry)])
         self.last_save_error = ""
         self.plock = None          # ProjectLock of the open project
@@ -1123,11 +1125,12 @@ class App:
             out.update(changed=res["changed"], files=res["files"], backups=res["backups"])
             return out
 
-    GUI_DEFAULTS = {"text_size": 33, "dialogue_width": 1116, "textbox_height": 278, "dialogue_ypos": 125}
+    GUI_DEFAULTS = {"text_size": 33, "dialogue_width": 1116, "textbox_height": 278, "dialogue_ypos": 125, "dialogue_xpos": 402,
+                    "name_xpos": 360, "name_ypos": 50, "name_text_size": 56, "screen_width": 1920, "screen_height": 1080}
 
     def game_gui(self):
-        """Dialogue box metrics of the game (gui.rpy: text size, text width, box height), for the window preview.
-        Falls back to the values of Being a DIK when the game sources are not next to the translation."""
+        """Dialogue box metrics of the game (gui.rpy: screen size, text size and width, box height, name position), for the scene
+        preview. Falls back to the values of Being a DIK when the game sources are not next to the translation."""
         out = dict(self.GUI_DEFAULTS, source="výchozí hodnoty")
         base = self._game_root() if self.project else None
         if base is None:
@@ -1139,11 +1142,69 @@ class App:
         found = {}
         for m in re.finditer(r"^\s*define\s+gui\.(\w+)\s*=\s*(\d+)\b", text, re.MULTILINE):
             found.setdefault(m.group(1), int(m.group(2)))
+        m = re.search(r"gui\.init\(\s*(\d+)\s*,\s*(\d+)", text)
+        if m:
+            found["screen_width"], found["screen_height"] = int(m.group(1)), int(m.group(2))
         for k in self.GUI_DEFAULTS:
             if k in found:
                 out[k] = found[k]
         out["source"] = "gui.rpy hry" if any(k in found for k in self.GUI_DEFAULTS) else "výchozí hodnoty"
         return out
+
+    # ------------------------------------------------------------ the picture a line is shown on
+    def _game_images(self):
+        """Index of the game's pictures (archives + loose files + `image` statements); built once per game folder."""
+        base = self._game_root()
+        if base is None or not (base / "game").is_dir():
+            return None
+        if self._gi is None or self._gi[0] != base:
+            self._gi = (base, gameimages.GameImages(base / "game").build())
+        return self._gi[1]
+
+    def scene_info(self, rel, line):
+        """Which picture is behind a line (the last `scene` / `show` before its place in the game script), plus the textbox metrics
+        needed to draw the line over it. Read-only; an approximation that follows the script text upwards."""
+        self._need_project()
+        ent = next((e for e in self.project.entries(rel) if e.line == line), None) if rel in self.project.files else None
+        if ent is None:
+            raise AppError("Řádek už v souboru není – obnov soubory.")
+        gui = self.game_gui()
+        out = {"available": False, "gui": gui, "who": ent.who, "reason": ""}
+        gi = self._game_images()
+        if gi is None:
+            out["reason"] = "Složka hry (game) nad překladem nebyla nalezena, obrázky scén proto nejdou ukázat."
+            return out
+        m = re.match(r"^(game/.+?):(\d+)$", ent.ref or "")
+        if not m:
+            out["reason"] = "U řádku není zaznamenaná pozice ve skriptu hry."
+            return out
+        script = (self._game_root() / m.group(1)).resolve()
+        if self._game_root().resolve() not in script.parents or script.suffix.lower() not in (".rpy", ".rpym"):
+            out["reason"] = "Neplatná cesta ke skriptu."
+            return out
+        try:
+            sc = gi.scene_for(script, int(m.group(2)))
+        except OSError:
+            out["reason"] = f"Skript {m.group(1)} nebyl nalezen (jsou po ruce jen .rpyc?)."
+            return out
+        out.update(available=True, found=sc["found"], image=sc["image"], missing=sc["missing"], script=f"{m.group(1)}:{sc['script_line']}",
+                   flat=sc.get("flat", ""), index_errors=gi.errors[:3], images=len(gi.stems))
+        if sc["found"] and sc["key"]:
+            out["url"] = "/api/game/image?k=" + urllib.parse.quote(sc["key"], safe="")
+        elif not sc["found"]:
+            out["reason"] = "Před tímto řádkem jsem v blízkosti nenašel obrázek (scene / show), který jde dohledat v archivech hry."
+        return out
+
+    def game_image(self, key):
+        """(bytes, mime) of a picture the index knows by its stem key (never an arbitrary path)."""
+        self._need_project()
+        gi = self._game_images()
+        if gi is None:
+            raise AppError("Obrázky hry nejsou k dispozici.")
+        try:
+            return gi.image_bytes(key)
+        except (gameimages.rpa.RpaError, OSError) as e:
+            raise AppError(str(e)) from e
 
     # ------------------------------------------------------------ snapshots of the translation folder
     def _snapshot(self, reason, force=False):
@@ -1411,25 +1472,105 @@ class App:
             out.update(changed=res["changed"], files=res["files"], backups=res["backups"])
             return out
 
-    def mt_suggest(self, rel, line):
-        """A machine translation SUGGESTION for one line (only after consent and a key in the settings; never saved)."""
-        self._need_project()
-        ent = next((e for e in self.project.entries(rel) if e.line == line), None) if rel in self.project.files else None
-        if ent is None or ent.source is None:
-            raise AppError("Řádek už v souboru není – obnov soubory.")
-        cfg = dict(self.config.get("mt", {}))
-        ents = self.project.entries(rel)
-        idx = next(i for i, e in enumerate(ents) if e.line == line)
+    def _mt_one(self, rel, ents, idx, cfg, terms):
+        """Machine translation suggestion for ents[idx] (with the two lines before it as context) + what the validator says."""
+        ent = ents[idx]
         context = [e.source for e in ents[max(0, idx - 2):idx] if e.source]
-        terms = {en: cz for en, cz in self._terms().items() if validator.term_in_text(ent.source, en)}
+        local = {en: cz for en, cz in terms.items() if validator.term_in_text(ent.source, en)}
         try:
-            res = mt.translate(cfg, ent.source, terms, context, http=self._mt_http)
+            res = mt.translate(cfg, ent.source, local, context, http=self._mt_http)
         except mt.MTError as e:
             raise AppError(str(e)) from e
         probe = replace(ent, target=res["text"], category="")
         issues = [i.to_dict() for i in validator.check_entry(probe, self._length_cfg(), self._terms(), None,
                                                              self.config.get("validation.textbox", {})) if i.severity != "info"]
         return {"suggestion": res["text"], "warnings": res["warnings"], "issues": issues, "provider": res["provider"]}
+
+    def mt_suggest(self, rel, line):
+        """A machine translation SUGGESTION for one line (only after consent and a key in the settings; never saved)."""
+        self._need_project()
+        ents = self.project.entries(rel) if rel in self.project.files else []
+        idx = next((i for i, e in enumerate(ents) if e.line == line and e.source is not None), None)
+        if idx is None:
+            raise AppError("Řádek už v souboru není – obnov soubory.")
+        return self._mt_one(rel, ents, idx, dict(self.config.get("mt", {})), self._terms())
+
+    MT_BATCH = 10            # lines per request: the UI loops, so it can show progress and stop
+
+    def mt_targets(self, file="", lines=None, only_todo=True):
+        """Which lines a batch would translate: the given lines, or every line of a file (all files when empty).
+        Only not yet translated lines by default. Returns the count and the characters that would be sent to the service."""
+        self._need_project()
+        out, chars = [], 0
+        if lines:
+            want = {(str(x["file"]), int(x["line"])) for x in lines}
+            files = sorted({f for f, _l in want})
+        else:
+            want = None
+            files = [file] if file else list(self.project.files)
+        for rel in files:
+            if rel not in self.project.files:
+                raise AppError("Neznámý soubor.")
+            for e in self.project.entries(rel):
+                if e.source is None or not e.source.strip() or (want is not None and (rel, e.line) not in want):
+                    continue
+                if only_todo and self._entry_row(rel, e) != "todo":
+                    continue
+                out.append({"file": rel, "line": e.line})
+                chars += len(e.source)
+        return {"items": out, "total": len(out), "chars": chars}
+
+    def mt_batch(self, items):
+        """Suggestions for up to MT_BATCH lines. Nothing is written. A failed line carries its own error; a rejected key,
+        missing consent or a broken connection stops the batch (the same message for every line would be useless)."""
+        self._need_project()
+        items = list(items or [])[: self.MT_BATCH]
+        cfg, terms, results = dict(self.config.get("mt", {})), self._terms(), []
+        for it in items:
+            rel, line = str(it["file"]), int(it["line"])
+            ents = self.project.entries(rel) if rel in self.project.files else []
+            idx = next((i for i, e in enumerate(ents) if e.line == line and e.source is not None), None)
+            if idx is None:
+                results.append({"file": rel, "line": line, "error": "Řádek už v souboru není."})
+                continue
+            try:
+                r = self._mt_one(rel, ents, idx, cfg, terms)
+            except AppError as e:
+                results.append({"file": rel, "line": line, "error": str(e)})
+                if not str(e).startswith("Řádek nemá"):
+                    return {"results": results, "stopped": str(e)}
+                continue
+            results.append({"file": rel, "line": line, "key": ents[idx].key, "who": ents[idx].who, "source": ents[idx].source,
+                            "current": ents[idx].target, **r})
+        return {"results": results, "stopped": ""}
+
+    def mt_apply(self, selections):
+        """Write the ticked suggestions as one undoable step. Approved lines are never overwritten."""
+        self._need_project()
+        with self.lock:
+            edits, skipped = [], 0
+            for x in selections or []:
+                rel, line, text = str(x["file"]), int(x["line"]), str(x.get("text", ""))
+                ent = next((e for e in self.project.entries(rel) if e.line == line), None) if rel in self.project.files else None
+                if ent is None or not text.strip() or self._entry_row(rel, ent) == "approved":
+                    skipped += 1
+                    continue
+                edits.append((rel, line, text))
+            if not edits:
+                raise AppError("Není co zapsat (řádky se změnily nebo jsou schválené).")
+            self._snapshot_for_bulk(len(edits), len({e[0] for e in edits}))
+            try:
+                res = fixes.apply_edits(self.project, self.data_dir, edits, f"Strojový překlad ({len(edits)} ř.)")
+                self._log_text(res["details"], "mt")
+            except fixes.FixError as e:
+                raise AppError(str(e)) from e
+            finally:
+                self.project.refresh(force=True)
+                self._val_cache.clear()
+            self.store.ensure_files([r.name for r in self.project.rows()])
+            out = self._changed("mt")
+            out.update(changed=res["changed"], files=res["files"], skipped=skipped, backups=res["backups"])
+            return out
 
     def entry_scene(self, rel, line, radius=6):
         """The lines around one line (original and translation), i.e. the scene it belongs to."""

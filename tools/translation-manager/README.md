@@ -1,4 +1,4 @@
-# BaDIK Translation Manager 1.4
+# BaDIK Translation Manager 1.5
 
 Desktop tool for the Czech fan translation of *Being a DIK*. It reads the Ren'Py translation files
 (`game/tl/czech/**/*.rpy`), tracks translation and proofreading progress per file, episode and season, checks the
@@ -174,9 +174,16 @@ the string literal (a bare `"`, a lone `\`) is skipped.
   *Vložit* inserts at the cursor) and always needs your edit.
 * **Kontrola → Rozdílné překlady**: one original translated in several ways (e.g. *Yes.* → *Ano.* / *Jo.*), with the speakers and lines. *Použít všude*
   unifies after a confirmation (one undo step); *Nechat jak je* hides a group that is fine (different speaker, gender, context). Nothing is unified automatically.
-* **Náhled v okně hry** (under the editor): the line rendered with `{i}`, `{b}`, `{color=…}`, `\n`, `{p}`; variables as `XXXXX`; waits are dropped. Width and
-  text size come from the game's `gui.rpy` (`gui.dialogue_width`, `gui.text_size`; Being a DIK's values when the sources are not found), the
-  estimated number of lines is compared with the limit from *Nastavení*. The game's own font is not used, so it is an estimate.
+* **Náhled scény** (*Scéna* tab of the line detail): the **picture of the scene with the dialogue box drawn over it**, like in the game. The picture is found by
+  following the game's script (`game/script.rpy:123`, recorded in the translation file) **upwards to the last `scene` / `show`** whose image can be resolved:
+  directly by file name, through an `image x = "path"` / `image x:` statement (an animation shows its first frame), or by a numbered / `_blink` variant. Pictures
+  are read **read-only** from the game's `.rpa` archives (versions 2 and 3; the archive index is read with an unpickler that refuses to create any object) or
+  from loose files in `game/images`. The box, name and text use the game's own values from `gui.rpy` (screen size, `dialogue_width`, `text_size`,
+  `textbox_height`, name position; Being a DIK's values when the sources are not found), the text is the translation **as you type it** (or the original), and
+  the frame turns red when the text needs more lines than the limit in *Nastavení* or does not fit the box. It is an approximation: it follows the text
+  of the script (no jumps or conditions, no layered sprites), so a scene may be wrong where the game builds it in a complicated way; the line under the preview
+  says which picture and which script line it used. Without the game folder next to the translation (or with only `.rpyc` files) you get the box alone.
+  The game's own font is not used, so wrapping is an estimate.
 
 ## More windows
 
@@ -194,7 +201,7 @@ mode an app window, and as a last resort a browser tab.
 * **Command palette** (`Ctrl+K`): type to find any action (without diacritics: *nastaveni* finds *Nastavení*) or a file; arrows and Enter. Every action is in it, also
   those without a key (find & replace, approve by rule, fix, consistency, ignored, lint, snapshot, theme, density, change folder).
 * **Scéna kolem řádku** (in the line detail): ±3 / 6 / 10 / 15 neighbouring lines with the **original next to the translation**, the current line marked; a click
-  on a row jumps to it. Opening a second window (two lists side by side) is not implemented: the list state is shared, so it would need a larger refactor.
+  on a row jumps to it. A second window is in *More windows* above.
 
 ## Machine translation (optional, experimental)
 
@@ -204,6 +211,14 @@ found in the line) and shows the answer as a *suggestion* with the validator's f
 `\n` never go to the service as text: they are swapped for placeholders and put back, and a warning appears if one came back lost or duplicated. The key is stored in
 plain text in the app's `config.json` and never sent back to the UI. **Not tested against the real services** (only against a fake HTTP layer, written from their
 documentation), so treat it as experimental and check the first results.
+
+**Several lines at once**: *Nástroje → Přeložit strojem…*, or the button next to the counter after you pick lines with **Ctrl+click** (single) / **Shift+click**
+(range) in *Řádky*, or **Přeložit scénu strojem…** in the *Scéna* tab (the untranslated lines ±15 around the open one). You choose the scope (picked lines, the scene,
+the file in the filter, everything; only untranslated by default), see how many lines and characters will be sent, and the suggestions arrive **in batches of 10
+with a progress bar and a Stop button** (at most 500 lines per run; a rejected key or a missing consent stops it at once). The result is a table where you can
+**edit every suggestion**, tick what you want (lines with a validator finding or a lost placeholder start unticked) and write the ticked ones as **one undoable
+step** (backup of the files, entry in the line history; approved lines are never overwritten). Nothing is sent before you press the button, and the service charges
+for the characters sent - check the price with your provider.
 
 ## CI
 

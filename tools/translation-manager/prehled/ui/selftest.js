@@ -154,8 +154,13 @@
       await openDetailTab('Scéna');
       const gp = await waitFor(() => document.querySelector('#entryDetail details.gamepreview'), 4000);
       ok('editor má náhled v okně hry', gp, 'chybí');
-      if (gp) { gp.open = true; gp.dispatchEvent(new Event('toggle')); ok('náhled hry spočítá řádky', await waitFor(() => /řádek|řádky|řádků/.test(gp.querySelector('summary').textContent), 4000), gp.querySelector('summary').textContent); gp.open = false; gp.dispatchEvent(new Event('toggle')); }
+      if (gp) { gp.open = true; gp.dispatchEvent(new Event('toggle')); ok('náhled hry spočítá řádky', await waitFor(() => /řádek|řádky|řádků/.test(gp.querySelector('summary').textContent), 4000), gp.querySelector('summary').textContent); ok('náhled kreslí okno hry s textem a jménem', await waitFor(() => gp.querySelector('.gstage .gtextbox .gbox')?.textContent.length > 0, 4000), 'chybí .gstage'); const sc = await get('game/scene', { file: S.ent.items[dialogue].file, line: S.ent.items[dialogue].line }); ok('API scény vrací stav a rozměry okna', typeof sc.available === 'boolean' && sc.gui.screen_width > 0 && sc.gui.textbox_height > 0, JSON.stringify(sc).slice(0, 100)); gp.open = false; gp.dispatchEvent(new Event('toggle')); }
     }
+    const tg = await post('mt/targets', { file: '' });
+    ok('API strojového překladu vrací cíle a počet znaků', Array.isArray(tg.items) && tg.total === tg.items.length && tg.chars >= 0, JSON.stringify(tg).slice(0, 80));
+    mtDialog({ picked: [], anchor: null, file: '' }, null);
+    ok('dialog strojového překladu bez nastavení vysvětlí, co chybí', await waitFor(() => /Strojový překlad není nastavený/.test(document.querySelector('#dlg .dlg-head')?.textContent || ''), 4000), 'dialog se neukázal');
+    closeDialog();
     const cons = await get('consistency');
     ok('API konzistence vrací skupiny', Array.isArray(cons.groups), JSON.stringify(cons).slice(0, 80));
     setPref('validation.consistency', false); setPref('validation.ignored', 'hide');      // do not depend on saved view modes

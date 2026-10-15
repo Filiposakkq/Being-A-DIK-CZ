@@ -75,12 +75,12 @@ def make_handler(sess):
             host = (self.headers.get("Host") or "").split(":")[0].lower()
             return host in ("127.0.0.1", "localhost", "[::1]")
 
-        def _send(self, code, body, ctype):
+        def _send(self, code, body, ctype, cache=False):
             data = body if isinstance(body, bytes) else body.encode("utf-8")
             self.send_response(code)
             self.send_header("Content-Type", ctype)
             self.send_header("Content-Length", str(len(data)))
-            self.send_header("Cache-Control", "no-store")
+            self.send_header("Cache-Control", "private, max-age=600" if cache else "no-store")
             self.send_header("X-Content-Type-Options", "nosniff")
             self.send_header("Content-Security-Policy",
                              "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:")
@@ -160,6 +160,16 @@ def make_handler(sess):
                     "project_dir": app.config.get("project_dir", "")})
             if not app.ready:
                 return self._json({"ok": False, "error": "Není otevřený žádný projekt."}, 400)
+            if r == "game/image":              # a picture from the game archives, by the key the index returned (never a path)
+                try:
+                    with app.lock:
+                        data, mime = app.game_image(q1(q, "k"))
+                except AppError as e:
+                    return self._send(404, str(e), "text/plain")
+                except Exception:  # noqa: BLE001
+                    log_exception()
+                    return self._send(500, "chyba", "text/plain")
+                return self._send(200, data, mime, cache=True)
             routes = {
                 "overview": lambda: {"ok": True, **app.overview()},
                 "files": lambda: {"ok": True, "files": app.files_payload()},
@@ -176,6 +186,7 @@ def make_handler(sess):
                 "ignore/list": lambda: {"ok": True, **app.ignored_list()},
                 "settings": lambda: {"ok": True, **app.settings()},
                 "fix/last": lambda: {"ok": True, **app.fix_last()},
+                "game/scene": lambda: {"ok": True, **app.scene_info(q1(q, "file"), int(q1(q, "line", "0")))},
                 "entry/scene": lambda: {"ok": True, **app.entry_scene(q1(q, "file"), int(q1(q, "line", "0")), int(q1(q, "radius", "6") or 6))},
                 "snapshots": lambda: {"ok": True, **app.snapshot_list()},
                 "snapshots/files": lambda: {"ok": True, **app.snapshot_files(q1(q, "name"))},
@@ -301,6 +312,9 @@ def make_handler(sess):
                                                   list(d["selections"]) if d.get("selections") is not None else None),
                 "fix/undo": lambda: app.fix_undo(),
                 "entry/mt": lambda: {"ok": True, **app.mt_suggest(str(d["file"]), ints(d["line"]))},
+                "mt/targets": lambda: {"ok": True, **app.mt_targets(str(d.get("file", "")), d.get("lines") or None, bool(d.get("only_todo", True)))},
+                "mt/batch": lambda: {"ok": True, **app.mt_batch(d.get("items") or [])},
+                "mt/apply": lambda: app.mt_apply(d.get("selections") or []),
                 "snapshots/create": lambda: app.snapshot_create(),
                 "snapshots/restore": lambda: app.snapshot_restore(str(d.get("name", "")), d.get("files")),
                 "snapshots/delete": lambda: app.snapshot_delete(str(d.get("name", ""))),

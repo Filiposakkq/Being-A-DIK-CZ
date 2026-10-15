@@ -894,14 +894,16 @@ async function viewEntries() {
     moreBtn.textContent = `${open ? '▾' : '▸'} Další filtry${extraCount() ? ` (${extraCount()})` : ''}`;
     moreBox.style.display = open ? '' : 'none';
   }
+  const pickInfo = h('span', { class: 'pickinfo' });
   main.append(h('div', { class: 'pane-head' }, h('div', { class: 'filterbar' },
     h('div', { class: 'frow' }, search, filterGroup('Soubor', fileSel), moreBtn,
       menuButton('Nástroje', [
         { label: 'Najít a nahradit…', hint: 'v překladech', run: () => replaceDialog(async () => { S.files = null; await refreshHeader(); load(true); }, S.fl.picked.size ? [...S.fl.picked] : (pref('entries.file', '') ? [pref('entries.file', '')] : [])) },
         { label: 'Schválit podle pravidla…', hint: 'jména, citoslovce', run: () => ruleApproveDialog(async () => { S.files = null; await refreshHeader(); load(true); }, S.fl.picked.size ? [...S.fl.picked] : (pref('entries.file', '') ? [pref('entries.file', '')] : [])) },
         { label: 'Opravit…', hint: 'mluvčí, mezery, překlepy', run: () => fixDialog({ file: pref('entries.file', '') }, async () => { S.files = null; await refreshHeader(); load(true); }) },
+        { label: 'Přeložit strojem…', hint: 'vybrané řádky, scéna, soubor', run: () => openMtDialog() },
       ], { title: 'Hromadné úpravy překladů' }),
-      h('span', { class: 'spacer' }), counter),
+      pickInfo, h('span', { class: 'spacer' }), counter),
     pillsBox, moreBox, chipsBox)));
   paintFilters();
   const wrap = h('div', { class: 'pane-body' });
@@ -921,10 +923,34 @@ async function viewEntries() {
     wrap.replaceChildren(h('div', { class: 'tablewrap' }, t.table), more);
     S.ent.more = more; S.ent.showFile = showFile;
   }
+  const pickKey = (it) => it.file + '\t' + it.line;
+  const picked = () => (S.ent.picked ||= new Set());
+  function paintPicks() {
+    [...tbody.children].forEach((tr) => { const it = S.ent.items[+tr.dataset.i]; tr.classList.toggle('picked', !!it && picked().has(pickKey(it))); });
+    const n = picked().size;
+    pickInfo.replaceChildren(...(n ? [`Vybráno ${n} ${plural(n, 'řádek', 'řádky', 'řádků')} `, h('button', { class: 'btn small ghost', onclick: () => { picked().clear(); paintPicks(); } }, 'Zrušit výběr'),
+      h('button', { class: 'btn small', onclick: () => openMtDialog() }, 'Přeložit strojem…')] : []));
+  }
+  function rowClick(ev, i, it) {
+    if (ev.ctrlKey || ev.metaKey) { const k = pickKey(it); picked().has(k) ? picked().delete(k) : picked().add(k); paintPicks(); return; }
+    if (ev.shiftKey && S.ent.sel >= 0) {
+      const [a, b] = [Math.min(S.ent.sel, i), Math.max(S.ent.sel, i)];
+      for (let j = a; j <= b; j++) picked().add(pickKey(S.ent.items[j]));
+      paintPicks(); return;
+    }
+    if (picked().size) { picked().clear(); paintPicks(); }
+    select(i);
+  }
+  /* Machine translation of the picked lines, the lines around the open one, the file in the filter, or everything. */
+  function openMtDialog() {
+    const cur = S.ent.items[S.ent.sel];
+    mtDialog({ picked: [...picked()].map((k) => { const [file, line] = k.split('\t'); return { file, line: +line }; }),
+      anchor: cur ? { file: cur.file, line: cur.line } : null, file: pref('entries.file', '') }, async () => { picked().clear(); S.files = null; await refreshHeader(); load(true); });
+  }
   function rowFor(it, i) {
     const hasErr = it.issues.some((x) => x.severity === 'error');
     const sev = hasErr ? 'error' : it.issues.length ? 'warning' : '';
-    return h('tr', { class: `status-${it.status} ${hasErr ? 'has-error' : ''} ${S.ent.sel === i ? 'sel' : ''}`, dataset: { i }, onclick: () => select(i), ondblclick: () => openEditor(it.file, it.line) },
+    return h('tr', { class: `status-${it.status} ${hasErr ? 'has-error' : ''} ${S.ent.sel === i ? 'sel' : ''} ${picked().has(pickKey(it)) ? 'picked' : ''}`, dataset: { i }, onclick: (ev) => rowClick(ev, i, it), ondblclick: () => openEditor(it.file, it.line) },
       S.ent.showFile ? h('td', null, fname(it.file)) : null,
       h('td', { class: 'num' }, it.line), h('td', { class: 'mono muted', style: { fontSize: '12px' } }, it.ref ? it.ref.replace(/^game\//, '') : '–'),
       h('td', null, it.unit === 'string' ? h('span', { class: 'chip choice', title: 'Text z „translate strings“ – většinou volba v menu nebo text rozhraní' }, 'Volba') : h('span', { class: 'muted' }, 'Dialog')),
@@ -1193,30 +1219,53 @@ async function viewEntries() {
     }).catch(() => sum.replaceChildren('Historie textu ', h('span', { class: 'muted' }, '(nedostupná)')));
     return box;
   }
-  /* Approximate look of the line in the game's dialogue box: the game's own text size and text width (from gui.rpy), so
-     you can see where it wraps and how many lines it needs. The real font is not used, so it is an estimate. */
+  /* The line as the player sees it: the picture of the scene (found in the game's archives by following the game script upwards
+     to the last `scene` / `show`) with the dialogue box drawn over it, sized by the game's own gui.rpy values. Without the game
+     folder it is the box alone. The real font is not used, so wrapping is an estimate. */
   function gamePreview(d, ta) {
     const box = h('details', { class: 'gamepreview' });
-    const sum = h('summary', null, 'Náhled v okně hry ', h('span', { class: 'muted' }, ''));
+    const sum = h('summary', null, 'Náhled scény ', h('span', { class: 'muted' }, ''));
     const outer = h('div', { class: 'gwin' }), info = h('div', { class: 'muted ginfo' });
-    box.append(sum, outer, info);
-    box.open = !!pref('ui.gamepreview', false);
+    const mode = h('select', { title: 'Který text ukázat v okně hry', onchange: () => draw() },
+      h('option', { value: 'target' }, 'Překlad'), h('option', { value: 'source' }, 'Originál'));
+    box.append(sum, h('div', { class: 'toolbar', style: { margin: '6px 0' } }, mode), outer, info);
+    box.open = !!pref('ui.gamepreview', true);
     box.addEventListener('toggle', () => { setPref('ui.gamepreview', box.open); if (box.open) draw(); });
-    let gui = S.gui;
+    let gui = S.gui, scene = null, imgOk = true;
+    const speaker = speakerLabel(d.who) || '';
+    async function load() {
+      if (!gui) { try { const st = await get('settings'); gui = S.gui = { ...st.game_gui, max_lines: st.validation.textbox.max_lines }; } catch { gui = { text_size: 33, dialogue_width: 1116, textbox_height: 278, max_lines: 4, source: 'výchozí hodnoty' }; } }
+      if (!scene) { try { scene = await get('game/scene', { file: d.file, line: d.line }); } catch (e) { scene = { available: false, reason: e.message }; } }
+    }
     async function draw() {
       if (!box.open) return;
-      if (!gui) { try { const st = await get('settings'); gui = S.gui = { ...st.game_gui, max_lines: st.validation.textbox.max_lines }; } catch { gui = { text_size: 33, dialogue_width: 1116, textbox_height: 278, max_lines: 4, source: 'výchozí hodnoty' }; } }
-      const inner = h('div', { class: 'gbox', style: { width: gui.dialogue_width + 'px', fontSize: gui.text_size + 'px' } });
-      inner.append(gameText(ta.value));
-      outer.replaceChildren(inner);
-      const k = Math.min(1, (outer.clientWidth || gui.dialogue_width) / gui.dialogue_width);
-      inner.style.transform = `scale(${k})`;
-      outer.style.height = Math.ceil(inner.offsetHeight * k) + 'px';
-      const lines = Math.max(1, Math.round(inner.offsetHeight / (gui.text_size * 1.3)));
-      const over = lines > gui.max_lines;
+      await load();
+      const g = { ...gui, ...(scene.gui || {}) };
+      const W = g.screen_width || 1920, H = g.screen_height || 1080;
+      const text = mode.value === 'source' ? (d.source ?? '') : ta.value;
+      const stage = h('div', { class: 'gstage', style: { width: W + 'px', height: H + 'px', fontSize: g.text_size + 'px' } });
+      if (scene.flat) stage.style.background = scene.flat;
+      else if (scene.url && imgOk) stage.append(h('img', { class: 'gbg', src: scene.url, alt: '', onerror: () => { imgOk = false; draw(); } }));
+      const tb = h('div', { class: 'gtextbox', style: { height: g.textbox_height + 'px' } });
+      const nm = speaker ? h('div', { class: 'gname', style: { left: g.name_xpos + 'px', top: '-' + Math.round(g.name_text_size * 0.9) + 'px', fontSize: g.name_text_size + 'px' } }, speaker) : null;
+      const dlg = h('div', { class: 'gbox', style: { left: g.dialogue_xpos + 'px', top: g.dialogue_ypos + 'px', width: g.dialogue_width + 'px' } });
+      dlg.append(gameText(text));
+      tb.append(...(nm ? [nm] : []), dlg);
+      stage.append(tb);
+      outer.replaceChildren(stage);
+      const k = Math.min(1, (outer.clientWidth || W) / W);
+      stage.style.transform = `scale(${k})`;
+      outer.style.height = Math.ceil(H * k) + 'px';
+      const lines = Math.max(1, Math.round(dlg.offsetHeight / (g.text_size * 1.3)));
+      const over = lines > g.max_lines || g.dialogue_ypos + dlg.offsetHeight > g.textbox_height;
       sum.lastChild.textContent = `(≈ ${lines} ${plural(lines, 'řádek', 'řádky', 'řádků')}${over ? ' – moc!' : ''})`;
       outer.classList.toggle('over', over);
-      info.textContent = `Okno ${gui.dialogue_width} px, písmo ${gui.text_size} px (${gui.source}); limit ${gui.max_lines} ${plural(gui.max_lines, 'řádek', 'řádky', 'řádků')}. Odhad bez písma hry.`;
+      let where;
+      if (!scene.available) where = scene.reason || 'Obrázek scény není k dispozici.';
+      else if (scene.flat) where = `Pozadí: ${scene.image} (${scene.script}).`;
+      else if (scene.url && imgOk) where = `Obrázek: ${scene.image} (podle ${scene.script}) – odhad podle skriptu hry.`;
+      else where = scene.reason || (scene.found ? 'Obrázek se nepodařilo načíst.' : 'Obrázek scény se nepodařilo dohledat.');
+      info.textContent = `${where} Okno ${g.screen_width}×${g.screen_height}, písmo ${g.text_size} px (${g.source}); limit ${g.max_lines} ${plural(g.max_lines, 'řádek', 'řádky', 'řádků')}.`;
     }
     ta.addEventListener('input', () => { clearTimeout(box._t); box._t = setTimeout(draw, 150); });
     setTimeout(draw, 0);
@@ -1246,7 +1295,8 @@ async function viewEntries() {
     const body = h('div');
     const radius = h('select', { title: 'Kolik řádků okolo ukázat', onchange: (ev) => { setPref('ui.sceneRadius', +ev.target.value); fill(); } },
       [3, 6, 10, 15].map((n) => h('option', { value: n, selected: n === pref('ui.sceneRadius', 6) }, `±${n} řádků`)));
-    box.append(sum, h('div', { class: 'toolbar', style: { margin: '6px 0' } }, radius), body);
+    const mtScene = h('button', { class: 'btn small', title: 'Přeloží strojem nepřeložené řádky okolo tohoto (±15). Návrhy si před zápisem prohlédneš.', onclick: () => mtDialog({ picked: [], anchor: { file: d.file, line: d.line }, file: d.file, scope: 'scene' }, async () => { S.files = null; await refreshHeader(); select(S.ent.sel); }) }, 'Přeložit scénu strojem…');
+    box.append(sum, h('div', { class: 'toolbar', style: { margin: '6px 0' } }, radius, mtScene), body);
     async function fill() {
       if (!box.open) return;
       body.replaceChildren(loading());
@@ -1471,6 +1521,97 @@ async function fixDialog({ items = [], file = '', kinds = ['speaker', 'spaces', 
   const body = h('div', null, head, listBox);
   paint();
   dialog({ title: 'Opravit', body, buttons: [{ label: 'Zrušit' }, { node: h('span', { style: { display: 'contents' } }, info, go) }] });
+}
+
+/* Machine translation of several lines. Suggestions come in small batches (progress, Stop), are shown in a table you can edit and
+   tick, and only the ticked ones are written, as one undoable step. Approved lines are never overwritten. */
+async function mtDialog({ picked = [], anchor = null, file = '', scope = '' }, done) {
+  let cfg;
+  try { cfg = (await get('settings')).mt || {}; } catch (e) { return fail(e); }
+  if (!cfg.provider || !cfg.consent || !cfg.has_key) {
+    return dialog({ title: 'Strojový překlad není nastavený', narrow: true, buttons: [{ label: 'Zavřít' }, { label: 'Otevřít Nastavení', kind: 'primary', onclick: () => go('settings') }],
+      body: h('p', null, 'Nastav službu, klíč k API a souhlas s odesíláním textu v ', h('b', null, 'Nastavení → Strojový překlad'), '. Klíč zůstane jen v tvém počítači a text se odešle až po tvém souhlasu.') });
+  }
+  const SCENE_R = 15, LIMIT = 500;
+  const opts = [];
+  if (picked.length) opts.push(['picked', `Vybrané řádky (${picked.length})`]);
+  if (anchor) opts.push(['scene', `Scéna kolem otevřeného řádku (±${SCENE_R})`]);
+  if (file) opts.push(['file', 'Soubor ve filtru: ' + file.split(/[\\/]/).pop()]);
+  opts.push(['all', 'Všechny soubory']);
+  let sc = scope && opts.some(([k]) => k === scope) ? scope : opts[0][0];
+  let onlyTodo = true, results = [], target = { items: [], chars: 0 }, running = false, stop = false;
+  const scopeSel = h('select', { onchange: (e) => { sc = e.target.value; plan(); } }, opts.map(([k, l]) => h('option', { value: k, selected: k === sc }, l)));
+  const todoBox = h('input', { type: 'checkbox', checked: true, onchange: (e) => { onlyTodo = e.target.checked; plan(); } });
+  const info = h('div', { class: 'muted' }), prog = h('div', { class: 'muted' }), list = h('div');
+  const run = h('button', { class: 'btn primary', disabled: true }), stopBtn = h('button', { class: 'btn', style: { display: 'none' }, onclick: () => { stop = true; } }, 'Zastavit');
+  const write = h('button', { class: 'btn primary', disabled: true }), sel = new Set();
+  const rk = (r) => r.file + '\t' + r.line;
+  const flagged = (r) => (r.issues || []).some((i) => i.severity === 'error') || (r.warnings || []).length > 0;
+  async function plan() {
+    run.disabled = true; info.textContent = 'Počítám…';
+    try {
+      let lines = null;
+      if (sc === 'picked') lines = picked;
+      else if (sc === 'scene') { const r = await get('entry/scene', { file: anchor.file, line: anchor.line, radius: SCENE_R }); lines = r.items.map((x) => ({ file: anchor.file, line: x.line })); }
+      target = await post('mt/targets', { file: sc === 'file' ? file : '', lines, only_todo: onlyTodo });
+    } catch (e) { info.textContent = e.message; return; }
+    const n = target.total, over = n > LIMIT;
+    info.replaceChildren(`${n} ${plural(n, 'řádek', 'řádky', 'řádků')}, asi ${target.chars.toLocaleString('cs')} znaků se odešle službě ${cfg.provider}.`,
+      over ? h('div', { class: 'notice bad' }, `Najednou jde nejvýš ${LIMIT} řádků – přeloží se prvních ${LIMIT}, zbytek spusť znovu.`) : null,
+      h('div', null, 'Služba si účtuje podle odeslaného textu – cenu si zkontroluj u svého poskytovatele.'));
+    run.disabled = !n || running;
+    run.textContent = n ? `Přeložit ${Math.min(n, LIMIT)} ${plural(Math.min(n, LIMIT), 'řádek', 'řádky', 'řádků')}` : 'Není co překládat';
+  }
+  function paintList() {
+    const ok = results.filter((r) => !r.error);
+    const rows = ok.map((r) => {
+      const inp = h('input', { type: 'text', class: 'mtedit', value: r.suggestion, oninput: (e) => { r.suggestion = e.target.value; } });
+      return h('tr', null,
+        h('td', { class: 'center' }, h('input', { type: 'checkbox', checked: sel.has(rk(r)), onchange: (e) => { e.target.checked ? sel.add(rk(r)) : sel.delete(rk(r)); paintBtn(); } })),
+        h('td', null, fname(r.file), h('span', { class: 'mono muted' }, ` ${r.line}`), r.who ? h('div', { class: 'mono muted' }, speakerLabel(r.who)) : null),
+        h('td', { class: 'txt' }, fmtText(r.source ?? '')), h('td', { class: 'txt' }, inp,
+          flagged(r) ? h('div', null, ...(r.warnings || []).map((w) => chip('warning', w)), ...(r.issues || []).map((i) => chip(i.severity === 'error' ? 'error' : 'warning', i.message || i.code))) : null));
+    });
+    const errs = results.filter((r) => r.error);
+    list.replaceChildren(
+      ok.length ? h('div', { class: 'toolbar' },
+        h('button', { class: 'btn small', onclick: () => { ok.forEach((r) => sel.add(rk(r))); paintList(); } }, 'Vybrat vše'),
+        h('button', { class: 'btn small', title: 'Odškrtne řádky, u kterých validátor něco našel', onclick: () => { ok.forEach((r) => { if (flagged(r)) sel.delete(rk(r)); else sel.add(rk(r)); }); paintList(); } }, 'Jen bez nálezů'),
+        h('button', { class: 'btn small', onclick: () => { sel.clear(); paintList(); } }, 'Nic')) : null,
+      ok.length ? h('div', { class: 'tablewrap', style: { maxHeight: '44vh' } }, h('table', { class: 'data' }, h('colgroup', null, [44, 140, 330, 400].map((w) => h('col', { style: { width: w + 'px' } }))),
+        h('thead', null, h('tr', null, ['', 'Kde', 'Originál', 'Návrh (jde upravit)'].map((x) => h('th', null, x)))), h('tbody', null, rows))) : null,
+      errs.length ? h('p', { class: 'muted' }, `${errs.length} ${plural(errs.length, 'řádek se nepodařil', 'řádky se nepodařily', 'řádků se nepodařilo')}: ${errs[0].error}`) : null);
+    paintBtn();
+  }
+  function paintBtn() { const n = sel.size; write.disabled = !n || running; write.textContent = `Zapsat ${n} ${plural(n, 'řádek', 'řádky', 'řádků')}`; }
+  run.onclick = async () => {
+    const todo = target.items.slice(0, LIMIT);
+    running = true; stop = false; results = []; sel.clear(); run.disabled = true; stopBtn.style.display = ''; let stopped = '';
+    for (let i = 0; i < todo.length && !stop; i += 10) {
+      prog.textContent = `Překládám… ${Math.min(i + 10, todo.length)} / ${todo.length}`;
+      let r;
+      try { r = await post('mt/batch', { items: todo.slice(i, i + 10) }); } catch (e) { stopped = e.message; break; }
+      for (const x of r.results) { results.push(x); if (!x.error && !flagged(x)) sel.add(rk(x)); }
+      paintList();
+      if (r.stopped) { stopped = r.stopped; break; }
+    }
+    prog.textContent = stopped || (stop ? 'Zastaveno.' : 'Hotovo – projdi návrhy a zapiš vybrané.');
+    running = false; stopBtn.style.display = 'none'; paintList(); plan();
+  };
+  write.onclick = async () => {
+    const selections = results.filter((r) => !r.error && sel.has(rk(r))).map((r) => ({ file: r.file, line: r.line, text: r.suggestion }));
+    try {
+      const r = await post('mt/apply', { selections });
+      toast(`Zapsáno ${r.changed} ${plural(r.changed, 'řádek', 'řádky', 'řádků')}` + (r.skipped ? `, přeskočeno ${r.skipped}` : '') + '. Zpět: Ctrl+Z.', 'ok', 8000);
+      await done?.();
+    } catch (e) { fail(e); return false; }
+  };
+  const body = h('div', null,
+    h('p', { class: 'muted' }, 'Anglický text se pošle nastavené službě; nic se nezapíše, dokud nezaškrtneš a nepotvrdíš. Schválené řádky se nikdy nepřepíšou.'),
+    h('div', { class: 'toolbar' }, h('label', { class: 'check' }, 'Co: ', scopeSel), h('label', { class: 'check' }, todoBox, ' jen nepřeložené')),
+    info, h('div', { class: 'toolbar', style: { margin: '8px 0' } }, run, stopBtn, prog), list);
+  dialog({ title: 'Přeložit strojem', body, buttons: [{ label: 'Zavřít' }, { node: h('span', { style: { display: 'contents' } }, write) }] });
+  plan();
 }
 
 /* Find and replace in the translated texts of all or chosen files, with a preview you tick line by line. */
