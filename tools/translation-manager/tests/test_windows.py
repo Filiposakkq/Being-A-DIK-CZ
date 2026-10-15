@@ -92,8 +92,20 @@ class WindowTests(TempCase):
         status, f1 = self.call("POST", "/api/focus", {"file": "a.rpy", "line": 5})
         self.assertEqual((f1["seq"], f1["file"], f1["line"]), (1, "a.rpy", 5))
         self.call("POST", "/api/focus", {"file": "a.rpy", "line": "x"})
-        self.assertEqual(self.call("GET", "/api/focus")[1], {"ok": True, "seq": 2, "file": "a.rpy", "line": 0})
+        self.assertEqual(self.call("GET", "/api/focus")[1], {"ok": True, "seq": 2, "file": "a.rpy", "line": 0, "text": None})
         self.assertEqual(self.call("POST", "/api/focus", {"file": "a.rpy"}, token=False)[0], 403)
+
+    def test_the_main_window_learns_that_a_detail_window_is_open_and_gets_the_typed_text(self):
+        self.assertEqual(self.call("GET", "/api/ping?w=main")[1]["companions"], 0)
+        self.assertEqual(self.call("GET", "/api/ping?w=detail&k=1")[1]["companions"], 1)
+        self.assertEqual(self.call("GET", "/api/ping?w=main")[1]["companions"], 1)
+        self.bye("detail")
+        self.assertEqual(self.call("GET", "/api/ping?w=main")[1]["companions"], 0)
+        self.sess.companions["ghost"] = time.time() - 60                # stopped pinging
+        self.assertEqual(self.call("GET", "/api/ping?w=main")[1]["companions"], 0)
+        res = self.call("POST", "/api/focus", {"file": "a.rpy", "line": 5, "text": "Ahoj světe"})[1]
+        self.assertEqual((res["text"], res["line"]), ("Ahoj světe", 5))
+        self.assertIsNone(self.call("POST", "/api/focus", {"file": "a.rpy", "line": 5, "text": 7})[1]["text"])
 
     def test_the_focus_can_be_waited_for_so_the_companion_follows_at_once(self):
         import threading

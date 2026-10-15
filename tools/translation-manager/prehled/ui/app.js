@@ -821,10 +821,12 @@ function startFollowing() {
     if (!f || !f.file) return;
     S.lastFocus = f;
     if (S.follow === false || S.view !== 'entries') return;
-    if ($('#editTarget')?.dataset.dirty === '1') { pending = f; return; }       // keep what is being typed; retried below
     pending = null;
+    if (typeof f.text !== 'string' && $('#editTarget')?.dataset.dirty === '1') { pending = f; return; }   // keep what is being typed here; retried below
     const cur = S.ent?.items?.[S.ent.sel];
-    if (!(cur && cur.file === f.file && cur.line === f.line)) go('entries', { file: f.file, line: f.line, status: 'all', select: true });
+    if (cur && cur.file === f.file && cur.line === f.line) { if (typeof f.text === 'string') S.compDraft?.(f.text); return; }     // same line: only the typed text changed
+    if (!S.ent?.api) { pending = f; return; }
+    S.ent.api.follow(f.file, f.line);
   };
   S.followApply = apply;
   if (FOCUS_BC) FOCUS_BC.onmessage = (e) => apply(e.data);                      // instant, when the windows share a browser process
@@ -837,12 +839,19 @@ function startFollowing() {
 }
 const FOCUS_BC = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('badik-focus') : null;
 function announceFocus(it) {
-  FOCUS_BC?.postMessage({ file: it.file, line: it.line });
+  FOCUS_BC?.postMessage({ file: it.file, line: it.line, text: null });
   post('focus', { file: it.file, line: it.line }).catch(() => {});
+}
+/* What is typed in the main editor goes to the detail window's preview (debounced for the server path, at once through the channel). */
+function announceDraft(d, text) {
+  FOCUS_BC?.postMessage({ file: d.file, line: d.line, text });
+  clearTimeout(S.draftT);
+  S.draftT = setTimeout(() => post('focus', { file: d.file, line: d.line, text }).catch(() => {}), 150);
 }
 /* The only extra window: the line detail alone (scene, check, proofreading…), following the line chosen in the main window. */
 function openDetailWindow() {
   const cur = S.ent?.items?.[S.ent.sel];
+  if (!COMPANION) { S.companionOpen = true; S.ent?.api?.redraw?.(); }       // the next ping corrects it when the window did not open
   openWindow({ view: 'entries', companion: '1', tab: 'scene', status: 'all', ...(cur ? { file: cur.file, line: cur.line } : {}) });
 }
 async function openEditor(file, line) {
@@ -996,7 +1005,18 @@ async function viewEntries() {
       h('td', { class: 'txt entry-source' }, fmtText(it.source ?? '')), h('td', { class: 'txt entry-target' }, fmtText(it.target)),
       h('td', null, sev ? chip(sev, `${it.issues.length}×`) : null));
   }
+  /* Detail window: there is no list, only the one line it follows (loading a whole list for every change was slow and racy). */
+  async function followLine(file, line) {
+    let d;
+    try { d = await get('entry', { file, line }); } catch (err) { S.ent.items = [{ file, line }]; S.ent.detail = null; return drawDetail(null, err.message); }
+    const it = { file, line, key: d.key, status: d.status, proof: d.proof, kind: d.kind, unit: d.unit, who: d.who, ref: d.ref, source: d.source, target: d.target,
+      issues: d.issues.filter((x) => x.severity !== 'info').map((x) => ({ severity: x.severity, code: x.code })) };
+    S.ent.items = [it]; S.ent.sel = -1; S.ent.total = 1; S.ent.start = 0;
+    tbody.replaceChildren(rowFor(it, 0));
+    await select(0);
+  }
   async function load(reset) {
+    if (COMPANION) { const cur = S.ent.items[0]; return cur ? followLine(cur.file, cur.line) : drawDetail(null); }
     if (S.ent.loading) return;
     S.ent.loading = true;
     try {
@@ -1050,15 +1070,29 @@ async function viewEntries() {
         h('button', { class: 'btn small', title: 'Otevře soubor na tomhle řádku v externím editoru', onclick: () => openEditor(d.file, d.line) }, 'Editor (E)'),
         menuButton('Více', [
           ...(canApprove ? [{ label: 'Schválit všechny shodné…', hint: 'Shift+A', run: () => globalApprove() }] : []),
-          ...(COMPANION ? [] : [{ label: 'Otevřít v druhém okně', hint: 'scéna, kontrola, korektura…', run: () => openDetailWindow() }]),
+          ...(!COMPANION && S.companionOpen ? [{ label: pref('ui.slimMain', true) ? 'Záložky ukázat i v tomto okně' : 'Záložky jen v druhém okně', run: () => { setPref('ui.slimMain', !pref('ui.slimMain', true)); drawDetail(S.ent.detail); } }] : []),
           { label: 'Kopírovat cestu', run: () => copy(`${d.path}:${d.line}`) },
         ], { title: 'Další akce s řádkem' })),
-      ...(COMPANION && S.compFull ? [inPane(gamePreview(d, ed.ta)), ed] : [h('div', { class: 'pair' },
+      ...layoutParts(d, ed, h('div', { class: 'pair' },
         h('div', null, h('div', { class: 'row', style: { justifyContent: 'space-between' } }, h('h4', { style: { margin: 0 } }, 'Originál'),
           h('span', { class: 'row' }, h('button', { class: 'btn small ghost', title: 'Zkopíruje text originálu do schránky', onclick: () => copy(d.source ?? '') }, '⧉ Originál'),
             h('button', { class: 'btn small ghost', title: 'Zkopíruje originál a překlad pod sebe', onclick: () => copy(`${d.source ?? ''}\n${$('#editTarget') ? $('#editTarget').value : d.target}`) }, '⧉ Oboje'))),
           h('div', { class: 'textbox', style: { marginTop: '6px' } }, fmtText(d.source ?? '(zdroj nenalezen)'))),
-        ed), detailTabs(d, ed)]));
+        ed), () => detailTabs(d, ed)));
+  }
+  /* With a detail window open the main window keeps the translating (original + editor) and hands the tabs (scene, check, proofreading…) to it;
+     the detail window can show the editor as well. */
+  function layoutParts(d, ed, pair, tabsFn) {
+    if (COMPANION) {
+      S.compDraft = (t) => { if (!S.compEditor) { ed.ta.value = t; ed.ta.dispatchEvent(new Event('draft')); } };
+      const editor = S.compEditor ? pair : null;
+      return (S.compFull ? [inPane(gamePreview(d, ed.ta)), editor] : [editor, tabsFn()]).filter(Boolean);
+    }
+    if (S.companionOpen && pref('ui.slimMain', true)) {
+      return [pair, h('div', { class: 'slimnote muted' }, 'Scéna, kontrola, korektura a další záložky jsou v druhém okně. ',
+        h('button', { class: 'btn small ghost', onclick: () => { setPref('ui.slimMain', false); drawDetail(S.ent.detail); } }, 'Ukázat je i tady'))];
+    }
+    return [pair, tabsFn()];
   }
   /* Detail window: follows the main window; the scene can take the whole window (the editor stays under it). */
   function companionBar() {
@@ -1071,6 +1105,7 @@ async function viewEntries() {
     return h('div', { class: 'followbar' },
       h('label', { class: 'check', title: 'Okno ukazuje řádek, na který kliknu v hlavním okně' }, h('input', { type: 'checkbox', checked: S.follow !== false, onchange: (e) => { S.follow = e.target.checked; if (S.follow) S.followApply?.(S.lastFocus || {}); } }), ' Sledovat hlavní okno'),
       h('span', { class: 'spacer' }),
+      h('label', { class: 'check', title: 'Překládat i v tomhle okně (jinak se překládá v hlavním a tohle okno ukazuje scénu a kontroly)' }, h('input', { type: 'checkbox', checked: !!S.compEditor, onchange: (e) => { S.compEditor = e.target.checked; drawDetail(S.ent.detail); } }), ' Editor i tady'),
       h('div', { class: 'seg' }, h('button', { class: S.compFull ? '' : 'on', onclick: () => setFull(false) }, 'Scéna a detail'), h('button', { class: S.compFull ? 'on' : '', onclick: () => setFull(true) }, 'Scéna přes celé okno')));
   }
   /* Secondary panels of the line detail live in tabs: only the chosen one is built (and fetches its data). */
@@ -1098,7 +1133,8 @@ async function viewEntries() {
     scriptContext(d));
   function detailTabs(d, ed) {
     const nIssues = d.issues.filter((x) => !x.ignored).length;
-    const defs = [
+    const needsEditor = new Set(['memory', 'history']);
+    const defs0 = [
       ['check', nIssues ? `Kontrola (${nIssues})` : 'Kontrola', () => issuesPane(d)],
       ['proof', 'Korektura', () => proofPane(d)],
       ['scene', 'Scéna', () => h('div', null, inPane(gamePreview(d, ed.ta)), inPane(sceneBox(d)))],
@@ -1106,6 +1142,7 @@ async function viewEntries() {
       ['history', 'Historie', () => inPane(historyPanel(d, ed.ta))],
       ['script', 'Skript', () => scriptPane(d)],
     ];
+    const defs = COMPANION && !S.compEditor ? defs0.filter(([k]) => !needsEditor.has(k)) : defs0;
     let cur = pref('ui.detailTab', nIssues ? 'check' : 'scene');
     if (!defs.some(([k]) => k === cur)) cur = 'scene';
     const bar = h('div', { class: 'dtabs', role: 'tablist' }), pane = h('div', { class: 'dpane' });
@@ -1158,7 +1195,7 @@ async function viewEntries() {
         } else select(i);
       } catch (err) { fail(err); }
     }
-    ta.addEventListener('input', () => { sync(); clearTimeout(timer); timer = setTimeout(check, 300); });
+    ta.addEventListener('input', () => { sync(); clearTimeout(timer); timer = setTimeout(check, 300); if (S.companionOpen && !COMPANION) announceDraft(d, ta.value); });
     ta.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); doSave(true); }
       else if (e.key === 'Escape') { ta.value = d.target; sync(); check(); ta.blur(); }
@@ -1322,6 +1359,7 @@ async function viewEntries() {
       info.textContent = `${where}${fontNote} Okno ${g.screen_width}×${g.screen_height}, písmo ${g.text_size} px (${g.source}); limit ${g.max_lines} ${plural(g.max_lines, 'řádek', 'řádky', 'řádků')}.`;
     }
     ta.addEventListener('input', () => { clearTimeout(box._t); box._t = setTimeout(draw, 150); });
+    ta.addEventListener('draft', () => draw());
     setTimeout(draw, 0);
     const onResize = () => { if (!box.isConnected) removeEventListener('resize', onResize); else { clearTimeout(box._r); box._r = setTimeout(draw, 80); } };
     addEventListener('resize', onResize);
@@ -1457,8 +1495,13 @@ async function viewEntries() {
     const d = S.ent.detail; if (!d || d.status === 'translated') return;
     await globalApproveDialog(d, async () => { S.files = null; await refreshHeader(); load(true); });
   }
-  S.ent.api = { select, toggleApprove, toggleProof, flagFix, proofUpto, unproofUpto: () => proofUpto(''), globalApprove, load, tbody: () => tbody, reload: () => load(true) };
-  root.afterMount = () => { load(true); drawDetail(null); };
+  S.ent.api = { select, toggleApprove, toggleProof, flagFix, proofUpto, unproofUpto: () => proofUpto(''), globalApprove, load, tbody: () => tbody, reload: () => load(true), follow: followLine, redraw: () => drawDetail(S.ent.detail) };
+  root.afterMount = () => {
+    if (!COMPANION) { load(true); drawDetail(null); return; }
+    skeleton();
+    const f = S.ent.pendingLine ? { file: pref('entries.file', ''), line: S.ent.pendingLine } : S.lastFocus;
+    if (f?.file && f.line) followLine(f.file, f.line); else drawDetail(null);
+  };
   return root;
 }
 async function globalApproveDialog(d, done) {
@@ -2650,8 +2693,10 @@ if (new URLSearchParams(location.search).has('selftest')) {      // UI self-test
     if (S.ready) S.lastRefresh = new Date().toLocaleTimeString('cs-CZ');
   } catch (e) { $('#view').replaceChildren(h('div', { class: 'notice bad' }, e.message)); }
   let fails = 0;
-  get('ping', { w: WIN_ID }).catch(() => {});
-  setInterval(() => get('ping', { w: WIN_ID }).then(() => { fails = 0; }).catch(() => {
+  const pingQ = () => ({ w: WIN_ID, ...(COMPANION ? { k: 1 } : {}) });
+  const seenWin = (r) => { if (COMPANION) return; const on = r.companions > 0; if (on !== !!S.companionOpen) { S.companionOpen = on; S.ent?.api?.redraw?.(); } };
+  get('ping', pingQ()).then(seenWin).catch(() => {});
+  setInterval(() => get('ping', pingQ()).then((r) => { fails = 0; seenWin(r); }).catch(() => {
     if (++fails >= 3) document.body.replaceChildren(h('div', { style: { padding: '3rem', textAlign: 'center' } }, 'Aplikace byla ukončena. Toto okno můžeš zavřít.'));
   }), 4000);
   addEventListener('pagehide', () => { try { navigator.sendBeacon('/api/bye?t=' + TOKEN + '&w=' + WIN_ID); } catch { /* ignore */ } });

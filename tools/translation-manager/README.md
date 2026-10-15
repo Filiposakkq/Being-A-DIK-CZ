@@ -187,14 +187,14 @@ the string literal (a bare `"`, a lone `\`) is skipped.
 
 ## Detail window (second window)
 
-**⧉** in the top bar (or *Více → Otevřít v druhém okně* in the line detail, or the palette) opens a **window with nothing but the line detail**: the scene
-picture with the dialogue box, the translation editor and the tabs *Kontrola / Korektura / Scéna / Paměť / Historie / Skript* - no list, no sections, no
-settings. It **follows the line you select in the main window** (the main window announces it at once, in about 30 ms; windows that do not share a
-browser process get it from the server, which answers as soon as the line changes). *Sledovat hlavní okno* turns following off; an unsaved text in the
-detail window is never replaced. **Scéna přes celé okno** makes the picture fill the window (scaled to fit) with the editor under it. Edits go to the same
-files as in the main window (one app, one project); only the first window saves preferences. The app quits when the **last** window is closed; a change
-made in one window is picked up by the other when it gets the focus back. In the desktop window this opens another native window, in the browser mode
-an app window, and as a last resort a browser tab.
+**⧉** in the top bar (or the palette) opens a **window with nothing but the line detail**: the scene picture with the dialogue box and the tabs *Kontrola /
+Korektura / Scéna / Skript* - no list, no sections, no settings. It **follows the line you select in the main window** (announced at once, in about 30 ms; if
+the windows do not share a browser process the server answers as soon as the line changes) and shows the **text you are typing in the main editor** live in
+the preview. While it is open the **main window slims down to the translating** (original + editor, below or beside the list - *◫ Detail vpravo*) and hands
+the tabs to the detail window; *Ukázat je i tady* / the *Více* menu bring them back. Customizing the detail window: **Sledovat hlavní okno** (follow on / off),
+**Editor i tady** (translate in this window too; then *Paměť* and *Historie* are available there as well) and **Scéna přes celé okno** (the picture fills the
+window, scaled to fit). Edits go to the same files (one app, one project); only the first window saves preferences; the app quits when the **last** window is
+closed. In the desktop window this opens another native window, in the browser mode an app window, and as a last resort a browser tab.
 
 For one monitor, **◫ Detail vpravo** in *Řádky* puts the detail beside the list instead of under it (automatic on screens 1500 px wide and more; the
 choice is remembered), and the scene picture is scaled to fit the height too, so the picture and the editor are visible without scrolling.

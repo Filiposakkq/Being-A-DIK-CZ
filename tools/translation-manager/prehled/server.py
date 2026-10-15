@@ -46,8 +46,9 @@ class Session:
         self.windows = {}              # window id -> time of its last ping (the app quits when the last one is gone)
         self.open_window = None        # set by cli: callable(url) that opens one more app window
         self.base_url = ""
-        self.focus = {"seq": 0, "file": "", "line": 0}   # the line open in the main window; companion windows follow it
+        self.focus = {"seq": 0, "file": "", "line": 0, "text": None}   # the line open in the main window; companion windows follow it
         self.focus_cv = threading.Condition()
+        self.companions = {}           # detail windows -> time of their last ping (the main window slims down while one is open)
 
 
 def make_handler(sess):
@@ -160,7 +161,10 @@ def make_handler(sess):
                 wid = q1(q, "w")
                 if wid:
                     sess.windows[wid[:40]] = time.time()
-                return self._json({"ok": True})
+                    if q1(q, "k") == "1":
+                        sess.companions[wid[:40]] = time.time()
+                now = time.time()
+                return self._json({"ok": True, "companions": sum(1 for t in sess.companions.values() if now - t < 12)})
             if r == "state":
                 return self._run(lambda: {
                     "ok": True, "ready": app.ready, "notices": list(app.notices),
@@ -234,6 +238,7 @@ def make_handler(sess):
                 qs = parse_qs(url.query)
                 if qs.get("t", [""])[0] == sess.token:
                     sess.windows.pop(qs.get("w", [""])[0][:40], None)
+                    sess.companions.pop(qs.get("w", [""])[0][:40], None)
                     now = time.time()
                     for k in [k for k, t in sess.windows.items() if now - t > 30]:      # windows that stopped pinging
                         sess.windows.pop(k, None)
@@ -282,7 +287,9 @@ def make_handler(sess):
             def set_focus():
                 line = d.get("line", 0)
                 with sess.focus_cv:
-                    sess.focus = {"seq": sess.focus["seq"] + 1, "file": str(d.get("file", ""))[:500], "line": int(line) if str(line).isdigit() else 0}
+                    text = d.get("text")
+                    sess.focus = {"seq": sess.focus["seq"] + 1, "file": str(d.get("file", ""))[:500], "line": int(line) if str(line).isdigit() else 0,
+                                  "text": text[:20000] if isinstance(text, str) else None}      # text = what is being typed in the main window
                     sess.focus_cv.notify_all()
                 return {"ok": True, **sess.focus}
 
