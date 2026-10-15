@@ -1151,6 +1151,46 @@ class App:
         out["source"] = "gui.rpy hry" if any(k in found for k in self.GUI_DEFAULTS) else "výchozí hodnoty"
         return out
 
+    # ------------------------------------------------------------ fonts of the game (with the translation's overrides)
+    _TL_FONT_PY = re.compile(r"^\s*gui\.(text_font|name_text_font)\s*=\s*[\"']([^\"']+)[\"']", re.MULTILINE)
+    _TL_FONT_STYLE = re.compile(r"^translate\s+\w+\s+style\s+(\w+)\s*:\s*\n(?:[ \t]+[^\n]*\n)*?[ \t]+font\s+[\"']([^\"']+)[\"']", re.MULTILINE)
+
+    def game_fonts(self):
+        """Font files for the dialogue text and the speaker name: gui.rpy, overridden by the translation folder (`translate <lang> python:
+        gui.text_font = ...`, `translate <lang> style say_dialogue: font ...`), which is how Czech diacritics are usually added."""
+        out = {"text": "", "name": "", "source": ""}
+        base = self._game_root()
+        if base is None:
+            return out
+        try:
+            gui = (base / "game" / "gui.rpy").read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            gui = ""
+        for m in re.finditer(r"^\s*define\s+gui\.(text_font|name_text_font)\s*=\s*[\"']([^\"']+)[\"']", gui, re.MULTILINE):
+            out["text" if m.group(1) == "text_font" else "name"] = m.group(2)
+        found = bool(out["text"] or out["name"])
+        styles = {}
+        for f in sorted(self.project.root.rglob("*.rpy")):
+            try:
+                txt = f.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            if "font" not in txt:
+                continue
+            for m in self._TL_FONT_PY.finditer(txt):
+                out["text" if m.group(1) == "text_font" else "name"] = m.group(2)
+                found = True
+            for m in self._TL_FONT_STYLE.finditer(txt):
+                styles.setdefault(m.group(1), m.group(2))
+        if styles.get("say_dialogue"):
+            out["text"] = styles["say_dialogue"]
+        elif styles.get("default") and not out["text"]:
+            out["text"] = styles["default"]
+        if styles.get("say_label"):
+            out["name"] = styles["say_label"]
+        out["source"] = "gui.rpy a překlad" if (found or styles) else ""
+        return out
+
     # ------------------------------------------------------------ the picture a line is shown on
     def _game_images(self):
         """Index of the game's pictures (archives + loose files + `image` statements); built once per game folder."""
@@ -1187,6 +1227,12 @@ class App:
         except OSError:
             out["reason"] = f"Skript {m.group(1)} nebyl nalezen (jsou po ruce jen .rpyc?)."
             return out
+        fonts = self.game_fonts()
+        for kind in ("text", "name"):
+            fn = Path(fonts[kind]).name.lower() if fonts[kind] else ""
+            out["fonts_" + kind] = {"file": fn, "url": "/api/game/font?k=" + urllib.parse.quote(fn, safe="")} if fn in gi.fonts else None
+        ch = gi.characters.get(ent.who or "")
+        out["speaker"] = ch
         out.update(available=True, found=sc["found"], image=sc["image"], missing=sc["missing"], script=f"{m.group(1)}:{sc['script_line']}",
                    flat=sc.get("flat", ""), index_errors=gi.errors[:3], images=len(gi.stems))
         if sc["found"] and sc["key"]:
@@ -1194,6 +1240,17 @@ class App:
         elif not sc["found"]:
             out["reason"] = "Před tímto řádkem jsem v blízkosti nenašel obrázek (scene / show), který jde dohledat v archivech hry."
         return out
+
+    def game_font(self, name):
+        """(bytes, mime) of a font file of the game, by file name (only fonts the index knows)."""
+        self._need_project()
+        gi = self._game_images()
+        if gi is None:
+            raise AppError("Písma hry nejsou k dispozici.")
+        try:
+            return gi.font_bytes(name)
+        except (gameimages.rpa.RpaError, OSError) as e:
+            raise AppError(str(e)) from e
 
     def game_image(self, key):
         """(bytes, mime) of a picture the index knows by its stem key (never an arbitrary path)."""

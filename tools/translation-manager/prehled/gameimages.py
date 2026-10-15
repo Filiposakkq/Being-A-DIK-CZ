@@ -17,6 +17,10 @@ from pathlib import Path
 
 from . import rpa
 
+FONT_EXT = (".ttf", ".otf", ".woff", ".woff2")
+FONT_MIME = {".ttf": "font/ttf", ".otf": "font/otf", ".woff": "font/woff", ".woff2": "font/woff2"}
+CHAR_RE = re.compile(r"^\s*define\s+(\w+)\s*=\s*(Dynamic)?Character\(\s*(?:(?P<q>[\"'])(?P<name>.*?)(?P=q)|(?P<none>None))(?P<rest>.*)$")
+COLOR_RE = re.compile(r"\b(?:who_color|color)\s*=\s*[\"'](#[0-9a-fA-F]{3,8})[\"']")
 IMG_EXT = (".jpg", ".jpeg", ".png", ".webp", ".avif", ".gif")
 MIME = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp", ".avif": "image/avif", ".gif": "image/gif"}
 IMAGE_DEF_RE = re.compile(r"^image\s+([A-Za-z0-9_ .\-]+?)\s*(=|:)\s*(.*)$")
@@ -41,6 +45,8 @@ class GameImages:
         self.stems = {}                 # lower-case file name without extension -> ref
         self.paths = {}                 # lower-case relative path -> ref
         self.defs = {}                  # lower-case image name -> [candidate strings]
+        self.fonts = {}                 # lower-case file name -> ref
+        self.characters = {}            # speaker code -> {name, color, dynamic}
         self.sorted_stems = []
         self.errors = []
         self._lock = threading.Lock()
@@ -65,6 +71,9 @@ class GameImages:
                     elif low.endswith(IMG_EXT):
                         rel = full.relative_to(self.dir).as_posix()
                         self._add(rel, ("file", full, None, rel))
+                    elif low.endswith(FONT_EXT):
+                        rel = full.relative_to(self.dir).as_posix()
+                        self.fonts.setdefault(low, ("file", full, None, rel))
             for arc in archives:
                 try:
                     _ver, idx = rpa.read_index(arc)
@@ -74,6 +83,8 @@ class GameImages:
                 for name, entry in idx.items():
                     if name.lower().endswith(IMG_EXT):
                         self._add(name, ("rpa", arc, entry, name))
+                    elif name.lower().endswith(FONT_EXT):
+                        self.fonts.setdefault(Path(name).name.lower(), ("rpa", arc, entry, name))
             self._parse_defs(scripts)
             self.sorted_stems = sorted(self.stems)
             self._built = True
@@ -92,6 +103,12 @@ class GameImages:
                 continue
             i = 0
             while i < len(lines):
+                cm = CHAR_RE.match(lines[i]) if lines[i][:1] in ("d", " ", "\t") else None
+                if cm and cm.group(1) not in self.characters:
+                    col = COLOR_RE.search(cm.group("rest") or "")
+                    dyn = bool(cm.group(2))
+                    nm = cm.group("name") or ""
+                    self.characters[cm.group(1)] = {"name": ("[" + nm + "]") if dyn else nm, "color": col.group(1) if col else "", "dynamic": dyn}
                 m = IMAGE_DEF_RE.match(lines[i])
                 i += 1
                 if not m:
@@ -157,6 +174,16 @@ class GameImages:
         while len(self._cache) > CACHE_FILES:
             self._cache.popitem(last=False)
         return data, mime
+
+    def font_bytes(self, name):
+        """(bytes, mime) of a font by its file name (only names the index knows)."""
+        key = Path(str(name)).name.lower()
+        ref = self.fonts.get(key)
+        if ref is None or key != str(name).lower():
+            raise rpa.RpaError("písmo neexistuje")
+        kind, where, entry, rel = ref
+        data = rpa.read_entry(where, entry, 16 * 1024 * 1024) if kind == "rpa" else Path(where).read_bytes()
+        return data, FONT_MIME.get(Path(key).suffix, "font/ttf")
 
     @staticmethod
     def _sniff(data):

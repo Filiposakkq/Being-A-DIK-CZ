@@ -163,6 +163,16 @@ def make_handler(sess):
                     "project_dir": app.config.get("project_dir", "")})
             if not app.ready:
                 return self._json({"ok": False, "error": "Není otevřený žádný projekt."}, 400)
+            if r == "game/font":              # a font of the game by file name (never a path)
+                try:
+                    with app.lock:
+                        data, mime = app.game_font(q1(q, "k"))
+                except AppError as e:
+                    return self._send(404, str(e), "text/plain")
+                except Exception:  # noqa: BLE001
+                    log_exception()
+                    return self._send(500, "chyba", "text/plain")
+                return self._send(200, data, mime, cache=True)
             if r == "game/image":              # a picture from the game archives, by the key the index returned (never a path)
                 try:
                     with app.lock:

@@ -1253,7 +1253,7 @@ async function viewEntries() {
     box.open = !!pref('ui.gamepreview', true);
     box.addEventListener('toggle', () => { setPref('ui.gamepreview', box.open); if (box.open) draw(); });
     let gui = S.gui, scene = null, imgOk = true;
-    const speaker = speakerLabel(d.who) || '';
+    const fallbackName = speakerLabel(d.who) || '';
     async function load() {
       if (!gui) { try { const st = await get('settings'); gui = S.gui = { ...st.game_gui, max_lines: st.validation.textbox.max_lines }; } catch { gui = { text_size: 33, dialogue_width: 1116, textbox_height: 278, max_lines: 4, source: 'výchozí hodnoty' }; } }
       if (!scene) { try { scene = await get('game/scene', { file: d.file, line: d.line }); } catch (e) { scene = { available: false, reason: e.message }; } }
@@ -1262,13 +1262,16 @@ async function viewEntries() {
       if (!box.open) return;
       await load();
       const g = { ...gui, ...(scene.gui || {}) };
+      const fam = await loadGameFont(scene.fonts_text), nfam = await loadGameFont(scene.fonts_name);
+      const sp = scene.speaker;                      // the game's own Character(...) name and colour, not the app's speaker names
+      const speaker = sp ? sp.name : fallbackName;
       const W = g.screen_width || 1920, H = g.screen_height || 1080;
       const text = mode.value === 'source' ? (d.source ?? '') : ta.value;
-      const stage = h('div', { class: 'gstage', style: { width: W + 'px', height: H + 'px', fontSize: g.text_size + 'px' } });
+      const stage = h('div', { class: 'gstage', style: { width: W + 'px', height: H + 'px', fontSize: g.text_size + 'px', ...(fam ? { fontFamily: `"${fam}", sans-serif` } : {}) } });
       if (scene.flat) stage.style.background = scene.flat;
       else if (scene.url && imgOk) stage.append(h('img', { class: 'gbg', src: scene.url, alt: '', onerror: () => { imgOk = false; draw(); } }));
       const tb = h('div', { class: 'gtextbox', style: { height: g.textbox_height + 'px' } });
-      const nm = speaker ? h('div', { class: 'gname', style: { left: g.name_xpos + 'px', top: '-' + Math.round(g.name_text_size * 0.9) + 'px', fontSize: g.name_text_size + 'px' } }, speaker) : null;
+      const nm = speaker ? h('div', { class: 'gname', style: { left: g.name_xpos + 'px', top: '-' + Math.round(g.name_text_size * 0.9) + 'px', fontSize: g.name_text_size + 'px', ...(nfam ? { fontFamily: `"${nfam}", sans-serif` } : {}), ...(sp?.color ? { color: sp.color } : {}) } }, speaker) : null;
       const dlg = h('div', { class: 'gbox', style: { left: g.dialogue_xpos + 'px', top: g.dialogue_ypos + 'px', width: g.dialogue_width + 'px' } });
       dlg.append(gameText(text));
       tb.append(...(nm ? [nm] : []), dlg);
@@ -1286,11 +1289,21 @@ async function viewEntries() {
       else if (scene.flat) where = `Pozadí: ${scene.image} (${scene.script}).`;
       else if (scene.url && imgOk) where = `Obrázek: ${scene.image} (podle ${scene.script}) – odhad podle skriptu hry.`;
       else where = scene.reason || (scene.found ? 'Obrázek se nepodařilo načíst.' : 'Obrázek scény se nepodařilo dohledat.');
-      info.textContent = `${where} Okno ${g.screen_width}×${g.screen_height}, písmo ${g.text_size} px (${g.source}); limit ${g.max_lines} ${plural(g.max_lines, 'řádek', 'řádky', 'řádků')}.`;
+      const fontNote = !scene.available ? '' : fam ? ` Písmo hry: ${scene.fonts_text.file}.` : ' Písmo hry se nepodařilo načíst, ukázané je náhradní.';
+      info.textContent = `${where}${fontNote} Okno ${g.screen_width}×${g.screen_height}, písmo ${g.text_size} px (${g.source}); limit ${g.max_lines} ${plural(g.max_lines, 'řádek', 'řádky', 'řádků')}.`;
     }
     ta.addEventListener('input', () => { clearTimeout(box._t); box._t = setTimeout(draw, 150); });
     setTimeout(draw, 0);
     return box;
+  }
+  /* A font file of the game (found in its folder or archives) made available to the page as a FontFace; its family name, or '' when it cannot be had. */
+  async function loadGameFont(f) {
+    if (!f || !f.url) return '';
+    S.fontCache ||= {};
+    S.fontCache[f.file] ||= (async () => {
+      try { const face = new FontFace('game-' + f.file, `url("${f.url}")`); await face.load(); document.fonts.add(face); return 'game-' + f.file; } catch { return ''; }
+    })();
+    return S.fontCache[f.file];
   }
   function scriptContext(d) {
     if (!d.ref) return null;

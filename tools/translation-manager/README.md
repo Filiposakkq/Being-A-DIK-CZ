@@ -179,7 +179,7 @@ the string literal (a bare `"`, a lone `\`) is skipped.
   directly by file name, through an `image x = "path"` / `image x:` statement (an animation shows its first frame), or by a numbered / `_blink` variant. Pictures
   are read **read-only** from the game's `.rpa` archives (versions 2 and 3; the archive index is read with an unpickler that refuses to create any object) or
   from loose files in `game/images`. The box, name and text use the game's own values from `gui.rpy` (screen size, `dialogue_width`, `text_size`,
-  `textbox_height`, name position; Being a DIK's values when the sources are not found), the text is the translation **as you type it** (or the original), and
+  `textbox_height`, name position; Being a DIK's values when the sources are not found), the text is the translation **as you type it** (or the original) in **the game's own font** (`gui.text_font` / `gui.name_text_font` from `gui.rpy`, overridden by the translation folder, e.g. `translate czech python: gui.text_font = ...` or `translate czech style say_dialogue: font ...`; the font file is read from the game folder or its archives) and the speaker name and colour come from the game's own `Character(...)` definitions, and
   the frame turns red when the text needs more lines than the limit in *Nastavení* or does not fit the box. It is an approximation: it follows the text
   of the script (no jumps or conditions, no layered sprites), so a scene may be wrong where the game builds it in a complicated way; the line under the preview
   says which picture and which script line it used. Without the game folder next to the translation (or with only `.rpyc` files) you get the box alone.

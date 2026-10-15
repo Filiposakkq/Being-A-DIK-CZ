@@ -94,6 +94,9 @@ DEFS = """image ep1_cafe_maya1:
 image bg_hall = "images/halls/hall_main.png"
 image ep2_alias = "ep1_room"
 image broken = "does_not_exist"
+define mc = DynamicCharacter("name", color="#ffaf05")
+define js = Character("Josy", color = "#ff1c63", what_color="#fff")
+define nar = Character(None)
 """
 
 
@@ -103,7 +106,8 @@ class GameImagesTests(TempCase):
         self.game = self.tmp / "game"
         (self.game / "images").mkdir(parents=True)
         make_rpa(self.game / "ep1_images.rpa", {"images/ep1/ep1_room.jpg": JPEG, "images/ep1/ep1_cafe_maya1_blink0.jpg": JPEG + b"1",
-                                                "images/ep1/ep1_cafe_maya1_blink1.jpg": JPEG + b"2", "images/ep1/readme.txt": b"x"})
+                                                "images/ep1/ep1_cafe_maya1_blink1.jpg": JPEG + b"2", "images/ep1/readme.txt": b"x", "fonts/Arch-Bold.ttf": b"TTF-in-archive"})
+        (self.game / "Loose-CZ.otf").write_bytes(b"OTTO-loose")
         (self.game / "images" / "hall_main.png").write_bytes(PNG)
         (self.game / "script.rpy").write_text(SCRIPT, encoding="utf-8")
         (self.game / "defs.rpy").write_text(DEFS, encoding="utf-8")
@@ -150,6 +154,19 @@ class GameImagesTests(TempCase):
             self.gi.image_bytes("../../secret")
         with self.assertRaises(rpa.RpaError):
             self.gi.image_bytes("nope")
+
+    def test_fonts_are_indexed_by_file_name_from_folder_and_archives(self):
+        self.assertEqual(sorted(self.gi.fonts), ["arch-bold.ttf", "loose-cz.otf"])
+        self.assertEqual(self.gi.font_bytes("Loose-CZ.otf"), (b"OTTO-loose", "font/otf"))
+        self.assertEqual(self.gi.font_bytes("arch-bold.ttf"), (b"TTF-in-archive", "font/ttf"))
+        for bad in ("../Loose-CZ.otf", "sub/Loose-CZ.otf", "nope.ttf", ""):
+            with self.assertRaises(rpa.RpaError):
+                self.gi.font_bytes(bad)
+
+    def test_character_definitions_give_the_name_the_game_shows(self):
+        self.assertEqual(self.gi.characters["js"], {"name": "Josy", "color": "#ff1c63", "dynamic": False})
+        self.assertEqual(self.gi.characters["mc"], {"name": "[name]", "color": "#ffaf05", "dynamic": True})
+        self.assertEqual(self.gi.characters["nar"]["name"], "")
 
     def test_a_broken_archive_is_reported_and_skipped(self):
         (self.game / "bad.rpa").write_bytes(b"garbage")
@@ -203,6 +220,23 @@ class SceneInfoTests(TempCase):
             srv.shutdown()
             srv.server_close()
             app.close()
+
+    def test_fonts_come_from_gui_rpy_and_the_translation_overrides_them(self):
+        app, base = self.make()
+        (base / "game" / "gui.rpy").write_text('define gui.text_font = "Plain.otf"\ndefine gui.name_text_font = "Name.ttf"\n', encoding="utf-8")
+        for fn in ("Plain.otf", "Name.ttf", "Czech.otf"):
+            (base / "game" / fn).write_bytes(b"FONT-" + fn.encode())
+        app._gi = None
+        self.assertEqual(app.game_fonts()["text"], "Plain.otf")
+        (base / "game" / "tl" / "czech" / "fonts.rpy").write_text(
+            'translate czech python:\n    gui.text_font = "Czech.otf"\n\ntranslate czech style say_label:\n    font "Name.ttf"\n', encoding="utf-8")
+        f = app.game_fonts()
+        self.assertEqual((f["text"], f["name"]), ("Czech.otf", "Name.ttf"))
+        (base / "game" / "tl" / "czech" / "fonts.rpy").write_text('translate czech style say_dialogue:\n    font "Czech.otf"\n', encoding="utf-8")
+        self.assertEqual(app.game_fonts()["text"], "Czech.otf")
+        info = app.scene_info("tl.rpy", app.project.entries("tl.rpy")[0].line)
+        self.assertEqual(info["fonts_text"]["url"], "/api/game/font?k=czech.otf")
+        self.assertEqual(app.game_font("Czech.otf"), (b"FONT-Czech.otf", "font/otf"))
 
     def test_without_the_game_sources_the_reason_is_explained(self):
         self.write("a.rpy", dialog("a1", "mc", "Hi.", "Ahoj.", 3))
