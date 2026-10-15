@@ -101,7 +101,7 @@ problems.
   untouched); broad approvals need a second confirming click; all undoable.
 
 **Proofreading** (in *Řádky*, on translated lines): `P` marks the line proofread (✓) and jumps to the next unchecked one, `F` flags it
-*k opravě* (⚑) with a note, `Shift+P` marks everything up to this line. Filters *Ke korektuře / K opravě / Zkontrolované*; *Pokračovat v
+*k opravě* (⚑) with a note, `Shift+P` marks everything up to this line, `Shift+U` takes the proofread mark away again up to this line (lines flagged *k opravě* stay; both undoable). Filters *Ke korektuře / K opravě / Zkontrolované*; *Pokračovat v
 korektuře* opens the first unchecked line. If a proofread line is edited later its mark becomes **stale** (↻) and it returns to *Ke
 korektuře*. The *Korektura* number everywhere (files, overview, `progress.json`, website) = the number you typed by hand + lines marked one
 by one. Untranslated lines can't be proofread.
