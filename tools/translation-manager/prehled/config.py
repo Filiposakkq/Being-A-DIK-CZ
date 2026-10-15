@@ -30,6 +30,9 @@ DEFAULTS = {
         "length": {"enabled": True, "min_source_chars": 12, "max_ratio": 2.2, "min_ratio": 0.45,
                    "min_extra_chars": 25, "min_missing_chars": 18},
     },
+    "goals": {"translate_per_week": 0, "proofread_per_week": 0},      # 0 = automatic, from the recent pace
+    "snapshots": {"enabled": True, "interval_hours": 12, "keep": 20},  # zip backups of the translation folder
+    "lint": {"sdk": ""},                                               # Ren'Py SDK folder for the game check
     "web": {"repo": "", "path": "web/progress.json", "title": "", "migrated_from": ""},
     "ui": {},
 }

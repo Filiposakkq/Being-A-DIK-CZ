@@ -178,6 +178,27 @@ the string literal (a bare `"`, a lone `\`) is skipped.
   text size come from the game's `gui.rpy` (`gui.dialogue_width`, `gui.text_size`; Being a DIK's values when the sources are not found), the
   estimated number of lines is compared with the limit from *Nastavení*. The game's own font is not used, so it is an estimate.
 
+## Backups of the translation folder and the Ren'Py lint
+
+**Snapshots** (*Nastavení → Zálohy souborů překladu*): a zip of every `.rpy` file in `_progress_data\snapshots`, made automatically at start (when the last
+one is older than the set hours), before bulk changes (replace, fixes, unify; at most one per 10 minutes) and on demand. **Obnovit…** lists the files of a
+snapshot with *liší se / chybí / stejný* and restores the ticked ones after a double confirmation; it first saves the current state as a snapshot
+*před obnovením*, so a restore can be undone the same way. Names and zip paths are validated (a zip cannot write outside the folder). The oldest are
+deleted beyond the set count, manual ones last; folders over 400 MB are not zipped.
+
+**Lint hry** (*Kontrola → Lint hry*): runs Ren'Py's own `lint` for the whole game with the SDK's bundled Python (`renpy.py <game> lint`, or `renpy.sh`), in
+the background, and lists findings of the form `file:line message` (with *Zobrazit* for lines in the translation) plus the complete output. Needs the SDK
+folder (*Nastavení*) and the game's `.rpy` sources above `game/tl/…`. The wrapper is covered by tests with a fake runner; I could not run it against a real
+Ren'Py SDK here, so try it on your game and tell me if the SDK layout differs.
+
+## Weekly goals and time estimates
+
+*Přehled* shows **Cíl na tento týden** for translating and for proofreading (weeks start on Monday): lines done this week against a goal, a status
+(*Splněno / Jdeš podle plánu / Zbývá N, to je asi M za den*) and what is needed per day to still make it. The goal comes from your own pace: the
+average of the last up to four complete weeks plus 10 %, rounded up to tens, never more than what is left; with less than two complete weeks of history
+there is no automatic goal. A goal set in *Nastavení → Týdenní cíle* wins (0 = automatic). Every episode also shows how many days it would take **at
+your current pace** (the same pace as the completion estimate, shown only when the history supports a forecast).
+
 ## History of a line
 
 *Historie textu* (under the editor) lists every text the line has had, newest first, with the time and how it came about: edit in the app, fix,

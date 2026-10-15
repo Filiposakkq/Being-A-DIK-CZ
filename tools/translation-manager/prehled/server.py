@@ -170,6 +170,9 @@ def make_handler(sess):
                 "ignore/list": lambda: {"ok": True, **app.ignored_list()},
                 "settings": lambda: {"ok": True, **app.settings()},
                 "fix/last": lambda: {"ok": True, **app.fix_last()},
+                "snapshots": lambda: {"ok": True, **app.snapshot_list()},
+                "snapshots/files": lambda: {"ok": True, **app.snapshot_files(q1(q, "name"))},
+                "lint/status": lambda: {"ok": True, **app.lint_status()},
                 "entry/history": lambda: {"ok": True, **app.entry_history(q1(q, "file"), int(q1(q, "line", "0")))},
                 "entry/memory": lambda: {"ok": True, **app.entry_memory(q1(q, "file"), int(q1(q, "line", "0")))},
                 "consistency": lambda: {"ok": True, **app.consistency()},
@@ -216,6 +219,7 @@ def make_handler(sess):
             def project_set():
                 path = str(d.get("path", "")).strip().strip('"')
                 app.open_project(path, force=bool(d.get("force")))
+                app.maybe_auto_snapshot()
                 return {"ok": True}
 
             def project_pick():
@@ -262,6 +266,10 @@ def make_handler(sess):
                 "fix/apply": lambda: app.fix_apply(list(d.get("items") or []), str(d.get("file", "")), list(d.get("kinds") or []),
                                                   list(d["selections"]) if d.get("selections") is not None else None),
                 "fix/undo": lambda: app.fix_undo(),
+                "snapshots/create": lambda: app.snapshot_create(),
+                "snapshots/restore": lambda: app.snapshot_restore(str(d.get("name", "")), d.get("files")),
+                "snapshots/delete": lambda: app.snapshot_delete(str(d.get("name", ""))),
+                "lint/start": lambda: app.lint_start(),
                 "consistency/unify": lambda: app.consistency_unify(str(d.get("key", "")), str(d.get("target", "")), d.get("lines")),
                 "ignore/set": lambda: app.ignore_set(list(d.get("items") or []), bool(d.get("on", True)), str(d.get("note", ""))),
                 "entry/check": lambda: {"ok": True, **app.entry_check(str(d["file"]), ints(d["line"]), str(d.get("text", "")))},

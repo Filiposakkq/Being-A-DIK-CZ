@@ -437,3 +437,10 @@ details.memory > summary, details.gamepreview > summary, details.texthistory > s
 .variant:last-child { border-bottom: 0; }
 .vlines { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; margin-top: 2px; }
 .grow { flex: 1; min-width: 0; }
+
+/* weekly goals */
+.goalrow { display: grid; grid-template-columns: 90px minmax(140px, 1fr) 90px auto minmax(0, 1.2fr); gap: 12px; align-items: center; padding: 5px 0; }
+.goalrow .muted { font-size: 12.5px; }
+@media (max-width: 1000px) { .goalrow { grid-template-columns: 80px 1fr 80px; } .goalrow .chip, .goalrow > .muted { grid-column: 2 / 4; } }
+
+.btn.danger.primary { background: var(--bad); border-color: var(--bad); color: #fff; }
