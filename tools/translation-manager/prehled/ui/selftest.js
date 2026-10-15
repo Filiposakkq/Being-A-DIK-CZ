@@ -67,9 +67,21 @@
         ok('po vrácení textu není editor „špinavý“', ta.dataset.dirty !== '1', 'zůstal data-dirty');
       }
     }
-    for (const [mode, label] of [['both', 'oba sloupce'], ['code', 'jen kód'], ['name', 'jen jméno']]) {
-      setPref('display.speaker', mode);
+    const pills = document.querySelectorAll('#view .pills .pill');
+    ok('Řádky mají pilulky stavů s počty', pills.length >= 6 && [...pills].every((b) => b.querySelector('.pc')), `pilulek: ${pills.length}`);
+    const todoPill = [...pills].find((b) => b.textContent.startsWith('K přeložení'));
+    if (todoPill) {
+      todoPill.click();
+      const chip1 = await waitFor(() => [...document.querySelectorAll('#view .fchip')].some((c) => c.textContent.includes('K přeložení')), 4000);
+      ok('výběr stavu přidá čip aktivního filtru', chip1, 'čip se neobjevil');
+      const reset = [...document.querySelectorAll('#view .fchips button')].find((b) => b.textContent.includes('Zrušit všechny filtry'));
+      ok('je tlačítko „Zrušit všechny filtry“', reset, 'chybí');
+      reset?.click();
+      await waitFor(() => !document.querySelector('#view .fchip'), 4000);
+      ok('reset filtrů odstraní čipy', !document.querySelector('#view .fchip'), 'čipy zůstaly');
     }
+    const moreBtn = [...document.querySelectorAll('#view .filterbar button')].find((b) => b.textContent.includes('Další filtry'));
+    ok('tlačítko „Další filtry“ existuje', moreBtn, 'chybí');
     setPref('display.speaker', 'both');
     const btn = [...document.querySelectorAll('#view button')].find((b) => b.textContent.includes('Schválit podle pravidla'));
     ok('tlačítko „Schválit podle pravidla“ existuje', btn, 'chybí');
@@ -86,6 +98,10 @@
   await step('Kontrola', async () => {
     await openView('validation');
     await waitFor(() => document.querySelector('#view .tablewrap, #view .empty'));
+    const api = await get('validation', { group: 'line' });
+    const shown = document.querySelectorAll('#view table.data tbody tr').length;
+    ok('Kontrola ukazuje jeden řádek tabulky na řádek překladu', shown === Math.min(api.total, 200), `řádků v tabulce: ${shown}, řádků s nálezem: ${api.total}`);
+    ok('Kontrola má pilulky závažnosti s počty', document.querySelectorAll('#view .pills .pill .pc').length >= 3, 'chybí');
     ok('Kontrola má přepínač ignorovaných', [...document.querySelectorAll('#view button')].some((b) => /Ignorované/.test(b.textContent)), 'chybí tlačítko Ignorované');
     const b = [...document.querySelectorAll('#view button')].find((x) => /Ignorované/.test(x.textContent));
     b?.click();

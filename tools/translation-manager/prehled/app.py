@@ -362,12 +362,14 @@ class App:
             per_file.setdefault(rel, {"error": 0, "warning": 0, "info": 0})["error"] += 1
         return counts, per_file
 
-    def validation_list(self, severity="", category="", file="", q="", offset=0, limit=200, ignored="hide"):
-        """Findings. ignored: "hide" (default) | "only" (just the ignored ones) | "all"."""
+    def validation_list(self, severity="", category="", file="", q="", offset=0, limit=200, ignored="hide", group=""):
+        """Findings. ignored: "hide" (default) | "only" (just the ignored ones) | "all".
+        group="line": one item per line with all its (matching) findings in `issues`; total counts lines."""
         self._need_project()
         out = []
         show_info = self.config.get("validation.show_info", False)
         enabled = self.config.get("validation.enabled", True)
+        sev_counts = {"error": 0, "warning": 0, "info": 0}     # for the filter pills: every filter except the severity
         for rel in sorted(self.project.files) if enabled else []:
             if file and rel != file:
                 continue
@@ -377,13 +379,14 @@ class App:
             if ignored in ("only", "all"):
                 rows += [(r, True) for r in self._issues(rel, True)]
             for (line, iss, e), is_ign in rows:
-                if severity and iss.severity != severity:
-                    continue
-                if not severity and iss.severity == "info" and not show_info:
-                    continue
                 if category and iss.category != category:
                     continue
                 if q and q.lower() not in (iss.message + " " + rel + " " + (e.target if e else "")).lower():
+                    continue
+                sev_counts[iss.severity] += 1
+                if severity and iss.severity != severity:
+                    continue
+                if not severity and iss.severity == "info" and not show_info:
                     continue
                 out.append({"file": rel, "line": line, "severity": iss.severity, "code": iss.code,
                             "category": iss.category, "message": iss.message,
@@ -391,15 +394,30 @@ class App:
                             "who": e.who if e else "", "extra": iss.extra,
                             "src_who": e.src_who if e else "", "ignored": is_ign,
                             "ignore_note": (self._ignored_mark(rel, e, iss) or {}).get("n", "") if is_ign else ""})
-        if (not severity or severity == "error") and not category and not q and ignored != "only":
+        if not category and not q and ignored != "only":
             for rel, line, first in self._duplicate_ids():
                 if not file or rel == file:
+                    sev_counts["error"] += 1
+                    if severity and severity != "error":
+                        continue
                     out.append({"file": rel, "line": line, "severity": "error", "code": "duplicate-id",
                                 "category": "structure", "message": f"Blok translate se stejným identifikátorem už existuje ({first}); Ren'Py ho odmítne.",
                                 "source": "", "target": "", "who": "", "extra": {}})
         order = {"error": 0, "warning": 1, "info": 2}
         out.sort(key=lambda r: (order[r["severity"]], r["file"].lower(), r["line"]))
-        return {"total": len(out), "items": out[offset:offset + limit]}
+        if group == "line":
+            lines = {}
+            for r in out:                                   # `out` is sorted by severity, so the first finding is the worst
+                g = lines.get((r["file"], r["line"]))
+                if g is None:
+                    g = lines[(r["file"], r["line"])] = {"file": r["file"], "line": r["line"], "severity": r["severity"],
+                                                          "source": r["source"], "target": r["target"], "who": r["who"],
+                                                          "src_who": r.get("src_who", ""), "issues": []}
+                g["issues"].append({k: r[k] for k in ("severity", "code", "category", "message", "extra", "ignored", "ignore_note")
+                                    if k in r})
+            grouped = sorted(lines.values(), key=lambda g: (order[g["severity"]], g["file"].lower(), g["line"]))
+            return {"total": len(grouped), "findings": len(out), "sev_counts": sev_counts, "items": grouped[offset:offset + limit]}
+        return {"total": len(out), "sev_counts": sev_counts, "items": out[offset:offset + limit]}
 
     # ------------------------------------------------------------ overview / files
     def estimate(self):
@@ -496,24 +514,14 @@ class App:
                 for line, iss, _e in self._issues(rel):
                     iss_by.setdefault((rel, line), []).append(iss)
         rows = []
+        counts = {k: 0 for k in ("all", "todo", "approved", "translated", "review", "proofed", "fix", "stale")}
         for rel in files:
             for e in self.project.entries(rel):
                 st = self._entry_row(rel, e)
-                if status == "todo" and st != "todo":
-                    continue
-                if status == "approved" and st != "approved":
-                    continue
-                if status == "translated" and st != "translated":
-                    continue
                 pf = self.project.proof_state(rel, e) if st != "todo" else ""
-                if status == "review" and (st == "todo" or pf in ("ok", "fix")):
-                    continue
-                if status == "proofed" and pf != "ok":
-                    continue
-                if status == "fix" and pf != "fix":
-                    continue
-                if status == "stale" and pf != "stale":
-                    continue
+                member = {"all": True, "todo": st == "todo", "approved": st == "approved", "translated": st == "translated",
+                          "review": st != "todo" and pf not in ("ok", "fix"), "proofed": pf == "ok", "fix": pf == "fix",
+                          "stale": pf == "stale"}
                 kinds = rpy.KIND_CODE.get(e.category, "")
                 if kind and kinds != kind:
                     continue
@@ -531,6 +539,11 @@ class App:
                         and ql not in e.who.lower() and ql not in rel.lower() \
                         and ql not in self.store.glossary.get(self.speaker_code(e.who), {}).get("n", "").lower():
                     continue
+                for k, v in member.items():            # counts for the status pills: every filter except the status itself
+                    if v:
+                        counts[k] += 1
+                if status in member and not member[status]:
+                    continue
                 rows.append((rel, e, st, shown, pf))
         if sort == "kind":
             rows.sort(key=lambda r: (rpy.KIND_RANK.get(r[1].category, 9), r[0].lower(), r[1].line))
@@ -544,7 +557,7 @@ class App:
             if idx is not None:
                 offset = max(0, idx - 30)
         page = rows[offset:offset + limit]
-        return {"total": total, "offset": offset, "items": [{
+        return {"total": total, "offset": offset, "counts": counts, "items": [{
             "file": rel, "line": e.line, "src_line": e.src_line, "block": e.block, "who": e.who,
             "source": e.source, "target": e.target, "status": st,
             "kind": rpy.KIND_CODE.get(e.category, ""), "proof": pf, "unit": e.unit, "ref": e.ref,

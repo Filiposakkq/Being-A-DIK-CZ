@@ -166,7 +166,7 @@ def make_handler(sess):
                 "validation": lambda: {"ok": True, **app.validation_list(
                     severity=q1(q, "severity"), category=q1(q, "category"), file=q1(q, "file"), q=q1(q, "q"),
                     offset=max(0, int(q1(q, "offset", "0") or 0)), limit=int(q1(q, "limit", "200") or 200),
-                    ignored=q1(q, "ignored", "hide"))},
+                    ignored=q1(q, "ignored", "hide"), group=q1(q, "group"))},
                 "ignore/list": lambda: {"ok": True, **app.ignored_list()},
                 "settings": lambda: {"ok": True, **app.settings()},
                 "fix/last": lambda: {"ok": True, **app.fix_last()},

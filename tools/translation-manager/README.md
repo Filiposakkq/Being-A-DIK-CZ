@@ -1,4 +1,4 @@
-# BaDIK Translation Manager 1.2
+# BaDIK Translation Manager 1.3
 
 Desktop tool for the Czech fan translation of *Being a DIK*. It reads the Ren'Py translation files
 (`game/tl/czech/**/*.rpy`), tracks translation and proofreading progress per file, episode and season, checks the
@@ -186,6 +186,15 @@ when the text changes it expires (*Text se změnil*) and the finding shows up ag
 it with `?selftest=1`. `prehled/ui/selftest.js` walks through every tab and the main dialogs, fails on any JavaScript error and shows a PASS / FAIL
 panel (window title `SELFTEST PASS (n)`). Only in that synthetic project does it also save a translation and undo it, and ignore / restore a finding.
 On your own project, opening `?selftest=1` only reads. Python tests (`tests\test_ui_selftest_assets.py`) check that the harness and its project stay valid.
+
+## Filters
+
+Every list uses the same filter bar. In *Řádky*: search, file, and the **status as pills with counts** (*Vše, K přeložení, Přeložené, Schválené, Ke
+korektuře, K opravě, Změněno po korektuře, Zkontrolované*). The counts honour all other filters, so you see what a pill would show before clicking it.
+*Další filtry* (type, kind of untranslated line, validator result, sort order, speaker display) opens automatically when one of them is active.
+Below, **active filters appear as removable chips** with *Zrušit všechny filtry*. *Kontrola* has the same bar (severity pills with counts, file, kind,
+search) and shows **one table row per translation line with all its findings listed under each other** (each with its own *Opravit* / *Ignorovat…*,
+plus *Ignorovat všech N…* for the line). *Soubory* and *Slovník* use the same labelled groups.
 
 ## Look
 
