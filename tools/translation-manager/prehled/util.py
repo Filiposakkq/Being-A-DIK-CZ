@@ -7,7 +7,7 @@ import shutil
 import tempfile
 import time
 import unicodedata
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 
@@ -43,7 +43,11 @@ def make_backup(path, backup_dir, keep=20, min_interval=300):
     existing = sorted(backup_dir.glob(path.name + ".*.bak"))
     if existing and min_interval and time.time() - existing[-1].stat().st_mtime < min_interval:
         return None
-    dest = backup_dir / f"{path.name}.{datetime.now():%Y%m%d-%H%M%S-%f}.bak"
+    now = datetime.now()
+    dest = backup_dir / f"{path.name}.{now:%Y%m%d-%H%M%S-%f}.bak"
+    while dest.exists():            # the Windows clock can repeat within one tick: never overwrite a backup
+        now += timedelta(microseconds=1)    # keeps the names sortable by time
+        dest = backup_dir / f"{path.name}.{now:%Y%m%d-%H%M%S-%f}.bak"
     shutil.copy2(path, dest)
     existing = sorted(backup_dir.glob(path.name + ".*.bak"))
     for old in existing[:-keep] if keep else []:
