@@ -63,7 +63,7 @@ async function request(method, path, body) {
   return data;
 }
 const get = (p, q) => request('GET', p, q);
-const clearCtx = () => { S.ctxCache?.clear(); S.ctxDone?.clear(); };
+const clearCtx = () => { S.ctxCache?.clear(); S.ctxDone?.clear(); S.scenesCache = {}; };       // the scene list itself (S.scenesDone) stays: it is refreshed in the background
 const post = (p, b) => { if (p !== 'focus' && p !== 'prefs' && p !== 'entry/check') clearCtx(); return request('POST', p, b); };   // a write may change the neighbouring lines
 
 /* ---------------------------------------------------------------- state & prefs */
@@ -160,20 +160,37 @@ function paintFocusBar() {
   let bar = $('#focusbar');
   if (!S.focus) { bar?.remove(); return; }
   if (!bar) { bar = h('div', { id: 'focusbar', class: 'focusbar', role: 'toolbar', 'aria-label': 'Soustředění' }); document.body.append(bar); }
-  const rest = S.ent?.counts?.todo;
+  const rest = S.ent?.counts?.todo, rev = S.ent?.counts?.review;
   bar.replaceChildren(
     h('button', { class: 'btn small', title: 'Vrátit horní lištu a záložky (Ctrl+Shift+F)', onclick: () => setFocus(false) }, '⤢ Zobrazit vše'),
     layoutMenu(),
+    S.quick ? h('div', { class: 'seg', role: 'group', 'aria-label': 'Rychlý režim' },
+      h('button', { class: S.quick === 'tr' ? 'on' : '', title: 'Jen nepřeložené řádky, editor se zaměří sám', onclick: () => S.quick !== 'tr' && enterQuick() }, 'Překlad'),
+      h('button', { class: S.quick === 'proof' ? 'on' : '', title: 'Jen řádky ke kontrole, P zkontroluje a skočí dál', onclick: () => S.quick !== 'proof' && enterProof() }, 'Korektura')) : null,
     h('button', { class: 'btn small icon', title: 'Celá obrazovka (F11)', onclick: () => toggleFullscreen() }, icon('full', 14)),
     h('button', { class: 'btn small icon', title: 'Vrátit poslední změnu (Ctrl+Z)', onclick: () => $('#undoBtn')?.click() }, icon('undo', 14)),
-    S.quick ? h('span', { class: 'muted' }, 'Rychlé překládání' + (rest != null ? ` · zbývá ${rest}` : '')) : null);
+    ...(S.quick === 'proof' ? [
+      h('button', { class: 'btn small primary', title: 'Označí řádek jako zkontrolovaný a přejde na další (P)', onclick: () => S.ent?.api?.toggleProof() }, '✓ Zkontrolováno'),
+      h('button', { class: 'btn small', title: 'Označí řádek k opravě (F)', onclick: () => S.ent?.api?.flagFix() }, '⚑ K opravě'),
+      h('button', { class: 'btn small icon', title: 'Předchozí řádek (↑)', onclick: () => S.ent?.api?.select(S.ent.sel - 1) }, '↑'),
+      h('button', { class: 'btn small icon', title: 'Další řádek (↓)', onclick: () => S.ent?.api?.select(S.ent.sel + 1) }, '↓'),
+      h('span', { class: 'muted' }, 'Korektura' + (rev != null ? ` · zbývá zkontrolovat ${rev}` : ''))]
+      : S.quick ? [h('span', { class: 'muted' }, 'Rychlé překládání' + (rest != null ? ` · zbývá přeložit ${rest}` : '') + (rev != null ? ` · zkontrolovat ${rev}` : ''))] : []));
 }
 function enterQuick() {
   setPref('entries.layout', 'film'); setPref('ui.detailTab', 'check');
   setPref('entries.status', 'todo');
-  S.quick = true;
+  S.quick = 'tr';
   setFocus(true);
   go('entries', { status: 'todo', file: pref('entries.file', ''), select: true });
+}
+/* Quick proofreading: film layout + focus mode + only lines still to be checked; P marks a line as checked and moves on, F flags it for a fix. */
+function enterProof() {
+  setPref('entries.layout', 'film'); setPref('ui.detailTab', 'proof');
+  setPref('entries.status', 'review');
+  S.quick = 'proof';
+  setFocus(true);
+  go('entries', { status: 'review', file: pref('entries.file', ''), select: true });
 }
 
 /* Layouts of the line list + detail: the built-in ones, "Dva monitory" (detail window) and the user's own saved ones. */
@@ -211,7 +228,7 @@ function layoutMenu() {
   const custom = Object.keys(pref('ui.presets', {}));
   return menuButton('Rozložení', [
     ...LAYOUTS.map(([k, label, hint]) => ({ label: (cur === k ? '✓ ' : '') + label, hint, run: () => applyLayout(k) })),
-    { label: 'Rychlé překládání', hint: 'scéna + editor, jen nepřeložené, bez rušení', run: () => enterQuick() },
+    { label: 'Rychlý režim', hint: 'překlad nebo korektura: scéna + editor, bez rušení', run: () => enterQuick() },
     { label: 'Dva monitory', hint: 'detail ve druhém okně', run: () => openDetailWindow() },
     ...custom.map((n) => ({ label: '★ ' + n, hint: 'vlastní', run: () => applyPreset(n) })),
     { label: 'Uložit aktuální rozložení…', run: savePreset },
@@ -335,7 +352,7 @@ const STATUS_LABEL = { done: 'Hotovo', rev: 'Korektura', proof: 'V korekci', tr:
 const ENTRY_LABEL = { translated: 'Přeloženo', approved: 'Schváleno', todo: 'Nepřeloženo' };
 const KIND_LABEL = { empty: 'prázdný', english: 'anglicky', same: 'shodné', symbols: 'jen znaky' };
 const SEV_LABEL = { error: 'Chyba', warning: 'Varování', info: 'Info' };
-const proofChip = (p) => (p === 'ok' ? chip('proof', '✓ zkontrolováno') : p === 'fix' ? chip('warning', '⚑ k opravě')
+const proofChip = (p) => (p === 'ok' ? chip('proof', '✓ Zkontrolováno') : p === 'fix' ? chip('warning', '⚑ k opravě')
   : p === 'stale' ? chip('info', '↻ změněno po korektuře') : null);
 const chip = (cls, text) => h('span', { class: 'chip ' + cls }, text);
 function bar(pct, cls = '') { return h('div', { class: 'bar ' + cls }, h('i', { style: { width: clamp01(pct) + '%' } })); }
@@ -658,7 +675,7 @@ async function viewOverview() {
       h('div', { class: 'sub' }, `${o.file_counts.none + o.file_counts.wip} z ${o.project.files} souborů nedokončeno`)),
     h('div', { class: 'panel stat' }, h('div', { class: 'label' }, 'Korektura'),
       h('div', { class: 'value' }, fmtPct(t.proofread_percent)), bar(t.proofread_percent, 'alt'),
-      h('div', { class: 'sub' }, `${fmtN(t.proofread)} / ${fmtN(t.total)} řádků zkontrolováno`),
+      h('div', { class: 'sub' }, `Zkontrolováno: ${fmtN(t.proofread)} / ${fmtN(t.total)} řádků`),
       h('div', { class: 'sub' }, `řádek po řádku označeno ${fmtN(t.proof_marked)}`, t.proof_fix ? [' · ', h('a', { href: '#', onclick: (ev) => { ev.preventDefault(); go('entries', { file: '', status: 'fix' }); } }, `k opravě ${fmtN(t.proof_fix)}`)] : null),
       t.proof_stale ? h('div', { class: 'sub' }, h('a', { href: '#', onclick: (ev) => { ev.preventDefault(); go('entries', { file: '', status: 'stale' }); } }, `↻ změněno po korektuře ${fmtN(t.proof_stale)}`), ' – překlad se po označení změnil') : null,
       h('div', { class: 'row', style: { marginTop: '8px' } },
@@ -728,14 +745,15 @@ function overviewHero(o, files) {
   return h('div', { class: 'panel hero' },
     h('div', { class: 'hero-ring' }, ringChart(t.percent, t.proofread_percent), h('div', { class: 'hero-pct' }, h('b', null, fmtPct(t.percent)), h('span', { class: 'muted' }, 'přeloženo'))),
     h('div', { class: 'hero-body' },
-      h('h2', null, t.remaining ? `Zbývá ${fmtN(t.remaining)} ${plural(t.remaining, 'řádek', 'řádky', 'řádků')}` : 'Vše je přeloženo'),
+      h('h2', null, t.remaining ? `Zbývá přeložit ${fmtN(t.remaining)} ${plural(t.remaining, 'řádek', 'řádky', 'řádků')}` : 'Vše je přeloženo'),
       h('div', { class: 'muted' }, [
         e.pace_per_day ? `tempo ≈ ${fmtN(Math.round(e.pace_per_day))} řádků za den` : '',
         e.status === 'ok' && e.eta ? `odhad dokončení ${dateCz(e.eta)}` : '',
-        `korektura ${fmtPct(t.proofread_percent)}`].filter(Boolean).join(' · ')),
+        `zbývá zkontrolovat ${fmtN(Math.max(0, t.total - t.proofread))} (${fmtPct(t.proofread_percent)} hotovo)`].filter(Boolean).join(' · ')),
       h('div', { class: 'row', style: { marginTop: '12px', flexWrap: 'wrap' } },
         h('button', { class: 'btn primary', onclick: resume }, last && last.file ? `Pokračovat: ${last.file.split(/[\\/]/).pop()}:${last.line}` : 'Začít překládat'),
         h('button', { class: 'btn', title: 'Scéna a editor přes celou obrazovku, jen nepřeložené řádky', onclick: () => enterQuick() }, 'Rychle překládat'),
+        t.total - t.proofread > 0 ? h('button', { class: 'btn', title: 'Scéna a editor přes celou obrazovku, jen řádky ke kontrole (P zkontroluje a skočí dál)', onclick: () => enterProof() }, 'Rychle zkontrolovat') : null,
         near ? h('button', { class: 'btn ghost', title: `Soubor s nejmenším zbytkem: ${near.name}`, onclick: () => go('entries', { file: near.name, status: 'todo', select: true }) }, `Nejblíž dokončení: ${near.name.split(/[\\/]/).pop()} (zbývá ${fmtN(near.todo)})`) : null)));
 }
 function goalsPanel(g) {
@@ -792,7 +810,7 @@ function seasonPanel(s, episodes) {
 const FL_COLS = [
   { k: 'pick', w: 38, label: '', resize: false }, { k: 'name', w: 430, label: 'Soubor', sortable: true },
   { k: 'assign', w: 140, label: 'Zařazení', sortable: true }, { k: 'tp', w: 250, label: 'Překlad', sortable: true },
-  { k: 'cp', w: 230, label: 'Korektura', sortable: true }, { k: 'todo', w: 80, label: 'Zbývá', sortable: true },
+  { k: 'cp', w: 230, label: 'Korektura', sortable: true }, { k: 'todo', w: 110, label: 'Zbývá přeložit', sortable: true }, { k: 'rev', w: 130, label: 'Zbývá zkontrolovat', sortable: true },
   { k: 'order', w: 112, label: 'Stav', sortable: true }, { k: 'warn', w: 84, label: 'Kontrola', sortable: true },
 ];
 const assignKey = (a) => (!a ? 1000 : a === 'gen' ? 900 : parseInt(a.slice(3), 10));
@@ -804,7 +822,7 @@ function fileView() {
     ((f.filter || 'all') === 'all' || (f.filter === 'open' && r.todo > 0) || (f.filter === 'rev' && r.todo === 0 && r.corr < r.total) || (f.filter === 'done' && r.corr >= r.total)));
   const sk = f.sortk || 'name', dir = f.sortdir || 1;
   const val = { name: (r) => r.name.toLowerCase(), assign: (r) => assignKey(r.assign), tp: (r) => r.done / r.total, cp: (r) => r.corr / r.total,
-    todo: (r) => r.todo, order: (r) => r.order, warn: (r) => r.errors * 1000 + r.warnings };
+    todo: (r) => r.todo, rev: (r) => Math.max(0, r.total - r.corr), order: (r) => r.order, warn: (r) => r.errors * 1000 + r.warnings };
   rows = rows.slice().sort((a, b) => { const x = val[sk](a), y = val[sk](b); return (x < y ? -1 : x > y ? 1 : a.name.localeCompare(b.name, 'cs', { numeric: true })) * dir; });
   return rows;
 }
@@ -839,9 +857,9 @@ async function viewFiles() {
     const t = buildTable({ key: 'files', cols, sort: { k: sk, dir }, onSort: (k) => { setPref('files.sortdir', k === sk ? -dir : 1); setPref('files.sortk', k); draw(); } });
     const tw = h('div', { class: 'tablewrap' }, t.table);
     if (!rows.length) tw.append(empty('Žádné soubory', 'Změň filtr nebo hledaný text.'));
-    let d = 0, tot = 0, c = 0, rem = 0;
+    let d = 0, tot = 0, c = 0, rem = 0, remRev = 0;
     rows.forEach((r, idx) => {
-      d += r.done; tot += r.total; c += r.corr; rem += r.todo;
+      d += r.done; tot += r.total; c += r.corr; rem += r.todo; remRev += Math.max(0, r.total - r.corr);
       const picked = S.fl.picked.has(r.name);
       const tr = h('tr', { class: (S.fl.sel === r.name ? 'sel ' : '') + (picked ? 'picked' : ''), onclick: () => { S.fl.sel = r.name; draw(); drawDetail(); } },
         h('td', { class: 'center' }, h('input', { type: 'checkbox', checked: picked, 'aria-label': 'Vybrat ' + r.name, onclick: (e) => {
@@ -855,12 +873,12 @@ async function viewFiles() {
           try { await post('assign', { name: r.name, v: e.target.value }); r.assign = e.target.value; toast(`Zařazení: ${r.name.split(/[\\/]/).pop()} → ${e.target.selectedOptions[0].text}`); refreshHeader(); draw(); drawDetail(); } catch (err) { fail(err); e.target.value = r.assign; }
         } }, h('option', { value: '' }, 'Nepřiřazeno'), h('option', { value: 'gen' }, 'Obecné'), [1, 2, 3, 4, 5, 6, 7, 8].map((n) => h('option', { value: 'ep:' + n }, `Epizoda ${n}`)))),
         h('td', null, numCell(r, 't')), h('td', null, numCell(r, 'c')),
-        h('td', { class: 'num' }, fmtN(r.todo)), h('td', null, chip(r.status, STATUS_LABEL[r.status])),
+        h('td', { class: 'num' }, fmtN(r.todo)), h('td', { class: 'num' }, fmtN(Math.max(0, r.total - r.corr))), h('td', null, chip(r.status, STATUS_LABEL[r.status])),
         h('td', null, r.errors ? h('span', { class: 'badge', title: 'Chyby' }, r.errors) : null, ' ', r.warnings ? h('span', { class: 'badge warn', title: 'Varování' }, r.warnings) : null));
       t.tbody.append(tr);
     });
     t.tfoot.append(h('tr', null, h('td'), h('td', null, `Celkem (zobrazeno ${rows.length})`), h('td'),
-      h('td', { class: 'num' }, `${fmtN(d)} / ${fmtN(tot)}  (${fmtPct(tot ? d / tot * 100 : 0)})`), h('td', { class: 'num' }, `${fmtN(c)} (${fmtPct(tot ? c / tot * 100 : 0)})`), h('td', { class: 'num' }, fmtN(rem)), h('td'), h('td')));
+      h('td', { class: 'num' }, `${fmtN(d)} / ${fmtN(tot)}  (${fmtPct(tot ? d / tot * 100 : 0)})`), h('td', { class: 'num' }, `${fmtN(c)} (${fmtPct(tot ? c / tot * 100 : 0)})`), h('td', { class: 'num' }, fmtN(rem)), h('td', { class: 'num' }, fmtN(remRev)), h('td'), h('td')));
     const keep = wrap.scrollTop;
     wrap.replaceChildren(tw); wrap.scrollTop = keep;
     counter.textContent = `Zobrazeno ${rows.length} z ${S.files.length} souborů`;
@@ -905,7 +923,8 @@ async function viewFiles() {
         h('dt', null, 'Přeloženo'), h('dd', null, `${fmtN(r.done)} (${fmtPct(total ? r.done / total * 100 : 0)})`),
         h('dt', null, 'z toho ručně schváleno'), h('dd', null, fmtN(r.approved)),
         h('dt', null, 'Automaticky napočteno'), h('dd', null, fmtN(r.auto)),
-        h('dt', null, 'Zbývá'), h('dd', null, fmtN(r.todo)),
+        h('dt', null, 'Zbývá přeložit'), h('dd', null, fmtN(r.todo)),
+        h('dt', null, 'Zbývá zkontrolovat'), h('dd', null, fmtN(Math.max(0, total - r.corr))),
         h('dt', null, 'Zkontrolováno'), h('dd', null, `${fmtN(r.corr)} (${fmtPct(total ? r.corr / total * 100 : 0)})`),
         h('dt', null, 'z toho řádek po řádku'), h('dd', null, fmtN(r.proof_marked)),
         h('dt', null, 'K opravě'), h('dd', null, r.proof_fix ? h('button', { class: 'btn small', onclick: () => go('entries', { file: r.name, status: 'fix' }) }, fmtN(r.proof_fix)) : '0'),
@@ -1068,7 +1087,7 @@ async function viewEntries() {
   const OPTS = {
     unit: [['', 'Dialogy i volby'], ['dialogue', 'Jen dialogy'], ['string', 'Jen volby (strings)']],
     kind: [['', 'Všechny druhy'], ['english', 'Anglicky'], ['same', 'Shodné, možná OK'], ['symbols', 'Jen znaky'], ['empty', 'Prázdné']],
-    issues: [['', 'Vše'], ['any', 'S problémem'], ['error', 'S chybou'], ['warning', 'S varováním']],
+    issues: [['', 'Vše'], ['any', 'S problémem'], ['error', 'S chybou'], ['warning', 'S varováním'], ['overflow', 'Nevejde se do okna hry']],
     sort: [['line', 'Řádek'], ['file', 'Soubor'], ['kind', 'Druh'], ['issues', 'Problémy']],
   };
   const FILTER_NAMES = { unit: 'Typ', kind: 'Druh', issues: 'Kontrola' };
@@ -1161,12 +1180,12 @@ async function viewEntries() {
   function rowFor(it, i) {
     const hasErr = it.issues.some((x) => x.severity === 'error');
     const sev = hasErr ? 'error' : it.issues.length ? 'warning' : '';
-    return h('tr', { class: `status-${it.status} ${hasErr ? 'has-error' : ''} ${S.ent.sel === i ? 'sel' : ''} ${picked().has(pickKey(it)) ? 'picked' : ''}`, dataset: { i }, onclick: (ev) => rowClick(ev, i, it), ondblclick: () => openEditor(it.file, it.line) },
+    return h('tr', { class: `status-${it.status} ${hasErr ? 'has-error' : ''} ${it.issues.some((x) => x.code === 'textbox-overflow') ? 'ovf' : ''} ${S.ent.sel === i ? 'sel' : ''} ${picked().has(pickKey(it)) ? 'picked' : ''}`, dataset: { i }, onclick: (ev) => rowClick(ev, i, it), ondblclick: () => openEditor(it.file, it.line) },
       S.ent.showFile ? h('td', null, fname(it.file)) : null,
       h('td', { class: 'num' }, it.line), h('td', { class: 'mono muted', style: { fontSize: '12px' } }, it.ref ? it.ref.replace(/^game\//, '') : '–'),
       h('td', null, it.unit === 'string' ? h('span', { class: 'chip choice', title: 'Text z „translate strings“ – většinou volba v menu nebo text rozhraní' }, 'Volba') : h('span', { class: 'muted' }, 'Dialog')),
       h('td', null, chip(it.status, ENTRY_LABEL[it.status]), it.kind && it.status !== 'translated' ? h('div', { class: 'muted', style: { fontSize: '11.5px' } }, KIND_LABEL[it.kind]) : null),
-      h('td', null, it.status === 'todo' ? h('span', { class: 'muted' }, '–') : (proofChip(it.proof) || h('span', { class: 'muted' }, 'nezkontrolováno'))),
+      h('td', null, it.status === 'todo' ? h('span', { class: 'muted' }, '–') : (proofChip(it.proof) || h('span', { class: 'muted' }, 'Nezkontrolováno'))),
       speakerMode() !== 'name' ? h('td', { class: 'who' }, speakerBadge(it.who), it.who ? ' ' : null, it.who) : null,
       speakerMode() !== 'code' ? h('td', { class: 'whoname' }, speakerName(it.who) || h('span', { class: 'muted' }, it.who ? '–' : '')) : null,
       h('td', { class: 'txt entry-source' }, fmtText(it.source ?? '')), h('td', { class: 'txt entry-target' }, fmtText(it.target)),
@@ -1215,17 +1234,22 @@ async function viewEntries() {
     if (open?.dataset.dirty === '1' && !(await confirmDialog('Neuložený překlad', 'Text tohoto řádku jsi změnil a neuložil. Zahodit změny?', 'Zahodit změny'))) return;
     tbody.querySelector('tr.sel')?.classList.remove('sel');
     S.ent.sel = i;
-    if (S.quick) S.ent.focusEdit = true;
+    if (S.quick === 'tr') S.ent.focusEdit = true;
     const tr = tbody.children[i];
     tr?.classList.add('sel');
     tr?.scrollIntoView({ block: 'nearest' });
     const it = S.ent.items[i];
-    if (!COMPANION) { announceFocus(it); setPref('ui.last', { file: it.file, line: it.line }); }
+    if (!COMPANION) {
+      announceFocus(it);
+      (S.prefs.ui ||= {}).last = { file: it.file, line: it.line };                    // in memory at once, written after a pause
+      clearTimeout(S.lastT); S.lastT = setTimeout(() => setPref('ui.last', S.prefs.ui.last), 6000);
+    }
     const tab = pref('ui.detailTab', 'scene');
     const pre = (COMPANION ? (S.compFull || tab === 'scene') : (film || (tab === 'scene' && !(S.companionOpen && pref('ui.slimMain', true))))) ? prefetchScene(it.file, it.line).catch(() => {}) : null;
     try { S.ent.detail = await get('entry', { file: it.file, line: it.line }); } catch (err) { S.ent.detail = null; drawDetail(null, err.message); return; }
     if (pre) await pre;
     if (S.ent.sel === i) { const top = detail.scrollTop; drawDetail(S.ent.detail); detail.scrollTop = top; requestAnimationFrame(() => { if (S.ent.sel === i) detail.scrollTop = top; }); }
+    if (film) for (const k of [i + 1, S.quick === 'proof' ? nextToReview(i) : i + 2]) { const x = S.ent.items[k]; if (x && k !== i) prefetchScene(x.file, x.line).catch(() => {}); }
     if (i >= S.ent.items.length - 15 && S.ent.start + S.ent.items.length < S.ent.total) load(false);
   }
   function drawDetail(d, err) {
@@ -1238,6 +1262,7 @@ async function viewEntries() {
         h('span', { class: 'path', title: d.ref ? `původní skript: ${d.ref}` : '' }, `${d.file}:${d.line}`),
         d.unit === 'string' ? chip('choice', 'Volba') : chip('none', 'Dialog'),
         chip(d.status, ENTRY_LABEL[d.status] + (d.kind_label && d.status !== 'translated' ? ` · ${d.kind_label}` : '')),
+        d.status !== 'todo' ? (proofChip(d.proof) || chip('none', 'Nezkontrolováno')) : null,
         h('span', { class: 'spacer' }),
         canApprove ? h('button', { class: 'btn small primary', onclick: () => toggleApprove() }, d.status === 'approved' ? 'Zrušit schválení (A)' : 'Schválit (A)') : null,
         h('button', { class: 'btn small', title: 'Otevře soubor na tomhle řádku v externím editoru', onclick: () => openEditor(d.file, d.line) }, 'Editor (E)'),
@@ -1259,14 +1284,74 @@ async function viewEntries() {
     const i = S.ent.items.findIndex((x) => x.file === file && x.line === line);
     if (i >= 0) select(i); else go('entries', { file, line, status: 'all', select: true });
   }
+  /* Scenes of a file (from the `scene` statements of the game script), fetched once per file and kept until something is written. */
+  function scenesFor(file) {
+    S.scenesCache ||= {}; S.scenesDone ||= {};
+    if (!S.scenesCache[file]) S.scenesCache[file] = get('scenes', { file, line: 0 }).then((r) => { S.scenesDone[file] = r; return r; }).catch(() => { const r = { available: false, items: [] }; S.scenesDone[file] = r; return r; });
+    return S.scenesCache[file];
+  }
+  async function fileRowsReady() { if (!S.files) S.files = (await get('files')).files; S.filesOld = S.files; return S.files; }
+  /* Repaint the strips in place (e.g. after P: the neighbouring card gets its tick, the file counters move) without redrawing the whole detail. */
+  /* Counters move at once from what we know; the real numbers (overview, files, scenes) are fetched only after a short pause. */
+  function bumpLocal(file, line, dDone, dProof) {
+    const row = (S.files || S.filesOld || []).find((x) => x.name === file);
+    if (row) { row.done = Math.max(0, row.done + dDone); row.todo = Math.max(0, row.todo - dDone); row.corr = Math.max(0, row.corr + dProof); }
+    const sc = S.scenesDone?.[file];
+    if (sc?.items?.length) { let k = 0; sc.items.forEach((it, i) => { if (it.line <= line) k = i; }); const it = sc.items[k]; it.done = Math.max(0, it.done + dDone); it.proofed = Math.max(0, it.proofed + dProof); }
+    refreshFileStrip();
+  }
+  function lazyRefresh() {
+    clearTimeout(S.lazyT);
+    S.lazyT = setTimeout(async () => {
+      const file = S.ent.detail?.file;
+      S.files = null; S.scenesCache = {};
+      try { await refreshHeader(); if (file && S.view === 'entries') { await Promise.all([fileRowsReady(), scenesFor(file)]); refreshFileStrip(); } } catch { /* the next pause tries again */ }
+    }, 2500);
+  }
+  function refreshFileStrip() { const el = $('#entryDetail .filestrip'), d = S.ent.detail; if (el && d) el.replaceWith(fileStrip(d, true)); }
+  function refreshStrips() { const d = S.ent.detail; if (!d) return; $('#entryDetail .filmstrip')?.replaceWith(filmStrip(d)); refreshFileStrip(); }
+  async function jumpNext(file, line, kind) {
+    try {
+      const r = await get('entry/next', { file, line, kind });
+      if (!r.line) return toast('V tomhle souboru už žádný takový řádek není.', 'ok', 2200);
+      if (r.wrapped) toast('Hledání pokračuje od začátku souboru.', 'ok', 1600);
+      goLine(file, r.line);
+    } catch (e) { fail(e); }
+  }
+  /* Progress of the file the line belongs to (translation and proofreading apart) and jumps: next scene, next untranslated / unchecked / too long. */
+  function fileStrip(d, retried = false) {
+    const box = h('div', { class: 'filestrip' });
+    const row = (S.files || S.filesOld || []).find((x) => x.name === d.file);
+    const sc = S.scenesDone?.[d.file];
+    const pct = (a, b) => (b ? Math.round((a / b) * 100) : 0);
+    const bars = row ? h('div', { class: 'fsbars' },
+      h('div', { class: 'fsb' }, h('span', null, `Přeloženo ${pct(row.done, row.total)} %`), bar(pct(row.done, row.total)), h('span', { class: 'muted' }, `zbývá přeložit ${fmtN(row.todo)}`)),
+      h('div', { class: 'fsb' }, h('span', null, `Zkontrolováno ${pct(row.corr, row.total)} %`), bar(pct(row.corr, row.total), 'alt'), h('span', { class: 'muted' }, `zbývá zkontrolovat ${fmtN(Math.max(0, row.total - row.corr))}`))) : null;
+    const items = sc?.available ? sc.items : [];
+    let cur = -1; items.forEach((it, i) => { if (it.line <= d.line) cur = i; });
+    const goScene = (i) => { if (items[i]) goLine(d.file, items[i].line); };
+    const nav = h('div', { class: 'fsnav' },
+      items.length ? h('button', { class: 'btn small', disabled: cur <= 0, title: 'První řádek předchozí scény', onclick: () => goScene(cur - 1) }, '◀ Scéna') : null,
+      items.length ? menuButton(`Scéna ${cur + 1} / ${items.length}`, items.map((it, i) => ({ label: `${i + 1}. ${it.name || '—'}`, hint: `${it.done}/${it.count} · ✓ ${it.proofed}`, run: () => goScene(i) })), { title: 'Seznam scén souboru: přeloženo / řádků · zkontrolováno' }) : null,
+      items.length ? h('button', { class: 'btn small', disabled: cur < 0 || cur >= items.length - 1, title: 'První řádek další scény', onclick: () => goScene(cur + 1) }, 'Scéna ▶') : null,
+      h('span', { class: 'spacer' }),
+      h('button', { class: 'btn small', title: 'Další nepřeložený řádek v souboru', onclick: () => jumpNext(d.file, d.line, 'todo') }, 'Další nepřeložený'),
+      h('button', { class: 'btn small', title: 'Další přeložený, ale nezkontrolovaný řádek', onclick: () => jumpNext(d.file, d.line, 'review') }, 'Další nezkontrolovaný'),
+      h('button', { class: 'btn small', title: 'Další řádek, který se nevejde do okna hry', onclick: () => jumpNext(d.file, d.line, 'over') }, 'Další, co se nevejde'));
+    box.append(h('div', { class: 'fsname' }, fname(d.file)), bars, nav);
+    if (!retried && (!row || !sc)) { fileRowsReady().then(() => scenesFor(d.file)).then(() => { if (box.isConnected) box.replaceWith(fileStrip(d, true)); }); }
+    return box;
+  }
   /* The lines around the current one as a horizontal strip of cards (speaker badge, number, text), the current one centred. */
   function filmStrip(d) {
     const strip = h('div', { class: 'filmstrip', role: 'list', 'aria-label': 'Řádky scény' });
     const radius = pref('ui.sceneRadius', 6);
     const center = () => { const c = strip.querySelector('.cur'); if (c) strip.scrollLeft = c.offsetLeft - (strip.clientWidth - c.offsetWidth) / 2; };
     const fill = (r) => {
-      strip.replaceChildren(...r.items.map((it) => h('button', { class: `fcard st-${it.status}${it.current ? ' cur' : ''}`, role: 'listitem', title: `Řádek ${it.line}`, onclick: () => goLine(d.file, it.line) },
-        h('div', { class: 'fhead' }, speakerBadge(it.who), h('span', { class: 'fnum' }, it.line)),
+      strip.replaceChildren(...r.items.map((it) => h('button', { class: `fcard st-${it.status}${it.current ? ' cur' : ''}${it.over ? ' over' : ''}`, role: 'listitem', title: `Řádek ${it.line}`, onclick: () => goLine(d.file, it.line) },
+        h('div', { class: 'fhead' }, speakerBadge(it.who), h('span', { class: 'fnum' }, it.line),
+          it.over ? h('span', { class: 'fmark over', title: 'Text se nevejde do okna hry' }, '⤓') : null,
+          it.proof === 'ok' ? h('span', { class: 'fmark ok', title: 'Zkontrolováno' }, '✓') : it.proof === 'fix' ? h('span', { class: 'fmark fix', title: 'K opravě' }, '⚑') : null),
         h('div', { class: 'ftxt' }, it.status === 'todo' ? h('span', { class: 'muted' }, fmtText(it.source ?? '')) : fmtText(it.target)))));
       center();
     };
@@ -1281,7 +1366,7 @@ async function viewEntries() {
       const editor = S.compEditor ? pair : null;
       return (S.compFull ? [inPane(gamePreview(d, ed.ta)), editor] : [editor, tabsFn()]).filter(Boolean);
     }
-    if (film) return [inPane(gamePreview(d, ed.ta)), pair, filmStrip(d), ...(S.quick ? [] : [tabsFn()])];
+    if (film) return [inPane(gamePreview(d, ed.ta)), pair, fileStrip(d), filmStrip(d), ...(S.quick === 'proof' ? [proofPane(d)] : S.quick ? [] : [tabsFn()])];
     if (S.companionOpen && pref('ui.slimMain', true)) {
       return [pair, h('div', { class: 'slimnote muted' }, 'Scéna, kontrola, korektura a další záložky jsou v druhém okně. ',
         h('button', { class: 'btn small ghost', onclick: () => { setPref('ui.slimMain', false); drawDetail(S.ent.detail); } }, 'Ukázat je i tady'))];
@@ -1313,13 +1398,13 @@ async function viewEntries() {
         x.ratio ? h('div', { class: 'muted' }, `Délka: originál ${x.source_len}, překlad ${x.target_len} znaků (poměr ${String(x.ratio).replace('.', ',')}). Rozhodni sám, jestli je to záměr.`) : null))) : h('div', { class: 'muted' }, 'Řádek nemá žádné nálezy.'));
   const proofPane = (d) => (
         d.status !== 'todo' ? h('div', { class: 'proofbox' },
-        h('div', { class: 'row' }, h('h4', { style: { margin: 0 } }, 'Korektura'), proofChip(d.proof) || h('span', { class: 'muted' }, 'zatím nezkontrolováno'),
+        h('div', { class: 'row' }, h('h4', { style: { margin: 0 } }, 'Korektura'), proofChip(d.proof) || h('span', { class: 'muted' }, 'Zatím nezkontrolováno'),
           d.proof_date && d.proof === 'ok' ? h('span', { class: 'muted' }, d.proof_date) : null),
         h('div', { class: 'actions' },
           h('button', { class: 'btn small ' + (d.proof === 'ok' ? '' : 'primary'), onclick: () => toggleProof() }, d.proof === 'ok' ? 'Zrušit označení (P)' : '✓ Zkontrolováno (P)'),
           h('button', { class: 'btn small', onclick: () => flagFix() }, d.proof === 'fix' ? 'Zrušit „k opravě“ (F)' : '⚑ K opravě (F)'),
           h('button', { class: 'btn small', title: 'Označí jako zkontrolované všechny přeložené řádky tohoto souboru od začátku až po tento řádek. Řádky označené „k opravě“ se nemění. Jde vrátit (Ctrl+Z).', onclick: () => proofUpto('ok') }, '✓ Zkontrolovat vše až sem (Shift+P)'),
-          h('button', { class: 'btn small', title: 'Odebere značku „zkontrolováno“ všem řádkům tohoto souboru od začátku až po tento řádek. Řádky označené „k opravě“ zůstanou. Jde vrátit (Ctrl+Z).', onclick: () => proofUpto('') }, '↺ Zrušit zkontrolování až sem (Shift+U)')),
+          h('button', { class: 'btn small', title: 'Odebere značku „Zkontrolováno“ všem řádkům tohoto souboru od začátku až po tento řádek. Řádky označené „k opravě“ zůstanou. Jde vrátit (Ctrl+Z).', onclick: () => proofUpto('') }, '↺ Zrušit zkontrolování až sem (Shift+U)')),
         h('textarea', { id: 'proofNote', rows: 2, placeholder: 'Poznámka ke korektuře (co opravit)…', value: d.proof_note || '', style: { width: '100%' },
           onchange: (ev) => saveNote(ev.target.value) })) : h('div', { class: 'muted' }, 'Řádek ještě není přeložený – korektura se dělá až po překladu.'));
   const scriptPane = (d) => h('div', null,
@@ -1375,7 +1460,8 @@ async function viewEntries() {
       try { await post('entry/save', { file: d.file, line: d.line, text: ta.value }); }
       catch (err) { save.disabled = false; return fail(err); }
       delete ta.dataset.dirty;
-      S.files = null; refreshHeader();
+      if (d.status === 'todo') bumpLocal(d.file, d.line, 1, 0);
+      lazyRefresh();
       const i = S.ent.sel, it = S.ent.items[i];
       try {
         const nd = await get('entry', { file: d.file, line: d.line });
@@ -1621,6 +1707,10 @@ async function viewEntries() {
     const sc = await S.sceneCache.get(key);
     const jobs = [loadGameFont(sc.fonts_text), loadGameFont(sc.fonts_name), loadGameMetrics(sc.fonts_text), loadGameMetrics(sc.fonts_name),
       contextFor(file, line, pref('ui.sceneRadius', 6)).catch(() => {})];
+    if (pref('entries.layout', 'auto') === 'film') {
+      if (!S.filesOld) jobs.push(fileRowsReady().catch(() => {}));
+      if (!S.scenesDone?.[file]) jobs.push(scenesFor(file).catch(() => {}));
+    }
     if (sc.url) {
       S.imgCache ||= new Map();
       if (!S.imgCache.has(sc.url)) { const im = new Image(); im.src = sc.url; S.imgCache.set(sc.url, im.decode().catch(() => {})); if (S.imgCache.size > 12) S.imgCache.delete(S.imgCache.keys().next().value); }
@@ -1714,13 +1804,13 @@ async function viewEntries() {
     if (S.ent.detail) drawDetail(S.ent.detail);
   }
   function refreshRow(i) { tbody.replaceChild(rowFor(S.ent.items[i], i), tbody.children[i]); }
-  async function setProof(state, note) {
-    const d = S.ent.detail; if (!d || d.status === 'todo') return false;
+  async function setProof(state, note, d = S.ent.detail, idx = S.ent.sel) {
+    if (!d || d.status === 'todo') return false;
     try {
       const r = await post('proof/set', { items: [{ file: d.file, key: d.key }], state, note });
       if (r.skipped.length) { toast(r.skipped[0][1], 'bad'); return false; }
-      S.ent.items[S.ent.sel].proof = state;
-      refreshRow(S.ent.sel); S.files = null; await refreshHeader();
+      if (S.ent.items[idx]) { S.ent.items[idx].proof = state; refreshRow(idx); }
+      bumpLocal(d.file, d.line, 0, (state === 'ok' ? 1 : 0) - (d.proof === 'ok' ? 1 : 0)); lazyRefresh();
       return true;
     } catch (err) { fail(err); return false; }
   }
@@ -1731,6 +1821,14 @@ async function viewEntries() {
   async function toggleProof() {
     const d = S.ent.detail; if (!d) return;
     const on = d.proof !== 'ok';
+    if (on && d.status !== 'todo') {                        // go on to the next line at once; the write finishes behind it
+      const cur = S.ent.sel, before = d.proof;
+      S.ent.items[cur].proof = 'ok'; refreshRow(cur);
+      await select(nextToReview(cur));                       // the next line is shown first, then the mark is written (the server handles one request at a time)
+      if (await setProof('ok', undefined, d, cur)) { toast('Zkontrolováno ✓  (Ctrl+Z vrátí)', 'ok', 1800); refreshStrips(); }
+      else if (S.ent.items[cur]) { S.ent.items[cur].proof = before; refreshRow(cur); }
+      return;
+    }
     if (await setProof(on ? 'ok' : '')) {
       toast(on ? 'Zkontrolováno ✓  (Ctrl+Z vrátí)' : 'Označení zrušeno.', 'ok', 1800);
       select(on ? nextToReview(S.ent.sel) : S.ent.sel);
@@ -2786,6 +2884,7 @@ async function toggleFullscreen() {
 const ACTIONS = [
   { id: 'focus', label: 'Režim soustředění (skrýt horní lištu a záložky)', keys: ['Ctrl+Shift+F'], typing: true, run: () => setFocus(!S.focus) },
   { id: 'quick', label: 'Rychlé překládání (scéna + editor, jen nepřeložené)', keys: [], run: () => enterQuick() },
+  { id: 'proofmode', label: 'Rychlá korektura (scéna + editor, jen ke kontrole)', keys: [], run: () => enterProof() },
   { id: 'fullscreen', label: 'Celá obrazovka (zapnout / vypnout)', keys: ['F11'], typing: true, run: () => toggleFullscreen() },
   { id: 'palette', label: 'Paleta příkazů (hledání akcí a souborů)', keys: ['Ctrl+K'], typing: true, run: () => openPalette() },
   { id: 'search', label: 'Hledat v aktuální sekci', keys: ['Ctrl+F'], typing: true, run: () => { const el = $('#search'); if (el) { el.focus(); el.select(); } } },

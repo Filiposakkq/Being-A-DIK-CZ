@@ -1,6 +1,7 @@
 """Application state and operations (no HTTP, no UI) — everything the server exposes lives here."""
 import json
 import os
+import bisect
 import re
 import shutil
 import threading
@@ -554,6 +555,8 @@ class App:
                 if issues == "error" and not any(i.severity == "error" for i in shown):
                     continue
                 if issues == "warning" and not any(i.severity == "warning" for i in shown):
+                    continue
+                if issues == "overflow" and not any(i.code == "textbox-overflow" for i in iss):
                     continue
                 if ql and ql not in (e.target or "").lower() and ql not in (e.source or "").lower() \
                         and ql not in e.who.lower() and ql not in rel.lower() \
@@ -1643,6 +1646,79 @@ class App:
             out.update(changed=res["changed"], files=res["files"], skipped=skipped, backups=res["backups"])
             return out
 
+    def _overflows(self, e):
+        """True when the translation needs more room than the game's dialogue box has (and the original did not)."""
+        if not e.source or not e.target or e.unit == "string":
+            return False
+        return any(i.code == "textbox-overflow" for i in validator.check_textbox(e.source, e.target, self.config.get("validation.textbox", {})))
+
+    def entry_next(self, rel, line, kind):
+        """The next line (after `line`, wrapping round the file) that is untranslated (todo), still to be checked (review), marked
+        for a fix (fix) or does not fit the dialogue box (over). {line: 0} when there is none."""
+        self._need_project()
+        if rel not in self.project.files:
+            raise AppError("Neznámý soubor.")
+        if kind not in ("todo", "review", "fix", "over"):
+            raise AppError("Neznámý druh řádku.")
+        ents = self.project.entries(rel)
+
+        def match(e):
+            st = self._entry_row(rel, e)
+            if kind == "todo":
+                return st == "todo"
+            if st == "todo":
+                return False
+            if kind == "over":
+                return self._overflows(e)
+            pf = self.project.proof_state(rel, e)
+            return pf not in ("ok", "fix") if kind == "review" else pf == "fix"
+        idx = next((i for i, e in enumerate(ents) if e.line == line), -1)
+        for i in list(range(idx + 1, len(ents))) + list(range(0, idx + 1)):
+            if match(ents[i]):
+                return {"line": ents[i].line, "wrapped": i <= idx}
+        return {"line": 0, "wrapped": False}
+
+    def scene_list(self, rel, line=0):
+        """The scenes of a file (runs of lines that follow the same `scene` statement of the game script) with their progress, and
+        the one that holds `line`. Needs the game sources; without them {available: False}."""
+        self._need_project()
+        if rel not in self.project.files:
+            raise AppError("Neznámý soubor.")
+        gi, base = self._game_images(), self._game_root()
+        if gi is None or base is None:
+            return {"available": False, "items": [], "cur": -1, "reason": "Složka hry (game) nad překladem nebyla nalezena."}
+        root = base.resolve()
+        items, key, cur, starts = [], None, -1, {}
+        for e in self.project.entries(rel):
+            m = re.match(r"^(game/.+?):(\d+)$", e.ref or "")
+            name = None
+            if m:
+                script = (base / m.group(1)).resolve()
+                if root in script.parents and script.suffix.lower() in (".rpy", ".rpym"):
+                    if script not in starts:
+                        st = gi.scene_starts(script)
+                        starts[script] = (st, [s[0] for s in st])
+                    st, nums = starts[script]
+                    pos = bisect.bisect_right(nums, int(m.group(2))) - 1
+                    k = (m.group(1), st[pos][0] if pos >= 0 else 0)
+                    name = st[pos][1] if pos >= 0 else ""
+                else:
+                    k = key
+            else:
+                k = key
+            if not items or k != key:
+                items.append({"line": e.line, "count": 0, "done": 0, "proofed": 0, "name": name or "", "script": f"{k[0]}:{k[1]}" if k else ""})
+                key = k
+            it = items[-1]
+            it["count"] += 1
+            if self._entry_row(rel, e) != "todo":
+                it["done"] += 1
+                if self.project.proof_state(rel, e) == "ok":
+                    it["proofed"] += 1
+            if e.line <= line:
+                cur = len(items) - 1
+        return {"available": True, "items": items, "cur": cur}
+
     def entry_scene(self, rel, line, radius=6):
         """The lines around one line (original and translation), i.e. the scene it belongs to."""
         self._need_project()
@@ -1655,7 +1731,9 @@ class App:
         r = max(1, min(int(radius), 30))
         a, b = max(0, idx - r), min(len(ents), idx + r + 1)
         return {"file": rel, "items": [{"line": e.line, "who": e.who, "source": e.source, "target": e.target,
-                                       "status": self._entry_row(rel, e), "current": e.line == line, "unit": e.unit}
+                                       "status": self._entry_row(rel, e), "current": e.line == line, "unit": e.unit,
+                                       "over": self._overflows(e),
+                                       "proof": self.project.proof_state(rel, e) if self.project.is_translated(rel, e) else ""}
                                       for e in ents[a:b]]}
 
     def entry_check(self, rel, line, text):

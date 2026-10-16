@@ -53,6 +53,7 @@ class GameImages:
         self._built = False
         self._cache = OrderedDict()
         self._script_cache = OrderedDict()
+        self._starts = {}
 
     # ------------------------------------------------------------ index
     def build(self):
@@ -208,6 +209,24 @@ class GameImages:
         while len(self._script_cache) > 8:
             self._script_cache.popitem(last=False)
         return lines
+
+    def scene_starts(self, script_path):
+        """[(line, image name)] of the `scene` statements of a script, in order (cached): the boundaries of the scenes."""
+        key = str(script_path)
+        if key not in self._starts:
+            try:
+                lines = self.script_lines(script_path)
+            except OSError:
+                lines = []
+            out = []
+            for n, text in enumerate(lines, 1):
+                m = STMT_RE.match(text)
+                if m and m.group(1) == "scene":
+                    what = CUT_RE.sub("", m.group(2)).strip()
+                    if what and not what.lower().startswith(SKIP_FIRST):
+                        out.append((n, what.split()[0]))
+            self._starts[key] = out
+        return self._starts[key]
 
     def scene_for(self, script_path, line):
         """Walk up from `line` to the last scene / show whose image can be found.
