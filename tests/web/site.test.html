@@ -48,7 +48,7 @@ const txt = (d, sel) => (d.querySelector(sel) || {}).textContent || "";
     ok(txt(s1, ".st-pr").includes("2,1") || txt(s1, ".st-pr").includes("%"), "season 1 shows a proofreading percentage");
     ok(txt(d, '.season[data-season="2"] .st-tr').includes("0,0"));
     ok(txt(s1, '.ep[data-episode="1"] .pair-row.pt .pair-val').includes("96,8"));
-    ok(txt(d, '.ep[data-episode="1"] .ep-meta').replace(/[\s  ]/g, " ").includes("2 885"), txt(d, '.ep[data-episode="1"] .ep-meta'));
+    ok(txt(d, '.ep[data-episode="1"] .pair-sub.pt').replace(/[\s  ]/g, " ").includes("2 885"), txt(d, '.ep[data-episode="1"] .pair-sub.pt'));
     const none = JSON.parse(JSON.stringify(syn));
     none.episodes[5] = { n: 6, season: 2, status: "none", translation: { done: 0, total: 0, percent: null }, proofreading: { done: 0, total: 0, percent: null }, files_total: 0, files_done: 0, files_proofread: 0 };
     w.render(none);
