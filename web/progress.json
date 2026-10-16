@@ -1,22 +1,22 @@
 {
  "schema": 2,
  "title": "",
- "updated": "2026-10-15T19:08+02:00",
+ "updated": "2026-10-16T13:26+02:00",
  "translation": {
-  "done": 3068,
+  "done": 3070,
   "total": 45335,
   "percent": 6.8
  },
  "proofreading": {
-  "done": 150,
+  "done": 459,
   "total": 45335,
-  "percent": 0.3
+  "percent": 1.0
  },
  "files": {
-  "done": 5,
+  "done": 8,
   "rev": 1,
-  "tr": 3,
-  "wip": 1,
+  "tr": 1,
+  "wip": 0,
   "none": 62,
   "total": 72
  },
@@ -50,17 +50,17 @@
     4
    ],
    "translation": {
-    "done": 2977,
+    "done": 2979,
     "total": 16708,
     "percent": 17.8
    },
    "proofreading": {
-    "done": 84,
+    "done": 393,
     "total": 16708,
-    "percent": 0.5
+    "percent": 2.4
    },
    "files": 28,
-   "files_done": 6,
+   "files_done": 7,
    "episodes_done": 0,
    "episodes_total": 4
   },
@@ -97,22 +97,22 @@
   {
    "n": 1,
    "status": "wip",
-   "percent": 99.9,
+   "percent": 100.0,
    "files": 7,
    "season": 1,
    "translation": {
-    "done": 2977,
+    "done": 2979,
     "total": 2979,
-    "percent": 99.9
+    "percent": 100.0
    },
    "proofreading": {
-    "done": 84,
+    "done": 393,
     "total": 2979,
-    "percent": 2.8
+    "percent": 13.2
    },
-   "files_done": 6,
+   "files_done": 7,
    "files_total": 7,
-   "files_proofread": 3
+   "files_proofread": 6
   },
   {
    "n": 2,
@@ -283,14 +283,14 @@
  },
  "estimate": {
   "status": "insufficient_data",
-  "remaining": 42267,
+  "remaining": 42265,
   "pace_per_day": null,
   "eta": null,
   "eta_early": null,
   "eta_late": null,
   "confidence": null,
-  "basis_days": 1,
-  "days_with_data": 2
+  "basis_days": 2,
+  "days_with_data": 3
  },
  "history": [
   {
@@ -302,6 +302,11 @@
    "date": "2026-10-15",
    "translation": 6.8,
    "proofreading": 0.3
+  },
+  {
+   "date": "2026-10-16",
+   "translation": 6.8,
+   "proofreading": 1.0
   }
  ]
 }
