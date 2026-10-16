@@ -63,7 +63,7 @@ async function request(method, path, body) {
   return data;
 }
 const get = (p, q) => request('GET', p, q);
-const clearCtx = () => { S.ctxCache?.clear(); S.ctxDone?.clear(); S.scenesDone = {}; S.scenesCache = {}; };
+const clearCtx = () => { S.ctxCache?.clear(); S.ctxDone?.clear(); S.scenesCache = {}; };       // the scene list itself (S.scenesDone) stays: it is refreshed in the background
 const post = (p, b) => { if (p !== 'focus' && p !== 'prefs' && p !== 'entry/check') clearCtx(); return request('POST', p, b); };   // a write may change the neighbouring lines
 
 /* ---------------------------------------------------------------- state & prefs */
@@ -164,6 +164,9 @@ function paintFocusBar() {
   bar.replaceChildren(
     h('button', { class: 'btn small', title: 'Vrátit horní lištu a záložky (Ctrl+Shift+F)', onclick: () => setFocus(false) }, '⤢ Zobrazit vše'),
     layoutMenu(),
+    S.quick ? h('div', { class: 'seg', role: 'group', 'aria-label': 'Rychlý režim' },
+      h('button', { class: S.quick === 'tr' ? 'on' : '', title: 'Jen nepřeložené řádky, editor se zaměří sám', onclick: () => S.quick !== 'tr' && enterQuick() }, 'Překlad'),
+      h('button', { class: S.quick === 'proof' ? 'on' : '', title: 'Jen řádky ke kontrole, P zkontroluje a skočí dál', onclick: () => S.quick !== 'proof' && enterProof() }, 'Korektura')) : null,
     h('button', { class: 'btn small icon', title: 'Celá obrazovka (F11)', onclick: () => toggleFullscreen() }, icon('full', 14)),
     h('button', { class: 'btn small icon', title: 'Vrátit poslední změnu (Ctrl+Z)', onclick: () => $('#undoBtn')?.click() }, icon('undo', 14)),
     ...(S.quick === 'proof' ? [
@@ -225,8 +228,7 @@ function layoutMenu() {
   const custom = Object.keys(pref('ui.presets', {}));
   return menuButton('Rozložení', [
     ...LAYOUTS.map(([k, label, hint]) => ({ label: (cur === k ? '✓ ' : '') + label, hint, run: () => applyLayout(k) })),
-    { label: 'Rychlé překládání', hint: 'scéna + editor, jen nepřeložené, bez rušení', run: () => enterQuick() },
-    { label: 'Rychlá korektura', hint: 'scéna + editor, jen ke kontrole, P / F', run: () => enterProof() },
+    { label: 'Rychlý režim', hint: 'překlad nebo korektura: scéna + editor, bez rušení', run: () => enterQuick() },
     { label: 'Dva monitory', hint: 'detail ve druhém okně', run: () => openDetailWindow() },
     ...custom.map((n) => ({ label: '★ ' + n, hint: 'vlastní', run: () => applyPreset(n) })),
     { label: 'Uložit aktuální rozložení…', run: savePreset },
@@ -1237,12 +1239,17 @@ async function viewEntries() {
     tr?.classList.add('sel');
     tr?.scrollIntoView({ block: 'nearest' });
     const it = S.ent.items[i];
-    if (!COMPANION) { announceFocus(it); setPref('ui.last', { file: it.file, line: it.line }); }
+    if (!COMPANION) {
+      announceFocus(it);
+      (S.prefs.ui ||= {}).last = { file: it.file, line: it.line };                    // in memory at once, written after a pause
+      clearTimeout(S.lastT); S.lastT = setTimeout(() => setPref('ui.last', S.prefs.ui.last), 6000);
+    }
     const tab = pref('ui.detailTab', 'scene');
     const pre = (COMPANION ? (S.compFull || tab === 'scene') : (film || (tab === 'scene' && !(S.companionOpen && pref('ui.slimMain', true))))) ? prefetchScene(it.file, it.line).catch(() => {}) : null;
     try { S.ent.detail = await get('entry', { file: it.file, line: it.line }); } catch (err) { S.ent.detail = null; drawDetail(null, err.message); return; }
     if (pre) await pre;
     if (S.ent.sel === i) { const top = detail.scrollTop; drawDetail(S.ent.detail); detail.scrollTop = top; requestAnimationFrame(() => { if (S.ent.sel === i) detail.scrollTop = top; }); }
+    if (film) for (const k of [i + 1, S.quick === 'proof' ? nextToReview(i) : i + 2]) { const x = S.ent.items[k]; if (x && k !== i) prefetchScene(x.file, x.line).catch(() => {}); }
     if (i >= S.ent.items.length - 15 && S.ent.start + S.ent.items.length < S.ent.total) load(false);
   }
   function drawDetail(d, err) {
@@ -1283,7 +1290,26 @@ async function viewEntries() {
     if (!S.scenesCache[file]) S.scenesCache[file] = get('scenes', { file, line: 0 }).then((r) => { S.scenesDone[file] = r; return r; }).catch(() => { const r = { available: false, items: [] }; S.scenesDone[file] = r; return r; });
     return S.scenesCache[file];
   }
-  async function fileRowsReady() { if (!S.files) S.files = (await get('files')).files; return S.files; }
+  async function fileRowsReady() { if (!S.files) S.files = (await get('files')).files; S.filesOld = S.files; return S.files; }
+  /* Repaint the strips in place (e.g. after P: the neighbouring card gets its tick, the file counters move) without redrawing the whole detail. */
+  /* Counters move at once from what we know; the real numbers (overview, files, scenes) are fetched only after a short pause. */
+  function bumpLocal(file, line, dDone, dProof) {
+    const row = (S.files || S.filesOld || []).find((x) => x.name === file);
+    if (row) { row.done = Math.max(0, row.done + dDone); row.todo = Math.max(0, row.todo - dDone); row.corr = Math.max(0, row.corr + dProof); }
+    const sc = S.scenesDone?.[file];
+    if (sc?.items?.length) { let k = 0; sc.items.forEach((it, i) => { if (it.line <= line) k = i; }); const it = sc.items[k]; it.done = Math.max(0, it.done + dDone); it.proofed = Math.max(0, it.proofed + dProof); }
+    refreshFileStrip();
+  }
+  function lazyRefresh() {
+    clearTimeout(S.lazyT);
+    S.lazyT = setTimeout(async () => {
+      const file = S.ent.detail?.file;
+      S.files = null; S.scenesCache = {};
+      try { await refreshHeader(); if (file && S.view === 'entries') { await Promise.all([fileRowsReady(), scenesFor(file)]); refreshFileStrip(); } } catch { /* the next pause tries again */ }
+    }, 2500);
+  }
+  function refreshFileStrip() { const el = $('#entryDetail .filestrip'), d = S.ent.detail; if (el && d) el.replaceWith(fileStrip(d, true)); }
+  function refreshStrips() { const d = S.ent.detail; if (!d) return; $('#entryDetail .filmstrip')?.replaceWith(filmStrip(d)); refreshFileStrip(); }
   async function jumpNext(file, line, kind) {
     try {
       const r = await get('entry/next', { file, line, kind });
@@ -1295,7 +1321,7 @@ async function viewEntries() {
   /* Progress of the file the line belongs to (translation and proofreading apart) and jumps: next scene, next untranslated / unchecked / too long. */
   function fileStrip(d, retried = false) {
     const box = h('div', { class: 'filestrip' });
-    const row = (S.files || []).find((x) => x.name === d.file);
+    const row = (S.files || S.filesOld || []).find((x) => x.name === d.file);
     const sc = S.scenesDone?.[d.file];
     const pct = (a, b) => (b ? Math.round((a / b) * 100) : 0);
     const bars = row ? h('div', { class: 'fsbars' },
@@ -1434,7 +1460,8 @@ async function viewEntries() {
       try { await post('entry/save', { file: d.file, line: d.line, text: ta.value }); }
       catch (err) { save.disabled = false; return fail(err); }
       delete ta.dataset.dirty;
-      S.files = null; refreshHeader();
+      if (d.status === 'todo') bumpLocal(d.file, d.line, 1, 0);
+      lazyRefresh();
       const i = S.ent.sel, it = S.ent.items[i];
       try {
         const nd = await get('entry', { file: d.file, line: d.line });
@@ -1680,7 +1707,10 @@ async function viewEntries() {
     const sc = await S.sceneCache.get(key);
     const jobs = [loadGameFont(sc.fonts_text), loadGameFont(sc.fonts_name), loadGameMetrics(sc.fonts_text), loadGameMetrics(sc.fonts_name),
       contextFor(file, line, pref('ui.sceneRadius', 6)).catch(() => {})];
-    if (pref('entries.layout', 'auto') === 'film') jobs.push(fileRowsReady().catch(() => {}), scenesFor(file).catch(() => {}));
+    if (pref('entries.layout', 'auto') === 'film') {
+      if (!S.filesOld) jobs.push(fileRowsReady().catch(() => {}));
+      if (!S.scenesDone?.[file]) jobs.push(scenesFor(file).catch(() => {}));
+    }
     if (sc.url) {
       S.imgCache ||= new Map();
       if (!S.imgCache.has(sc.url)) { const im = new Image(); im.src = sc.url; S.imgCache.set(sc.url, im.decode().catch(() => {})); if (S.imgCache.size > 12) S.imgCache.delete(S.imgCache.keys().next().value); }
@@ -1774,13 +1804,13 @@ async function viewEntries() {
     if (S.ent.detail) drawDetail(S.ent.detail);
   }
   function refreshRow(i) { tbody.replaceChild(rowFor(S.ent.items[i], i), tbody.children[i]); }
-  async function setProof(state, note) {
-    const d = S.ent.detail; if (!d || d.status === 'todo') return false;
+  async function setProof(state, note, d = S.ent.detail, idx = S.ent.sel) {
+    if (!d || d.status === 'todo') return false;
     try {
       const r = await post('proof/set', { items: [{ file: d.file, key: d.key }], state, note });
       if (r.skipped.length) { toast(r.skipped[0][1], 'bad'); return false; }
-      S.ent.items[S.ent.sel].proof = state;
-      refreshRow(S.ent.sel); S.files = null; await refreshHeader();
+      if (S.ent.items[idx]) { S.ent.items[idx].proof = state; refreshRow(idx); }
+      bumpLocal(d.file, d.line, 0, (state === 'ok' ? 1 : 0) - (d.proof === 'ok' ? 1 : 0)); lazyRefresh();
       return true;
     } catch (err) { fail(err); return false; }
   }
@@ -1791,6 +1821,14 @@ async function viewEntries() {
   async function toggleProof() {
     const d = S.ent.detail; if (!d) return;
     const on = d.proof !== 'ok';
+    if (on && d.status !== 'todo') {                        // go on to the next line at once; the write finishes behind it
+      const cur = S.ent.sel, before = d.proof;
+      S.ent.items[cur].proof = 'ok'; refreshRow(cur);
+      await select(nextToReview(cur));                       // the next line is shown first, then the mark is written (the server handles one request at a time)
+      if (await setProof('ok', undefined, d, cur)) { toast('Zkontrolováno ✓  (Ctrl+Z vrátí)', 'ok', 1800); refreshStrips(); }
+      else if (S.ent.items[cur]) { S.ent.items[cur].proof = before; refreshRow(cur); }
+      return;
+    }
     if (await setProof(on ? 'ok' : '')) {
       toast(on ? 'Zkontrolováno ✓  (Ctrl+Z vrátí)' : 'Označení zrušeno.', 'ok', 1800);
       select(on ? nextToReview(S.ent.sel) : S.ent.sel);
