@@ -1,16 +1,16 @@
 {
  "schema": 2,
  "title": "",
- "updated": "2026-10-16T16:04+02:00",
+ "updated": "2026-10-16T21:51+02:00",
  "translation": {
   "done": 3070,
   "total": 45335,
   "percent": 6.8
  },
  "proofreading": {
-  "done": 688,
+  "done": 1112,
   "total": 45335,
-  "percent": 1.5
+  "percent": 2.5
  },
  "files": {
   "done": 8,
@@ -55,9 +55,9 @@
     "percent": 17.8
    },
    "proofreading": {
-    "done": 622,
+    "done": 1046,
     "total": 16708,
-    "percent": 3.7
+    "percent": 6.3
    },
    "files": 28,
    "files_done": 7,
@@ -106,9 +106,9 @@
     "percent": 100.0
    },
    "proofreading": {
-    "done": 622,
+    "done": 1046,
     "total": 2979,
-    "percent": 20.9
+    "percent": 35.1
    },
    "files_done": 7,
    "files_total": 7,
@@ -306,7 +306,7 @@
   {
    "date": "2026-10-16",
    "translation": 6.8,
-   "proofreading": 1.5
+   "proofreading": 2.5
   }
  ]
 }
