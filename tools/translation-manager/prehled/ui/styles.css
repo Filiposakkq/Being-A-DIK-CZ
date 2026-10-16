@@ -1,4 +1,4 @@
-/* BaDIK Translation Manager 1.6 – design tokens first (dark default, light via [data-theme]); components use only tokens.
+/* BaDIK Translation Manager 1.7 – design tokens first (dark default, light via [data-theme]); components use only tokens.
    Every class used by app.js is styled here; nothing in the markup depends on the look. */
 :root {
   color-scheme: dark;
@@ -561,3 +561,15 @@ body.focus .pane-head { padding-right: 330px; }
 .fcard .fmark.ok { color: var(--proof); }
 .fcard .fmark.fix { color: var(--warn); }
 .dhead { row-gap: 6px; }
+
+/* ---- v1.7: file strip, scene navigation, too-long lines */
+.filestrip { margin: 8px 0 2px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel-2); display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; }
+.fsname { font-weight: 600; font-family: var(--mono); font-size: 12.5px; }
+.fsbars { display: flex; gap: 16px; flex: 1; min-width: 320px; }
+.fsb { display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; align-items: center; flex: 1; font-size: 12.5px; }
+.fsb .muted { grid-column: 1 / -1; }
+.fsnav { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; width: 100%; }
+.fcard.over { border-color: var(--bad); background: var(--bad-bg); }
+.fcard .fmark.over { color: var(--bad); }
+table.entries tr.ovf td:first-child { box-shadow: inset 3px 0 0 var(--bad); }
+.menu { max-height: 60vh; overflow-y: auto; }

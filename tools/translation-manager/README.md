@@ -1,4 +1,4 @@
-# BaDIK Translation Manager 1.6
+# BaDIK Translation Manager 1.7
 
 Desktop tool for the Czech fan translation of *Being a DIK*. It reads the Ren'Py translation files
 (`game/tl/czech/**/*.rpy`), tracks translation and proofreading progress per file, episode and season, checks the
@@ -205,6 +205,17 @@ the string literal (a bare `"`, a lone `\`) is skipped.
   had open), *Rychle překládat* and *Nejblíž dokončení* (the file with the fewest lines left).
 * SVG icons in the top bar, nicer empty states, a short fade when a section changes (off with *reduce motion* in the system), slightly higher contrast of the
   `faint` colour in both themes. The interface size is left to the window's own zoom (`Ctrl` + mouse wheel).
+
+## Scenes, proofreading mode, too-long lines (1.7)
+
+* **File strip** (film layout, above the film strip): the file's progress with **translation and proofreading apart** (percent and what is left of each), and jumps:
+  **◀ Scéna / Scéna ▶**, a list of the file's scenes (*Scéna 292 / 1484* → each with translated / lines and ✓ checked), **Další nepřeložený**, **Další nezkontrolovaný**,
+  **Další, co se nevejde** (all wrap round the file, `/api/entry/next`). Scenes are the runs of lines that follow the same `scene` statement of the game script
+  (`/api/scenes`, needs the game sources; one request per file, kept until something is written).
+* **Quick proofreading** (*Rozložení → Rychlá korektura*, the palette, or *Rychle zkontrolovat* in the overview): focus mode + film layout + only lines still to be
+  checked; the floating bar has **✓ Zkontrolováno (P)**, **⚑ K opravě (F)** and ↑ / ↓; P marks the line and moves on. The Korektura panel (with the note) sits under the strip.
+* **Too long for the dialogue box**: the film strip marks such cards red (⤓), the list rows get a red edge, *Další kontrola → Nevejde se do okna hry* in the filters shows only
+  them, and the file strip jumps to the next one. A line "does not fit" when its translation needs more lines than the limit in *Nastavení* and the original did not.
 
 ## Detail window (second window)
 

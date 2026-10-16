@@ -188,6 +188,42 @@ class SceneInfoTests(TempCase):
         app.open_project(proj)
         return app, base
 
+    def test_scenes_of_a_file_follow_the_scene_statements_of_the_game_script(self):
+        app, base = self.make()
+        (base / "game" / "x.rpy").write_text('label a:\n    scene ep1_cafe with fade\n    mc "Hi."\n    mc "Bye."\n    scene black\n    mc "Dark."\n', encoding="utf-8")
+        (base / "game" / "tl" / "czech" / "tl.rpy").write_text(
+            dialog("a1", "mc", "Hi.", "Ahoj.", 3) + dialog("a2", "mc", "Bye.", None, 4) + dialog("a3", "mc", "Dark.", "Tma.", 6), encoding="utf-8")
+        app.project.refresh(force=True)
+        res = app.scene_list("tl.rpy", 0)
+        self.assertEqual(res["available"], True)
+        self.assertEqual([(i["name"], i["count"], i["done"]) for i in res["items"]], [("ep1_cafe", 2, 1), ("black", 1, 1)])
+        last = app.project.entries("tl.rpy")[-1].line
+        self.assertEqual(app.scene_list("tl.rpy", last)["cur"], 1)
+        self.assertEqual(app.scene_list("tl.rpy", res["items"][0]["line"])["cur"], 0)
+        with self.assertRaises(AppError):
+            app.scene_list("nope.rpy", 0)
+
+    def test_scenes_need_the_game_sources(self):
+        self.write("a.rpy", dialog("a1", "mc", "Hi.", "Ahoj.", 3))
+        res = self.new_app().scene_list("a.rpy", 0)
+        self.assertEqual((res["available"], res["items"]), (False, []))
+
+    def test_next_line_of_a_kind_wraps_round_the_file(self):
+        self.write("a.rpy", dialog("a1", "mc", "One.", "Jedna.", 3) + dialog("a2", "mc", "Two.", None, 7) + dialog("a3", "mc", "Short.", "slovo " * 70, 11)
+                   + dialog("a4", "mc", "Four.", None, 15))
+        app = self.new_app()
+        lines = [e.line for e in app.project.entries("a.rpy")]
+        self.assertEqual(app.entry_next("a.rpy", lines[0], "todo"), {"line": lines[1], "wrapped": False})
+        self.assertEqual(app.entry_next("a.rpy", lines[3], "todo"), {"line": lines[1], "wrapped": True})
+        self.assertEqual(app.entry_next("a.rpy", lines[0], "over")["line"], lines[2])
+        self.assertEqual(app.entry_next("a.rpy", lines[0], "fix"), {"line": 0, "wrapped": False})
+        self.assertEqual(app.entry_next("a.rpy", lines[1], "review")["line"], lines[2])
+        with self.assertRaises(AppError):
+            app.entry_next("a.rpy", 1, "bogus")
+        scene = app.entry_scene("a.rpy", lines[2], 3)["items"]
+        self.assertEqual([it["over"] for it in scene], [False, False, True, False])
+        self.assertEqual([e["line"] for e in app.entries(file="a.rpy", status="all", issues="overflow")["items"]], [lines[2]])
+
     def test_characters_of_the_game_are_listed_for_colours_and_badges(self):
         app, base = self.make()
         (base / "game" / "chars.rpy").write_text('define js = Character("Josy", color="#ff1c63")\n', encoding="utf-8")

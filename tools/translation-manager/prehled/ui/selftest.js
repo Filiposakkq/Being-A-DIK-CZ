@@ -165,6 +165,15 @@
     ok('rozložení „Detail vpravo“ dá detail vedle seznamu', (await pickLayout('Detail vpravo')) && !!document.querySelector('#view .split.ecols'), 'beze změny');
     ok('rozložení „Scéna a filmový pás“ ukáže pás řádků a skryje tabulku', (await pickLayout('Scéna a filmový pás')) && !!document.querySelector('#view .split.film') && !!(await waitFor(() => document.querySelector('#entryDetail .filmstrip .fcard'), 4000)), 'chybí pás nebo rozložení');
     ok('filmový pás ukazuje aktuální řádek', !!document.querySelector('#entryDetail .filmstrip .fcard.cur'), 'chybí zvýrazněná karta');
+    ok('pruh souboru ukazuje zvlášť přeloženo a zkontrolováno', !!(await waitFor(() => /Přeloženo \d+ %/.test(document.querySelector('#entryDetail .filestrip')?.textContent || '') && /Zkontrolováno \d+ %/.test(document.querySelector('#entryDetail .filestrip')?.textContent || ''), 4000)), document.querySelector('#entryDetail .filestrip')?.textContent || 'chybí pruh');
+    ok('pruh souboru má skoky na další nepřeložený / nezkontrolovaný / příliš dlouhý', ['Další nepřeložený', 'Další nezkontrolovaný', 'Další, co se nevejde'].every((t) => [...document.querySelectorAll('#entryDetail .filestrip button')].some((b) => b.textContent === t)), 'chybí tlačítka');
+    const nx = await get('entry/next', { file: S.ent.items[S.ent.sel].file, line: S.ent.items[S.ent.sel].line, kind: 'todo' });
+    ok('API „další řádek“ vrací řádek nebo 0', typeof nx.line === 'number', JSON.stringify(nx));
+    ok('filtr „Nevejde se do okna hry“ funguje v API', Array.isArray((await get('entries', { issues: 'overflow', status: 'all' })).items), 'chyba');
+    ok('API scén vrací stav', typeof (await get('scenes', { file: S.ent.items[S.ent.sel].file, line: 0 })).available === 'boolean', 'chyba');
+    enterProof(); await sleep(900);
+    ok('rychlá korektura ukáže tlačítka Zkontrolováno / K opravě', S.quick === 'proof' && [...document.querySelectorAll('#focusbar button')].some((b) => b.textContent.includes('Zkontrolováno')) && [...document.querySelectorAll('#focusbar button')].some((b) => b.textContent.includes('K opravě')), 'chybí lišta');
+    setFocus(false);
     setFocus(true);
     ok('režim soustředění skryje horní lištu a ukáže plovoucí lištu', getComputedStyle(document.querySelector('.topbar')).display === 'none' && !!document.getElementById('focusbar'), 'lišta zůstala');
     setFocus(false);
