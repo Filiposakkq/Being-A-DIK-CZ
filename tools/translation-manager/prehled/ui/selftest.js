@@ -60,6 +60,7 @@
   });
   await step('Soubory', async () => {
     await openView('files');
+    ok('Soubory ukazují zvlášť zbývá přeložit a zbývá zkontrolovat', await waitFor(() => /Zbývá přeložit/.test(document.querySelector('#view table.data thead')?.textContent || '') && /Zbývá zkontrolovat/.test(document.querySelector('#view table.data thead')?.textContent || ''), 4000), 'chybí sloupce');
     ok('Soubory mají řádky tabulky', document.querySelectorAll('#view table.data tbody tr').length >= 1, 'prázdná tabulka');
   });
   await step('Řádky + editor překladu', async () => {

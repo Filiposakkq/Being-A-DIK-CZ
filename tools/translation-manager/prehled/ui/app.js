@@ -160,13 +160,13 @@ function paintFocusBar() {
   let bar = $('#focusbar');
   if (!S.focus) { bar?.remove(); return; }
   if (!bar) { bar = h('div', { id: 'focusbar', class: 'focusbar', role: 'toolbar', 'aria-label': 'Soustředění' }); document.body.append(bar); }
-  const rest = S.ent?.counts?.todo;
+  const rest = S.ent?.counts?.todo, rev = S.ent?.counts?.review;
   bar.replaceChildren(
     h('button', { class: 'btn small', title: 'Vrátit horní lištu a záložky (Ctrl+Shift+F)', onclick: () => setFocus(false) }, '⤢ Zobrazit vše'),
     layoutMenu(),
     h('button', { class: 'btn small icon', title: 'Celá obrazovka (F11)', onclick: () => toggleFullscreen() }, icon('full', 14)),
     h('button', { class: 'btn small icon', title: 'Vrátit poslední změnu (Ctrl+Z)', onclick: () => $('#undoBtn')?.click() }, icon('undo', 14)),
-    S.quick ? h('span', { class: 'muted' }, 'Rychlé překládání' + (rest != null ? ` · zbývá ${rest}` : '')) : null);
+    S.quick ? h('span', { class: 'muted' }, 'Rychlé překládání' + (rest != null ? ` · zbývá přeložit ${rest}` : '') + (rev != null ? ` · zkontrolovat ${rev}` : '')) : null);
 }
 function enterQuick() {
   setPref('entries.layout', 'film'); setPref('ui.detailTab', 'check');
@@ -335,7 +335,7 @@ const STATUS_LABEL = { done: 'Hotovo', rev: 'Korektura', proof: 'V korekci', tr:
 const ENTRY_LABEL = { translated: 'Přeloženo', approved: 'Schváleno', todo: 'Nepřeloženo' };
 const KIND_LABEL = { empty: 'prázdný', english: 'anglicky', same: 'shodné', symbols: 'jen znaky' };
 const SEV_LABEL = { error: 'Chyba', warning: 'Varování', info: 'Info' };
-const proofChip = (p) => (p === 'ok' ? chip('proof', '✓ zkontrolováno') : p === 'fix' ? chip('warning', '⚑ k opravě')
+const proofChip = (p) => (p === 'ok' ? chip('proof', '✓ Zkontrolováno') : p === 'fix' ? chip('warning', '⚑ k opravě')
   : p === 'stale' ? chip('info', '↻ změněno po korektuře') : null);
 const chip = (cls, text) => h('span', { class: 'chip ' + cls }, text);
 function bar(pct, cls = '') { return h('div', { class: 'bar ' + cls }, h('i', { style: { width: clamp01(pct) + '%' } })); }
@@ -658,7 +658,7 @@ async function viewOverview() {
       h('div', { class: 'sub' }, `${o.file_counts.none + o.file_counts.wip} z ${o.project.files} souborů nedokončeno`)),
     h('div', { class: 'panel stat' }, h('div', { class: 'label' }, 'Korektura'),
       h('div', { class: 'value' }, fmtPct(t.proofread_percent)), bar(t.proofread_percent, 'alt'),
-      h('div', { class: 'sub' }, `${fmtN(t.proofread)} / ${fmtN(t.total)} řádků zkontrolováno`),
+      h('div', { class: 'sub' }, `Zkontrolováno: ${fmtN(t.proofread)} / ${fmtN(t.total)} řádků`),
       h('div', { class: 'sub' }, `řádek po řádku označeno ${fmtN(t.proof_marked)}`, t.proof_fix ? [' · ', h('a', { href: '#', onclick: (ev) => { ev.preventDefault(); go('entries', { file: '', status: 'fix' }); } }, `k opravě ${fmtN(t.proof_fix)}`)] : null),
       t.proof_stale ? h('div', { class: 'sub' }, h('a', { href: '#', onclick: (ev) => { ev.preventDefault(); go('entries', { file: '', status: 'stale' }); } }, `↻ změněno po korektuře ${fmtN(t.proof_stale)}`), ' – překlad se po označení změnil') : null,
       h('div', { class: 'row', style: { marginTop: '8px' } },
@@ -728,11 +728,11 @@ function overviewHero(o, files) {
   return h('div', { class: 'panel hero' },
     h('div', { class: 'hero-ring' }, ringChart(t.percent, t.proofread_percent), h('div', { class: 'hero-pct' }, h('b', null, fmtPct(t.percent)), h('span', { class: 'muted' }, 'přeloženo'))),
     h('div', { class: 'hero-body' },
-      h('h2', null, t.remaining ? `Zbývá ${fmtN(t.remaining)} ${plural(t.remaining, 'řádek', 'řádky', 'řádků')}` : 'Vše je přeloženo'),
+      h('h2', null, t.remaining ? `Zbývá přeložit ${fmtN(t.remaining)} ${plural(t.remaining, 'řádek', 'řádky', 'řádků')}` : 'Vše je přeloženo'),
       h('div', { class: 'muted' }, [
         e.pace_per_day ? `tempo ≈ ${fmtN(Math.round(e.pace_per_day))} řádků za den` : '',
         e.status === 'ok' && e.eta ? `odhad dokončení ${dateCz(e.eta)}` : '',
-        `korektura ${fmtPct(t.proofread_percent)}`].filter(Boolean).join(' · ')),
+        `zbývá zkontrolovat ${fmtN(Math.max(0, t.total - t.proofread))} (${fmtPct(t.proofread_percent)} hotovo)`].filter(Boolean).join(' · ')),
       h('div', { class: 'row', style: { marginTop: '12px', flexWrap: 'wrap' } },
         h('button', { class: 'btn primary', onclick: resume }, last && last.file ? `Pokračovat: ${last.file.split(/[\\/]/).pop()}:${last.line}` : 'Začít překládat'),
         h('button', { class: 'btn', title: 'Scéna a editor přes celou obrazovku, jen nepřeložené řádky', onclick: () => enterQuick() }, 'Rychle překládat'),
@@ -792,7 +792,7 @@ function seasonPanel(s, episodes) {
 const FL_COLS = [
   { k: 'pick', w: 38, label: '', resize: false }, { k: 'name', w: 430, label: 'Soubor', sortable: true },
   { k: 'assign', w: 140, label: 'Zařazení', sortable: true }, { k: 'tp', w: 250, label: 'Překlad', sortable: true },
-  { k: 'cp', w: 230, label: 'Korektura', sortable: true }, { k: 'todo', w: 80, label: 'Zbývá', sortable: true },
+  { k: 'cp', w: 230, label: 'Korektura', sortable: true }, { k: 'todo', w: 110, label: 'Zbývá přeložit', sortable: true }, { k: 'rev', w: 130, label: 'Zbývá zkontrolovat', sortable: true },
   { k: 'order', w: 112, label: 'Stav', sortable: true }, { k: 'warn', w: 84, label: 'Kontrola', sortable: true },
 ];
 const assignKey = (a) => (!a ? 1000 : a === 'gen' ? 900 : parseInt(a.slice(3), 10));
@@ -804,7 +804,7 @@ function fileView() {
     ((f.filter || 'all') === 'all' || (f.filter === 'open' && r.todo > 0) || (f.filter === 'rev' && r.todo === 0 && r.corr < r.total) || (f.filter === 'done' && r.corr >= r.total)));
   const sk = f.sortk || 'name', dir = f.sortdir || 1;
   const val = { name: (r) => r.name.toLowerCase(), assign: (r) => assignKey(r.assign), tp: (r) => r.done / r.total, cp: (r) => r.corr / r.total,
-    todo: (r) => r.todo, order: (r) => r.order, warn: (r) => r.errors * 1000 + r.warnings };
+    todo: (r) => r.todo, rev: (r) => Math.max(0, r.total - r.corr), order: (r) => r.order, warn: (r) => r.errors * 1000 + r.warnings };
   rows = rows.slice().sort((a, b) => { const x = val[sk](a), y = val[sk](b); return (x < y ? -1 : x > y ? 1 : a.name.localeCompare(b.name, 'cs', { numeric: true })) * dir; });
   return rows;
 }
@@ -839,9 +839,9 @@ async function viewFiles() {
     const t = buildTable({ key: 'files', cols, sort: { k: sk, dir }, onSort: (k) => { setPref('files.sortdir', k === sk ? -dir : 1); setPref('files.sortk', k); draw(); } });
     const tw = h('div', { class: 'tablewrap' }, t.table);
     if (!rows.length) tw.append(empty('Žádné soubory', 'Změň filtr nebo hledaný text.'));
-    let d = 0, tot = 0, c = 0, rem = 0;
+    let d = 0, tot = 0, c = 0, rem = 0, remRev = 0;
     rows.forEach((r, idx) => {
-      d += r.done; tot += r.total; c += r.corr; rem += r.todo;
+      d += r.done; tot += r.total; c += r.corr; rem += r.todo; remRev += Math.max(0, r.total - r.corr);
       const picked = S.fl.picked.has(r.name);
       const tr = h('tr', { class: (S.fl.sel === r.name ? 'sel ' : '') + (picked ? 'picked' : ''), onclick: () => { S.fl.sel = r.name; draw(); drawDetail(); } },
         h('td', { class: 'center' }, h('input', { type: 'checkbox', checked: picked, 'aria-label': 'Vybrat ' + r.name, onclick: (e) => {
@@ -855,12 +855,12 @@ async function viewFiles() {
           try { await post('assign', { name: r.name, v: e.target.value }); r.assign = e.target.value; toast(`Zařazení: ${r.name.split(/[\\/]/).pop()} → ${e.target.selectedOptions[0].text}`); refreshHeader(); draw(); drawDetail(); } catch (err) { fail(err); e.target.value = r.assign; }
         } }, h('option', { value: '' }, 'Nepřiřazeno'), h('option', { value: 'gen' }, 'Obecné'), [1, 2, 3, 4, 5, 6, 7, 8].map((n) => h('option', { value: 'ep:' + n }, `Epizoda ${n}`)))),
         h('td', null, numCell(r, 't')), h('td', null, numCell(r, 'c')),
-        h('td', { class: 'num' }, fmtN(r.todo)), h('td', null, chip(r.status, STATUS_LABEL[r.status])),
+        h('td', { class: 'num' }, fmtN(r.todo)), h('td', { class: 'num' }, fmtN(Math.max(0, r.total - r.corr))), h('td', null, chip(r.status, STATUS_LABEL[r.status])),
         h('td', null, r.errors ? h('span', { class: 'badge', title: 'Chyby' }, r.errors) : null, ' ', r.warnings ? h('span', { class: 'badge warn', title: 'Varování' }, r.warnings) : null));
       t.tbody.append(tr);
     });
     t.tfoot.append(h('tr', null, h('td'), h('td', null, `Celkem (zobrazeno ${rows.length})`), h('td'),
-      h('td', { class: 'num' }, `${fmtN(d)} / ${fmtN(tot)}  (${fmtPct(tot ? d / tot * 100 : 0)})`), h('td', { class: 'num' }, `${fmtN(c)} (${fmtPct(tot ? c / tot * 100 : 0)})`), h('td', { class: 'num' }, fmtN(rem)), h('td'), h('td')));
+      h('td', { class: 'num' }, `${fmtN(d)} / ${fmtN(tot)}  (${fmtPct(tot ? d / tot * 100 : 0)})`), h('td', { class: 'num' }, `${fmtN(c)} (${fmtPct(tot ? c / tot * 100 : 0)})`), h('td', { class: 'num' }, fmtN(rem)), h('td', { class: 'num' }, fmtN(remRev)), h('td'), h('td')));
     const keep = wrap.scrollTop;
     wrap.replaceChildren(tw); wrap.scrollTop = keep;
     counter.textContent = `Zobrazeno ${rows.length} z ${S.files.length} souborů`;
@@ -905,7 +905,8 @@ async function viewFiles() {
         h('dt', null, 'Přeloženo'), h('dd', null, `${fmtN(r.done)} (${fmtPct(total ? r.done / total * 100 : 0)})`),
         h('dt', null, 'z toho ručně schváleno'), h('dd', null, fmtN(r.approved)),
         h('dt', null, 'Automaticky napočteno'), h('dd', null, fmtN(r.auto)),
-        h('dt', null, 'Zbývá'), h('dd', null, fmtN(r.todo)),
+        h('dt', null, 'Zbývá přeložit'), h('dd', null, fmtN(r.todo)),
+        h('dt', null, 'Zbývá zkontrolovat'), h('dd', null, fmtN(Math.max(0, total - r.corr))),
         h('dt', null, 'Zkontrolováno'), h('dd', null, `${fmtN(r.corr)} (${fmtPct(total ? r.corr / total * 100 : 0)})`),
         h('dt', null, 'z toho řádek po řádku'), h('dd', null, fmtN(r.proof_marked)),
         h('dt', null, 'K opravě'), h('dd', null, r.proof_fix ? h('button', { class: 'btn small', onclick: () => go('entries', { file: r.name, status: 'fix' }) }, fmtN(r.proof_fix)) : '0'),
@@ -1166,7 +1167,7 @@ async function viewEntries() {
       h('td', { class: 'num' }, it.line), h('td', { class: 'mono muted', style: { fontSize: '12px' } }, it.ref ? it.ref.replace(/^game\//, '') : '–'),
       h('td', null, it.unit === 'string' ? h('span', { class: 'chip choice', title: 'Text z „translate strings“ – většinou volba v menu nebo text rozhraní' }, 'Volba') : h('span', { class: 'muted' }, 'Dialog')),
       h('td', null, chip(it.status, ENTRY_LABEL[it.status]), it.kind && it.status !== 'translated' ? h('div', { class: 'muted', style: { fontSize: '11.5px' } }, KIND_LABEL[it.kind]) : null),
-      h('td', null, it.status === 'todo' ? h('span', { class: 'muted' }, '–') : (proofChip(it.proof) || h('span', { class: 'muted' }, 'nezkontrolováno'))),
+      h('td', null, it.status === 'todo' ? h('span', { class: 'muted' }, '–') : (proofChip(it.proof) || h('span', { class: 'muted' }, 'Nezkontrolováno'))),
       speakerMode() !== 'name' ? h('td', { class: 'who' }, speakerBadge(it.who), it.who ? ' ' : null, it.who) : null,
       speakerMode() !== 'code' ? h('td', { class: 'whoname' }, speakerName(it.who) || h('span', { class: 'muted' }, it.who ? '–' : '')) : null,
       h('td', { class: 'txt entry-source' }, fmtText(it.source ?? '')), h('td', { class: 'txt entry-target' }, fmtText(it.target)),
@@ -1238,6 +1239,7 @@ async function viewEntries() {
         h('span', { class: 'path', title: d.ref ? `původní skript: ${d.ref}` : '' }, `${d.file}:${d.line}`),
         d.unit === 'string' ? chip('choice', 'Volba') : chip('none', 'Dialog'),
         chip(d.status, ENTRY_LABEL[d.status] + (d.kind_label && d.status !== 'translated' ? ` · ${d.kind_label}` : '')),
+        d.status !== 'todo' ? (proofChip(d.proof) || chip('none', 'Nezkontrolováno')) : null,
         h('span', { class: 'spacer' }),
         canApprove ? h('button', { class: 'btn small primary', onclick: () => toggleApprove() }, d.status === 'approved' ? 'Zrušit schválení (A)' : 'Schválit (A)') : null,
         h('button', { class: 'btn small', title: 'Otevře soubor na tomhle řádku v externím editoru', onclick: () => openEditor(d.file, d.line) }, 'Editor (E)'),
@@ -1266,7 +1268,8 @@ async function viewEntries() {
     const center = () => { const c = strip.querySelector('.cur'); if (c) strip.scrollLeft = c.offsetLeft - (strip.clientWidth - c.offsetWidth) / 2; };
     const fill = (r) => {
       strip.replaceChildren(...r.items.map((it) => h('button', { class: `fcard st-${it.status}${it.current ? ' cur' : ''}`, role: 'listitem', title: `Řádek ${it.line}`, onclick: () => goLine(d.file, it.line) },
-        h('div', { class: 'fhead' }, speakerBadge(it.who), h('span', { class: 'fnum' }, it.line)),
+        h('div', { class: 'fhead' }, speakerBadge(it.who), h('span', { class: 'fnum' }, it.line),
+          it.proof === 'ok' ? h('span', { class: 'fmark ok', title: 'Zkontrolováno' }, '✓') : it.proof === 'fix' ? h('span', { class: 'fmark fix', title: 'K opravě' }, '⚑') : null),
         h('div', { class: 'ftxt' }, it.status === 'todo' ? h('span', { class: 'muted' }, fmtText(it.source ?? '')) : fmtText(it.target)))));
       center();
     };
@@ -1313,13 +1316,13 @@ async function viewEntries() {
         x.ratio ? h('div', { class: 'muted' }, `Délka: originál ${x.source_len}, překlad ${x.target_len} znaků (poměr ${String(x.ratio).replace('.', ',')}). Rozhodni sám, jestli je to záměr.`) : null))) : h('div', { class: 'muted' }, 'Řádek nemá žádné nálezy.'));
   const proofPane = (d) => (
         d.status !== 'todo' ? h('div', { class: 'proofbox' },
-        h('div', { class: 'row' }, h('h4', { style: { margin: 0 } }, 'Korektura'), proofChip(d.proof) || h('span', { class: 'muted' }, 'zatím nezkontrolováno'),
+        h('div', { class: 'row' }, h('h4', { style: { margin: 0 } }, 'Korektura'), proofChip(d.proof) || h('span', { class: 'muted' }, 'Zatím nezkontrolováno'),
           d.proof_date && d.proof === 'ok' ? h('span', { class: 'muted' }, d.proof_date) : null),
         h('div', { class: 'actions' },
           h('button', { class: 'btn small ' + (d.proof === 'ok' ? '' : 'primary'), onclick: () => toggleProof() }, d.proof === 'ok' ? 'Zrušit označení (P)' : '✓ Zkontrolováno (P)'),
           h('button', { class: 'btn small', onclick: () => flagFix() }, d.proof === 'fix' ? 'Zrušit „k opravě“ (F)' : '⚑ K opravě (F)'),
           h('button', { class: 'btn small', title: 'Označí jako zkontrolované všechny přeložené řádky tohoto souboru od začátku až po tento řádek. Řádky označené „k opravě“ se nemění. Jde vrátit (Ctrl+Z).', onclick: () => proofUpto('ok') }, '✓ Zkontrolovat vše až sem (Shift+P)'),
-          h('button', { class: 'btn small', title: 'Odebere značku „zkontrolováno“ všem řádkům tohoto souboru od začátku až po tento řádek. Řádky označené „k opravě“ zůstanou. Jde vrátit (Ctrl+Z).', onclick: () => proofUpto('') }, '↺ Zrušit zkontrolování až sem (Shift+U)')),
+          h('button', { class: 'btn small', title: 'Odebere značku „Zkontrolováno“ všem řádkům tohoto souboru od začátku až po tento řádek. Řádky označené „k opravě“ zůstanou. Jde vrátit (Ctrl+Z).', onclick: () => proofUpto('') }, '↺ Zrušit zkontrolování až sem (Shift+U)')),
         h('textarea', { id: 'proofNote', rows: 2, placeholder: 'Poznámka ke korektuře (co opravit)…', value: d.proof_note || '', style: { width: '100%' },
           onchange: (ev) => saveNote(ev.target.value) })) : h('div', { class: 'muted' }, 'Řádek ještě není přeložený – korektura se dělá až po překladu.'));
   const scriptPane = (d) => h('div', null,

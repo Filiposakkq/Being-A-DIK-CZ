@@ -1655,7 +1655,8 @@ class App:
         r = max(1, min(int(radius), 30))
         a, b = max(0, idx - r), min(len(ents), idx + r + 1)
         return {"file": rel, "items": [{"line": e.line, "who": e.who, "source": e.source, "target": e.target,
-                                       "status": self._entry_row(rel, e), "current": e.line == line, "unit": e.unit}
+                                       "status": self._entry_row(rel, e), "current": e.line == line, "unit": e.unit,
+                                       "proof": self.project.proof_state(rel, e) if self.project.is_translated(rel, e) else ""}
                                       for e in ents[a:b]]}
 
     def entry_check(self, rel, line, text):

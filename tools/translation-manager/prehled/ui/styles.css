@@ -556,3 +556,8 @@ body.focus .pane-head { padding-right: 330px; }
 
 .menu.flip-x { left: auto; right: 0; }
 .menu.flip-y { top: auto; bottom: 100%; margin-top: 0; margin-bottom: 4px; }
+
+.fcard .fmark { margin-left: auto; font-size: 12px; font-weight: 700; }
+.fcard .fmark.ok { color: var(--proof); }
+.fcard .fmark.fix { color: var(--warn); }
+.dhead { row-gap: 6px; }
