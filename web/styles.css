@@ -164,7 +164,13 @@ h3 { margin: 0 0 8px; font: 700 1.15rem var(--display); }
 .chart { padding: 18px 20px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); }
 .chart svg { display: block; width: 100%; height: auto; overflow: visible; }
 .chart .note { margin: 0; }
-.chart-axis { display: flex; justify-content: space-between; margin-top: 8px; color: var(--muted); font-size: 0.78rem; }
+.chart-frame { position: relative; margin: 0 52px 0 38px; }
+.chart-tick { position: absolute; right: 100%; padding-right: 8px; transform: translateY(-50%); color: var(--muted); font-size: 0.72rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.chart-end { position: absolute; left: 100%; padding-left: 10px; transform: translateY(-50%); font: 800 0.9rem var(--display); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.chart-end-tr { color: var(--gold); } .chart-end-pr { color: var(--cream); }
+.chart-dot { position: absolute; width: 9px; height: 9px; margin: -4.5px 0 0 -4.5px; border-radius: 50%; }
+.chart-dot.chart-end-tr { background: var(--gold); } .chart-dot.chart-end-pr { background: var(--cream); }
+.chart-axis { margin-left: 38px; margin-right: 52px; display: flex; justify-content: space-between; margin-top: 8px; color: var(--muted); font-size: 0.78rem; }
 .legend { display: flex; gap: 22px; margin: 12px 0 0; padding: 0; list-style: none; color: var(--muted); font-size: 0.82rem; }
 .legend i { display: inline-block; width: 20px; height: 4px; margin-right: 9px; vertical-align: middle; }
 .lg-tr { background: var(--gold); }
@@ -226,7 +232,9 @@ h3 { margin: 0 0 8px; font: 700 1.15rem var(--display); }
 .pair-lbl { font-size: 0.72rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
 .pair-val { font: 800 1.15rem/1.1 var(--display); font-variant-numeric: tabular-nums; }
 .pair-val .unit { font-size: 0.6em; }
-.pair .bar { height: 7px; margin-bottom: 4px; }
+.pair .bar { height: 7px; margin-bottom: 2px; }
+.pair-sub { margin-bottom: 8px; color: var(--muted); font-size: 0.78rem; font-variant-numeric: tabular-nums; }
+.pair-sub.pp { margin-bottom: 4px; }
 .pair .pp .pair-val { color: var(--cream); }
 .bar-alt i { background: repeating-linear-gradient(135deg, var(--cream) 0 8px, #d6cbb0 8px 16px); }
 .bar-thin { height: 8px; margin-top: 8px; }

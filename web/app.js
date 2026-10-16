@@ -176,6 +176,7 @@ function pctPair(tr, pr, big) {
     else val.append(p, el("span", "unit", "%"));
     row.append(el("span", "pair-lbl", label), val);
     wrap.append(row, progressBar(block.percent, label, cls === "pp" ? "bar-alt" : ""));
+    if (!big && block.total !== null) wrap.append(el("span", "pair-sub " + cls, t.lineCount(num(block.done), num(block.total))));
   }
   return wrap;
 }
@@ -190,11 +191,7 @@ function episodeEl(ep) {
   const top = el("div", "ep-top");
   top.append(el("span", "ep-n", `${t.ep} ${String(ep.n).padStart(2, "0")}`), el("span", "ep-s", t.status[ep.status]));
   const meta = el("div", "ep-meta");
-  if (ep.translation.total !== null) {
-    meta.append(t.lineCount(num(ep.translation.done), num(ep.translation.total)), document.createElement("br"), t.nFiles(ep.files));
-  } else {
-    meta.textContent = ep.files ? t.nFiles(ep.files) : t.noEpMeta;
-  }
+  meta.textContent = ep.files ? t.nFiles(ep.files) : t.noEpMeta;
   if (ep.translation.percent === null && ep.proofreading.percent === null) {
     li.append(shape, top, el("div", "ep-pct nodata", t.noEpData), meta);
   } else {
@@ -262,20 +259,34 @@ function renderChart(history) {
   const last = pts[pts.length - 1];
 
   const chart = svg("svg", { viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": T[lang].chartAria(last.a.toFixed(1), last.b.toFixed(1)) });
+  const frame = el("div", "chart-frame");
   for (const f of [0, 0.5, 1]) {
     const gy = H - PAD - f * (H - PAD * 2);
     chart.append(svg("line", { x1: PAD, x2: W - PAD, y1: gy, y2: gy, stroke: "rgba(245,236,214,0.16)", "stroke-dasharray": f === 0 ? "0" : "4 5" }));
+    const tick = el("span", "chart-tick", `${fmtPct(top * f).replace(/[.,]0$/, "")} %`);
+    tick.style.top = `${(gy / H) * 100}%`;
+    frame.append(tick);
   }
   chart.append(
     svg("polygon", { points: `${x(t0)},${y(0)} ${line("a")} ${x(last.t)},${y(0)}`, fill: "rgba(226,176,74,0.13)" }),
+    svg("polygon", { points: `${x(t0)},${y(0)} ${line("b")} ${x(last.t)},${y(0)}`, fill: "rgba(245,236,214,0.07)" }),
     svg("polyline", { points: line("a"), fill: "none", stroke: "#e2b04a", "stroke-width": 2.4, "stroke-linejoin": "round", "vector-effect": "non-scaling-stroke" }),
     svg("polyline", { points: line("b"), fill: "none", stroke: "#f5ecd6", "stroke-width": 2.4, "stroke-linejoin": "round", "vector-effect": "non-scaling-stroke" }),
-    svg("circle", { cx: x(last.t), cy: y(last.a), r: 3.8, fill: "#e2b04a" }),
   );
+  // end-of-line values as HTML (SVG text would stretch with the viewBox)
+  for (const [k, cls] of [["a", "chart-end-tr"], ["b", "chart-end-pr"]]) {
+    const dot = el("i", `chart-dot ${cls}`);
+    dot.style.left = `${(x(last.t) / W) * 100}%`;
+    dot.style.top = `${(y(last[k]) / H) * 100}%`;
+    const val = el("span", `chart-end ${cls}`, `${fmtPct(last[k])} %`);
+    val.style.top = `${(y(last[k]) / H) * 100}%`;
+    frame.append(dot, val);
+  }
+  frame.prepend(chart);
   const fmt = (ms) => new Intl.DateTimeFormat(T[lang].locale, { day: "numeric", month: "short", year: "numeric" }).format(ms);
   const axis = el("div", "chart-axis");
-  axis.append(el("span", "", fmt(t0)), el("span", "", `0–${top} %`), el("span", "", fmt(last.t)));
-  box.replaceChildren(chart, axis);
+  axis.append(el("span", "", fmt(t0)), el("span", "", fmt(last.t)));
+  box.replaceChildren(frame, axis);
   $("#histRange").textContent = T[lang].days(Math.max(1, Math.round(span / 86400000)));
 }
 
