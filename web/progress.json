@@ -1,16 +1,16 @@
 {
  "schema": 2,
  "title": "",
- "updated": "2026-10-16T21:51+02:00",
+ "updated": "2026-10-17T15:19+02:00",
  "translation": {
   "done": 3070,
   "total": 45335,
   "percent": 6.8
  },
  "proofreading": {
-  "done": 1112,
+  "done": 1948,
   "total": 45335,
-  "percent": 2.5
+  "percent": 4.3
  },
  "files": {
   "done": 8,
@@ -55,9 +55,9 @@
     "percent": 17.8
    },
    "proofreading": {
-    "done": 1046,
+    "done": 1882,
     "total": 16708,
-    "percent": 6.3
+    "percent": 11.3
    },
    "files": 28,
    "files_done": 7,
@@ -106,9 +106,9 @@
     "percent": 100.0
    },
    "proofreading": {
-    "done": 1046,
+    "done": 1882,
     "total": 2979,
-    "percent": 35.1
+    "percent": 63.2
    },
    "files_done": 7,
    "files_total": 7,
@@ -289,8 +289,8 @@
   "eta_early": null,
   "eta_late": null,
   "confidence": null,
-  "basis_days": 2,
-  "days_with_data": 3
+  "basis_days": 3,
+  "days_with_data": 4
  },
  "history": [
   {
@@ -307,6 +307,11 @@
    "date": "2026-10-16",
    "translation": 6.8,
    "proofreading": 2.5
+  },
+  {
+   "date": "2026-10-17",
+   "translation": 6.8,
+   "proofreading": 4.3
   }
  ]
 }
