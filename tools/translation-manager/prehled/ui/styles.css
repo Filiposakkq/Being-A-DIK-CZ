@@ -602,4 +602,4 @@ table.entries tr.ovf td:first-child { box-shadow: inset 3px 0 0 var(--bad); }
 .resbar .resrow .txt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wordtoggle { white-space: nowrap; }
 .wordtoggle.on { background: var(--accent-bg, var(--bg-2)); border-color: var(--accent, var(--line-2)); color: var(--accent, inherit); font-weight: 600; }
-
+.menubox .mshared { font-size: 11.5px; margin-top: 2px; }

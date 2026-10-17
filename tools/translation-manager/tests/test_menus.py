@@ -154,6 +154,20 @@ class MenuInTheAppTests(TempCase):
         r = app.entry_menu("script.rpy", leave.line)
         self.assertEqual([(o["text"], o["current"]) for o in r["options"]], [("Invite her", False), ("Leave", True)])
 
+    def test_a_choice_text_used_in_an_earlier_menu_is_marked_with_the_place_where_it_is_listed(self):
+        game = self.tmp / "game"
+        tl = game / "tl" / "czech"
+        tl.mkdir(parents=True)
+        (game / "script.rpy").write_text("\n".join(SCRIPT) + "\n", encoding="utf-8")
+        (tl / "script.rpy").write_text(
+            'translate czech strings:\n\n    # game/script.rpy:100\n    old "Leave"\n    new "Odejít"\n\n'
+            '    # game/script.rpy:5\n    old "Invite her"\n    new "Pozvat ji"\n\n', encoding="utf-8")
+        app = self.new_app(open_root=False)
+        app.open_project(tl)
+        invite = next(e for e in app.project.entries("script.rpy") if e.source == "Invite her")
+        r = app.entry_menu("script.rpy", invite.line)
+        self.assertEqual([(o["text"], o["where"]) for o in r["options"]], [("Invite her", ""), ("Leave", "game/script.rpy:100")])
+
 
 if __name__ == "__main__":
     unittest.main()

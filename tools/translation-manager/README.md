@@ -226,7 +226,7 @@ the string literal (a bare `"`, a lone `\`) is skipped.
   the **question** (or, for a menu without one, the last two lines said before it), **all choices** of the menu with their translations and `if` conditions, and the
   **first lines after each choice** (original and translation); a choice with no dialogue shows the first lines of its body (variables, `jump`). The tab also opens
   from a dialogue line that belongs to a menu (marked *tento řádek*), and the menu is shown under the film strip in the quick modes. Ren'Py 7 records the line of the `menu:`
-  statement for every choice of the menu, newer versions the line of the choice; both work (`/api/entry/menu`). Needs the scripts as `.rpy`.
+  statement for every choice of the menu, newer versions the line of the choice; both work (`/api/entry/menu`). A text used in several menus is listed once by Ren'Py (at its first place, one shared translation): in the other menus the choice says where it is listed and the click jumps there. Needs the scripts as `.rpy`.
 * **Whole-word search**: the *Celé slovo* switch next to the search boxes of *Řádky*, *Kontrola* and *Slovník* (`Sage` no longer finds `Massage`; `word=1` on `/api/entries` and `/api/validation`).
 * **Quick modes and film layout**: a search or filter opens the first hit; a **results bar** (*Výsledek 3 z 16*, ← →, a list of all hits) shows while something narrows the lines; the
   ← / → keys move between lines like ↓ / ↑.

@@ -1047,7 +1047,9 @@ class App:
         opts = []
         for k, o in enumerate(found["options"]):
             hit = by_text.get(norm_ws(o["text"]))
-            opts.append({"n": o["n"], "text": o["text"], "cond": o["cond"], "current": k == found["current"],
+            here = {f"{m.group(1)}:{found['menu_line']}", f"{m.group(1)}:{o['n']}"}
+            where = hit[1].ref if hit and hit[1].ref and hit[1].ref not in here else ""      # stejný text je v dřívějším menu: Ren'Py ho uvádí jen tam
+            opts.append({"n": o["n"], "text": o["text"], "cond": o["cond"], "current": k == found["current"], "where": where,
                          "entry": row(*hit) if hit else None, "after": [say(n) for n in o["after"]],
                          "body": [] if o["after"] else textwrap.dedent(chr(10).join(o["body"])).splitlines()})
         return {"available": True, "script": f"{m.group(1)}:{found['menu_line']}", "question": [say(n) for n in found["question"]],
