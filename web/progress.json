@@ -1,24 +1,24 @@
 {
  "schema": 2,
  "title": "",
- "updated": "2026-10-17T16:50+02:00",
+ "updated": "2026-10-17T20:14+02:00",
  "translation": {
-  "done": 3070,
-  "total": 45335,
-  "percent": 6.8
+  "done": 3117,
+  "total": 45403,
+  "percent": 6.9
  },
  "proofreading": {
-  "done": 2143,
-  "total": 45335,
-  "percent": 4.7
+  "done": 3092,
+  "total": 45403,
+  "percent": 6.8
  },
  "files": {
-  "done": 8,
-  "rev": 1,
+  "done": 10,
+  "rev": 0,
   "tr": 1,
   "wip": 0,
   "none": 62,
-  "total": 72
+  "total": 73
  },
  "scope": {
   "seasons": [
@@ -50,16 +50,16 @@
     4
    ],
    "translation": {
-    "done": 2979,
-    "total": 16708,
+    "done": 2997,
+    "total": 16878,
     "percent": 17.8
    },
    "proofreading": {
-    "done": 2077,
-    "total": 16708,
-    "percent": 12.4
+    "done": 2997,
+    "total": 16878,
+    "percent": 17.8
    },
-   "files": 28,
+   "files": 29,
    "files_done": 7,
    "episodes_done": 0,
    "episodes_total": 4
@@ -97,22 +97,22 @@
   {
    "n": 1,
    "status": "wip",
-   "percent": 100.0,
-   "files": 7,
+   "percent": 95.2,
+   "files": 8,
    "season": 1,
    "translation": {
-    "done": 2979,
-    "total": 2979,
-    "percent": 100.0
+    "done": 2997,
+    "total": 3149,
+    "percent": 95.2
    },
    "proofreading": {
-    "done": 2077,
-    "total": 2979,
-    "percent": 69.7
+    "done": 2997,
+    "total": 3149,
+    "percent": 95.2
    },
    "files_done": 7,
-   "files_total": 7,
-   "files_proofread": 6
+   "files_total": 8,
+   "files_proofread": 7
   },
   {
    "n": 2,
@@ -257,33 +257,33 @@
  ],
  "general": {
   "translation": {
-   "done": 91,
-   "total": 91,
+   "done": 120,
+   "total": 120,
    "percent": 100.0
   },
   "proofreading": {
-   "done": 66,
-   "total": 91,
-   "percent": 72.5
+   "done": 95,
+   "total": 120,
+   "percent": 79.2
   },
-  "files": 3
+  "files": 4
  },
  "unassigned": {
   "translation": {
    "done": 0,
-   "total": 1284,
+   "total": 1153,
    "percent": 0.0
   },
   "proofreading": {
    "done": 0,
-   "total": 1284,
+   "total": 1153,
    "percent": 0.0
   },
-  "files": 17
+  "files": 16
  },
  "estimate": {
   "status": "insufficient_data",
-  "remaining": 42265,
+  "remaining": 42286,
   "pace_per_day": null,
   "eta": null,
   "eta_early": null,
@@ -310,8 +310,8 @@
   },
   {
    "date": "2026-10-17",
-   "translation": 6.8,
-   "proofreading": 4.7
+   "translation": 6.9,
+   "proofreading": 6.8
   }
  ]
 }
