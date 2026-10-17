@@ -220,6 +220,21 @@ the string literal (a bare `"`, a lone `\`) is skipped.
 * **Too long for the dialogue box**: the film strip marks such cards red (⤓), the list rows get a red edge, *Další kontrola → Nevejde se do okna hry* in the filters shows only
   them, and the file strip jumps to the next one. A line "does not fit" when its translation needs more lines than the limit in *Nastavení* and the original did not.
 
+## Choices and their menu, search, texts the generator missed (from the Lexo project)
+
+* **Menu tab** (*Menu*, the default tab of a choice): choices live in `translate strings`, far from the dialogue, so the tab reads the game script (`prehled/menus.py`) and shows
+  the **question** (or, for a menu without one, the last two lines said before it), **all choices** of the menu with their translations and `if` conditions, and the
+  **first lines after each choice** (original and translation); a choice with no dialogue shows the first lines of its body (variables, `jump`). The tab also opens
+  from a dialogue line that belongs to a menu (marked *tento řádek*), and the menu is shown under the film strip in the quick modes. Ren'Py 7 records the line of the `menu:`
+  statement for every choice of the menu, newer versions the line of the choice; both work (`/api/entry/menu`). Needs the scripts as `.rpy`.
+* **Whole-word search**: the *Celé slovo* switch next to the search boxes of *Řádky*, *Kontrola* and *Slovník* (`Sage` no longer finds `Massage`; `word=1` on `/api/entries` and `/api/validation`).
+* **Quick modes and film layout**: a search or filter opens the first hit; a **results bar** (*Výsledek 3 z 16*, ← →, a list of all hits) shows while something narrows the lines; the
+  ← / → keys move between lines like ↓ / ↑.
+* **Texts the generator missed** (*Nástroje → Texty, které generátor vynechal…*, experimental): texts that Ren'Py's `translate` does not extract (`show text`, `renpy.input`
+  prompts, titles kept in variables, dialogue without a block) are found in the game scripts (`prehled/missed.py`), shown with a *likely / maybe* level, and the ones you tick are
+  written to `extra_strings.rpy` as untranslated lines (or, experimental, into the translation file of their own script). The project remembers its own text functions and the ignored
+  texts in `_progress_data\missed.json`. Nothing is written until you choose.
+
 ## Detail window (second window)
 
 **⧉** in the top bar (or the palette) opens a **window with nothing but the line detail**: the scene picture with the dialogue box and the tabs *Kontrola /

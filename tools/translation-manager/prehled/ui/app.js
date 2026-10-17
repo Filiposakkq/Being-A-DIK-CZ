@@ -172,11 +172,106 @@ function paintFocusBar() {
     ...(S.quick === 'proof' ? [
       h('button', { class: 'btn small primary', title: 'Označí řádek jako zkontrolovaný a přejde na další (P)', onclick: () => S.ent?.api?.toggleProof() }, '✓ Zkontrolováno'),
       h('button', { class: 'btn small', title: 'Označí řádek k opravě (F)', onclick: () => S.ent?.api?.flagFix() }, '⚑ K opravě'),
-      h('button', { class: 'btn small icon', title: 'Předchozí řádek (↑)', onclick: () => S.ent?.api?.select(S.ent.sel - 1) }, '↑'),
-      h('button', { class: 'btn small icon', title: 'Další řádek (↓)', onclick: () => S.ent?.api?.select(S.ent.sel + 1) }, '↓'),
+      h('button', { class: 'btn small icon', title: 'Předchozí řádek (←)', onclick: () => S.ent?.api?.select(S.ent.sel - 1) }, '←'),
+      h('button', { class: 'btn small icon', title: 'Další řádek (→)', onclick: () => S.ent?.api?.select(S.ent.sel + 1) }, '→'),
       h('span', { class: 'muted' }, 'Korektura' + (rev != null ? ` · zbývá zkontrolovat ${rev}` : ''))]
       : S.quick ? [h('span', { class: 'muted' }, 'Rychlé překládání' + (rest != null ? ` · zbývá přeložit ${rest}` : '') + (rev != null ? ` · zkontrolovat ${rev}` : ''))] : []));
 }
+/* Texty, které generátor Ren'Py vynechá (show text, výzvy k zadání, názvy v proměnných, dialog bez bloku): najdou se ve skriptech hry a přidají
+   se do překladu jako soubor s řetězci. Je to odhad: seznam se nejdřív ukáže a nic se nezapíše, dokud uživatel nevybere.
+   Projekt si pamatuje vlastní funkce s textem (notify, popup…) a texty, které překladatel ignoroval (missed.json). */
+async function missedTextsDialog(done) {
+  let data = null, level = 'likely';
+  const sel = new Set();
+  const results = h('div'), info = h('span', { class: 'grow' });
+  const foot = h('button', { class: 'btn primary', disabled: true });
+  const ignoreBtn = h('button', { class: 'btn', disabled: true });
+  let intoFiles = false;
+  const body = h('div', null, results);
+  const KIND_LABEL = { text: 'text', dialogue: 'dialog bez bloku' };
+  const fnInput = h('input', { type: 'text', class: 'search', style: { width: '260px' }, placeholder: 'notify, show_message' });
+  const suggestBox = h('div', { class: 'toolbar' });
+  async function load() {
+    results.replaceChildren(loading());
+    try { data = await get('missed', { level }); } catch (e) { return results.replaceChildren(h('div', { class: 'notice bad' }, e.message)); }
+    sel.clear(); data.items.forEach((it, i) => { if (it.level === 'likely') sel.add(i); });
+    fnInput.value = data.settings.functions.join(', ');
+    paint();
+  }
+  const names = () => fnInput.value.split(/[,;\s]+/).filter(Boolean);
+  async function saveFunctions() {
+    try { await post('missed/settings', { functions: names() }); toast('Uloženo.', 'ok'); await load(); } catch (e) { fail(e); }
+  }
+  async function findFunctions() {
+    suggestBox.replaceChildren(h('span', { class: 'muted' }, 'Hledám…'));
+    try {
+      const r = await get('missed/functions');
+      suggestBox.replaceChildren(r.suggested.length
+        ? h('span', { class: 'muted' }, 'Funkce volané stále dokola s textem (kliknutím přidáš):')
+        : h('span', { class: 'muted' }, 'Žádná funkce volaná stále dokola s textem se nenašla.'),
+      ...r.suggested.map((f) => h('button', { class: 'btn small', title: `${f.calls}× voláno, například: ${f.example}`, onclick: () => { if (!names().includes(f.name)) fnInput.value = names().concat(f.name).join(', '); } }, `${f.name} ×${f.calls}`)));
+    } catch (e) { suggestBox.replaceChildren(); fail(e); }
+  }
+  function paint() {
+    if (data.message) { results.replaceChildren(empty('Není co hledat', data.message)); foot.disabled = true; ignoreBtn.disabled = true; info.textContent = ''; return; }
+    const shown = data.items.slice(0, 500);
+    const rows = shown.map((it, i) => h('tr', null,
+      h('td', { class: 'center' }, h('input', { type: 'checkbox', checked: sel.has(i), onchange: (e) => { e.target.checked ? sel.add(i) : sel.delete(i); paint2(); } })),
+      h('td', null, chip(it.level === 'likely' ? 'done' : 'none', it.level === 'likely' ? 'pravděpodobné' : 'možné'), h('div', { class: 'muted', style: { fontSize: '11.5px' } }, KIND_LABEL[it.kind] || it.kind)),
+      h('td', null, fname(it.file), h('span', { class: 'mono muted' }, ` řádek ${it.line}`), it.count > 1 ? h('div', { class: 'muted' }, `${it.count} ${plural(it.count, 'místo', 'místa', 'míst')}`) : null),
+      h('td', { class: 'txt' }, fmtText(it.text)), h('td', { class: 'mono muted' }, it.context)));
+    const t = h('table', { class: 'data' }, h('colgroup', null, [40, 130, 230, 360, 300].map((w) => h('col', { style: { width: w + 'px' } }))),
+      h('thead', null, h('tr', null, ['', 'Druh', 'Kde', 'Text', 'Kód'].map((x) => h('th', null, x)))), h('tbody', null, rows));
+    t.style.width = '1060px';
+    const more = h('label', { class: 'check' },
+      h('input', { type: 'checkbox', checked: level === 'all', onchange: (e) => { level = e.target.checked ? 'all' : 'likely'; load(); } }), ' ',
+      `Ukázat i slabší tipy (${data.counts.maybe})`);
+    const forget = data.settings.ignored.length
+      ? h('button', { class: 'btn small ghost', onclick: async () => { try { await post('missed/ignore', { clear: true }); await load(); } catch (e) { fail(e); } } }, `Zapomenout ${data.settings.ignored.length} ignorovaných textů`) : null;
+    results.replaceChildren(
+      h('div', { class: 'notice warn', style: { fontSize: '14px', padding: '12px 16px', borderWidth: '2px', margin: '0 0 12px' } },
+        h('b', { style: { display: 'block', fontSize: '16px', letterSpacing: '.06em', textTransform: 'uppercase', marginBottom: '4px' } }, 'Experimentální funkce'),
+        'Seznam je odhad ze skriptů hry a může se mýlit oběma směry (něco v něm chybí, něco do něj nepatří). I tak ušetří spoustu hledání, ale před přidáním ho vždy projdi.'),
+      h('p', { class: 'muted' }, 'Generátor Ren\'Py bere jen dialog, volby v menu, obrazovky a řetězce označené _("…"). Texty zobrazené jinak, třeba show text, výzva k zadání nebo název uložený v proměnné, v překladových souborech nejsou. Tenhle seznam je odhad ze skriptů hry – zaškrtni, co hráč opravdu uvidí. Vybrané texty se přidají do extra_strings.rpy a objeví se jako nepřeložené řádky.'),
+      h('div', { class: 'toolbar' }, more, forget),
+      h('label', { class: 'check', style: { display: 'block', margin: '4px 0' } }, h('input', { type: 'checkbox', checked: intoFiles, onchange: (e) => { intoFiles = e.target.checked; } }), ' ',
+        'Dát každý text do překladového souboru jeho skriptu', ' ', chip('warn', 'Experimentální'),
+        h('div', { class: 'muted' }, 'Experimentální, nemusí všude fungovat správně, ale většinou ano a ušetří práci. Bez toho jdou všechny texty do extra_strings.rpy. Hře je jedno, kde leží; jen to drží pořádek ve statistikách souborů a skupin.')),
+      h('div', { class: 'toolbar' }, h('b', null, 'Funkce téhle hry, které ukazují text:'), fnInput, h('button', { class: 'btn small', onclick: saveFunctions }, 'Uložit'),
+        h('button', { class: 'btn small', onclick: findFunctions }, 'Najít funkce…')),
+      suggestBox,
+      data.truncated || data.items.length > 500 ? h('p', { class: 'muted' }, `Ukazuje se prvních 500 z ${data.items.length}; přidat jdou jen zobrazené.`) : null,
+      data.items.length ? h('div', { class: 'toolbar', style: { marginTop: '10px' } }, h('b', null, 'Výběr:'),
+        h('button', { class: 'btn small', onclick: () => { shown.forEach((_, i) => sel.add(i)); paint(); } }, 'Vybrat vše'),
+        h('button', { class: 'btn small', onclick: () => { sel.clear(); paint(); } }, 'Zrušit výběr')) : null,
+      data.items.length ? h('div', { class: 'tablewrap', style: { maxHeight: '38vh', marginTop: '8px' } }, t) : empty('Nic nenalezeno', 'Skripty neobsahují žádný text, který by překlad neměl.'));
+    paint2();
+  }
+  function paint2() {
+    const n = sel.size;
+    foot.disabled = !n; ignoreBtn.disabled = !n;
+    foot.textContent = `Přidat vybrané (${n})`;
+    ignoreBtn.textContent = `Ignorovat vybrané (${n})`;
+    ignoreBtn.title = 'Projekt tyto texty už nebude ukazovat';
+    info.textContent = `Nalezeno ${data.counts.likely + (level === 'all' ? data.counts.maybe : 0)} · vybráno ${n}`;
+    const chosen = () => [...sel].filter((i) => i < 500).map((i) => data.items[i]);
+    foot.onclick = async () => {
+      try {
+        const res = await post('missed/add', { items: chosen(), into_files: intoFiles });
+        toast(res.message + (res.skipped ? ` Přeskočeno ${res.skipped}.` : ''), 'ok');
+        close(); done?.();
+      } catch (e) { fail(e); }
+      return false;
+    };
+    ignoreBtn.onclick = async () => {
+      try { await post('missed/ignore', { texts: chosen().map((i) => i.text) }); toast('Texty se už nebudou ukazovat.', 'ok'); await load(); } catch (e) { fail(e); }
+      return false;
+    };
+  }
+  const close = dialog({ title: h('span', null, 'Texty, které generátor vynechal', ' ', chip('warn', 'Experimentální')), body, buttons: [{ label: 'Zrušit' }, { node: h('span', { style: { display: 'contents' } }, info, ignoreBtn, foot) }] });
+  load();
+}
+
 function enterQuick() {
   setPref('entries.layout', 'film'); setPref('ui.detailTab', 'check');
   setPref('entries.status', 'todo');
@@ -458,6 +553,14 @@ function menuButton(label, items, { primary = false, title = '' } = {}) {
 
 /* ---------------------------------------------------------------- filter bar pieces (shared by all tabs) */
 const filterGroup = (label, ...controls) => h('label', { class: 'fgroup' }, h('span', { class: 'flabel' }, label), ...controls);
+/* Přepínač „Celé slovo“ u vyhledávacího pole: `Sage` pak nenajde „Massage“. Stav je nastavení; onChange spustí hledání znovu. */
+function wordToggle(prefKey, onChange) {
+  const b = h('button', { type: 'button', class: 'btn small wordtoggle', title: 'Celé slovo: „Sage“ nenajde „Massage“' }, 'Celé slovo');
+  const paint = () => { const on = !!pref(prefKey, false); b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on)); };
+  b.onclick = () => { setPref(prefKey, !pref(prefKey, false)); paint(); onChange(); };
+  paint();
+  return b;
+}
 /* A row of "pills" (one per option, with a count) – the main filter of a list. */
 function pillRow(options, current, counts, onPick) {
   return options.map(([k, label]) => {
@@ -1055,7 +1158,7 @@ const EN_COLS = [
 ];
 function entQuery(extra = {}) {
   const e = pref('entries', {});
-  return { file: e.file || '', status: e.status || 'todo', unit: e.unit || '', kind: e.kind || '', issues: e.issues || '', q: e.q || '', sort: e.sort || 'line', limit: 200, ...extra };
+  return { file: e.file || '', status: e.status || 'todo', unit: e.unit || '', kind: e.kind || '', issues: e.issues || '', q: e.q || '', word: e.word ? '1' : '', sort: e.sort || 'line', limit: 200, ...extra };
 }
 async function viewEntries() {
   if (S.goOpts) {
@@ -1116,7 +1219,7 @@ async function viewEntries() {
     if (file) active.push(['Soubor: ' + file.split(/[\\/]/).pop(), () => { setPref('entries.file', ''); fileSel.value = ''; load(true); }]);
     if (st !== 'all') active.push(['Stav: ' + lab(STATUS_OPTS, st), () => { setPref('entries.status', 'all'); load(true); }]);
     for (const k of ['unit', 'kind', 'issues']) if (pref('entries.' + k, '')) active.push([`${FILTER_NAMES[k]}: ${lab(OPTS[k], pref('entries.' + k, ''))}`, () => { setPref('entries.' + k, ''); selects[k].value = ''; load(true); }]);
-    if (pref('entries.q', '')) active.push([`Hledání: „${pref('entries.q', '')}“`, () => { setPref('entries.q', ''); search.value = ''; load(true); }]);
+    if (pref('entries.q', '')) active.push([`Hledání: „${pref('entries.q', '')}“` + (pref('entries.word', false) ? ' · Celé slovo' : ''), () => { setPref('entries.q', ''); search.value = ''; load(true); }]);
     chipsBox.replaceChildren(...activeChips(active, resetFilters));
     const open = moreOpen();
     moreBtn.textContent = `${open ? '▾' : '▸'} Další filtry${extraCount() ? ` (${extraCount()})` : ''}`;
@@ -1125,12 +1228,13 @@ async function viewEntries() {
   }
   const pickInfo = h('span', { class: 'pickinfo' });
   main.append(h('div', { class: 'pane-head' }, h('div', { class: 'filterbar' },
-    h('div', { class: 'frow' }, search, filterGroup('Soubor', fileSel), moreBtn,
+    h('div', { class: 'frow' }, search, wordToggle('entries.word', () => { if (pref('entries.q', '')) load(true); }), filterGroup('Soubor', fileSel), moreBtn,
       menuButton('Nástroje', [
         { label: 'Najít a nahradit…', hint: 'v překladech', run: () => replaceDialog(async () => { S.files = null; await refreshHeader(); load(true); }, S.fl.picked.size ? [...S.fl.picked] : (pref('entries.file', '') ? [pref('entries.file', '')] : [])) },
         { label: 'Schválit podle pravidla…', hint: 'jména, citoslovce', run: () => ruleApproveDialog(async () => { S.files = null; await refreshHeader(); load(true); }, S.fl.picked.size ? [...S.fl.picked] : (pref('entries.file', '') ? [pref('entries.file', '')] : [])) },
         { label: 'Opravit…', hint: 'mluvčí, mezery, překlepy', run: () => fixDialog({ file: pref('entries.file', '') }, async () => { S.files = null; await refreshHeader(); load(true); }) },
         { label: 'Přeložit strojem…', hint: 'vybrané řádky, scéna, soubor', run: () => openMtDialog() },
+        { label: 'Texty, které generátor vynechal…', hint: 'show text, výzvy k zadání, názvy', run: () => missedTextsDialog(async () => { S.files = null; await refreshHeader(); load(true); }) },
       ], { title: 'Hromadné úpravy překladů' }),
       pickInfo, h('span', { class: 'spacer' }), counter,
       layoutMenu()),
@@ -1223,7 +1327,7 @@ async function viewEntries() {
       S.ent.more.replaceChildren(shown < r.total ? h('button', { class: 'btn', onclick: () => load(false) }, `Načíst dalších ${Math.min(200, r.total - shown)} (zobrazeno ${fmtN(shown)} z ${fmtN(r.total)})`) : null);
       if (!r.total) S.ent.more.replaceChildren(empty('Nic nenalezeno', pref('entries.status', 'todo') === 'todo' ? 'Tady už není nic k přeložení – nebo změň filtry.' : 'Zkus změnit filtry nebo hledaný text.'));
       if (reset && around) { const i = S.ent.items.findIndex((x) => x.line === around); S.ent.pendingLine = 0; if (i >= 0) select(i); }
-      else if (reset && S.ent.items.length) { if (S.ent.autoSelect) { S.ent.autoSelect = false; select(0); } else drawDetail(null); }
+      else if (reset && S.ent.items.length) { if (S.ent.autoSelect || film) { S.ent.autoSelect = false; select(0); } else drawDetail(null); }       // filmová rozložení nemají seznam, ve kterém by šlo klikat: otevře se první řádek
       else if (reset) drawDetail(null);
     } catch (err) { fail(err); S.ent.more?.replaceChildren(h('div', { class: 'notice bad' }, err.message)); }
     finally { S.ent.loading = false; }
@@ -1360,13 +1464,37 @@ async function viewEntries() {
     requestAnimationFrame(center);
     return strip;
   }
+  /* Filmová rozložení nemají seznam řádků, takže hledání nebo filtr potřebuje vlastní způsob, jak se mezi nálezy pohybovat: „Výsledek 3 z 16“,
+     předchozí / další a seznam všech nálezů k výběru. Ukáže se, jen když řádky něco zužuje (hledaný text, soubor, typ řádku, druh, kontrola). */
+  function resultsBar() {
+    const e = pref('entries', {});
+    if (!(e.q || e.file || e.unit || e.kind || e.issues) || S.ent.total < 2) return null;
+    const wrap = h('div', { class: 'resbar' });
+    const list = h('div', { class: 'reslist' });
+    const paintList = () => {
+      list.replaceChildren(...S.ent.items.map((it, i) => h('div', { class: 'resrow st-' + it.status + (i === S.ent.sel ? ' cur' : ''), onclick: () => select(i) },
+        h('span', { class: 'num muted' }, it.line), h('span', { class: 'who' }, speakerBadge(it.who)),
+        h('span', { class: 'txt' }, fmtText(it.source ?? '')), h('span', { class: 'txt' }, it.status === 'todo' ? h('span', { class: 'muted' }, '–') : fmtText(it.target)))),
+        S.ent.start + S.ent.items.length < S.ent.total ? h('button', { class: 'btn small', onclick: async () => { await load(false); paintList(); } }, 'Načíst další') : null);
+      requestAnimationFrame(() => list.querySelector('.cur')?.scrollIntoView({ block: 'nearest' }));
+    };
+    const open = () => !!pref('ui.resOpen', false);
+    const toggle = h('button', { class: 'btn small', onclick: () => { setPref('ui.resOpen', !open()); list.hidden = !open(); toggle.textContent = open() ? 'Skrýt seznam' : 'Zobrazit seznam'; if (open()) paintList(); } }, open() ? 'Skrýt seznam' : 'Zobrazit seznam');
+    list.hidden = !open();
+    if (open()) paintList();
+    wrap.append(h('span', null, `Výsledek ${fmtN(S.ent.start + S.ent.sel + 1)} z ${fmtN(S.ent.total)}`),
+      h('button', { class: 'btn small icon', title: 'Předchozí řádek (←)', onclick: () => select(S.ent.sel - 1) }, '←'),
+      h('button', { class: 'btn small icon', title: 'Další řádek (→)', onclick: () => select(S.ent.sel + 1) }, '→'),
+      toggle, h('span', { class: 'muted' }, [e.q ? `Hledání: „${e.q}“` : '', e.file ? `Soubor: ${e.file.split(/[\\/]/).pop()}` : ''].filter(Boolean).join(' · ')), list);
+    return wrap;
+  }
   function layoutParts(d, ed, pair, tabsFn) {
     if (COMPANION) {
       S.compDraft = (t) => { if (!S.compEditor) { ed.ta.value = t; ed.ta.dispatchEvent(new Event('draft')); } };
       const editor = S.compEditor ? pair : null;
       return (S.compFull ? [inPane(gamePreview(d, ed.ta)), editor] : [editor, tabsFn()]).filter(Boolean);
     }
-    if (film) return [inPane(gamePreview(d, ed.ta)), pair, fileStrip(d), filmStrip(d), ...(S.quick === 'proof' ? [proofPane(d)] : S.quick ? [] : [tabsFn()])];
+    if (film) return [resultsBar(), inPane(gamePreview(d, ed.ta)), pair, fileStrip(d), filmStrip(d), quickMenu(d), ...(S.quick === 'proof' ? [proofPane(d)] : S.quick ? [] : [tabsFn()])];
     if (S.companionOpen && pref('ui.slimMain', true)) {
       return [pair, h('div', { class: 'slimnote muted' }, 'Scéna, kontrola, korektura a další záložky jsou v druhém okně. ',
         h('button', { class: 'btn small ghost', onclick: () => { setPref('ui.slimMain', false); drawDetail(S.ent.detail); } }, 'Ukázat je i tady'))];
@@ -1410,12 +1538,51 @@ async function viewEntries() {
   const scriptPane = (d) => h('div', null,
       h('div', { class: 'ctx' }, 'Blok: ', h('b', { class: 'mono' }, d.block), d.who ? ['  ·  mluvčí: ', h('b', { class: 'mono' }, speakerFull(d.who))] : null, d.src_line ? `  ·  originál na řádku ${d.src_line}` : null),
     scriptContext(d));
+  /* Menu, do kterého řádek patří (čte se ze skriptu hry): otázka nebo řádky řečené před ním, všechny volby s překlady a první řádky po každé
+     volbě, protože co volba znamená, je to, co po ní následuje. Otevřený řádek je označený; kliknutí na libovolný řádek na něj skočí. */
+  const menuFor = (file, line) => ((S.menuCache ||= new Map()).has(file + '\t' + line) ? S.menuCache.get(file + '\t' + line)
+    : (S.menuCache.set(file + '\t' + line, get('entry/menu', { file, line }).catch((e) => ({ available: false, reason: e.message }))), S.menuCache.get(file + '\t' + line)));
+  /* Totéž v rychlém překládání a korektuře: pod filmovým pásem, jen když řádek patří k menu. */
+  function quickMenu(d) {
+    const box = h('details', { class: 'quickmenu', hidden: true, open: true }, h('summary', null, 'Menu'));
+    if (d.ref) menuFor(d.file, d.line).then((r) => { if (r.available && box.isConnected !== false) { box.append(menuBox(d)); box.hidden = false; } });
+    return box;
+  }
+  function menuBox(d) {
+    const box = h('div', { class: 'menubox' });
+    box.append(loading());
+    const textOf = (e) => (e.status === 'todo' ? h('span', { class: 'muted' }, 'nepřeloženo') : fmtText(e.target));
+    const sayRow = (x, cls) => x.entry
+      ? h('div', { class: 'mline ' + cls + (x.here ? ' cur' : ''), onclick: () => goLine(x.entry.file, x.entry.line) },
+        h('div', { class: 'mwho' }, speakerBadge(x.entry.who), h('b', null, speakerLabel(x.entry.who) || '—'), x.here ? ' ' : null, x.here ? h('span', { class: 'mhere' }, 'tento řádek') : null),
+        h('div', { class: 'mtxt' }, textOf(x.entry)), h('div', { class: 'msrc muted' }, fmtText(x.entry.source ?? '')))
+      : h('div', { class: 'mline ' + cls + ' muted mono' }, x.script);
+    menuFor(d.file, d.line).then((r) => {
+      if (!r.available) return box.replaceChildren(h('div', { class: 'muted' }, r.reason));
+      const parts = [];
+      if (r.question.length) parts.push(h('h4', null, 'Otázka'), ...r.question.map((x) => sayRow(x, 'q')));
+      else if (r.before.length) parts.push(h('h4', null, 'Řečeno před menu'), ...r.before.map((x) => sayRow(x, 'q')));
+      parts.push(h('h4', null, 'Volby'));
+      for (const o of r.options) {
+        parts.push(h('div', { class: 'mopt' + (o.current ? ' cur' : '') },
+          h('div', { class: 'mline mchoice', onclick: o.entry ? () => goLine(o.entry.file, o.entry.line) : null },
+            h('div', { class: 'mwho' }, h('span', { class: 'chip choice' }, 'Volba'), o.cond ? h('span', { class: 'chip', title: o.cond }, `podmínka: ${o.cond}`) : null, o.current ? h('span', { class: 'mhere' }, 'tento řádek') : null),
+            h('div', { class: 'mtxt' }, o.entry ? textOf(o.entry) : h('span', { class: 'muted' }, '(v překladu nenalezeno)')),
+            h('div', { class: 'msrc muted' }, fmtText(o.text))),
+          !o.after.length && o.body?.length ? h('div', { class: 'mbody' }, h('div', { class: 'muted' }, 'Žádný dialog nenásleduje, skript pokračuje:'), h('pre', { class: 'ctxcode' }, o.body.join('\n'))) : null,
+          o.after.length ? h('div', { class: 'mafter' }, h('div', { class: 'mafterhead muted' }, 'potom:'), ...o.after.map((x) => sayRow(x, 'after'))) : null));
+      }
+      box.replaceChildren(h('div', { class: 'muted mono', style: { fontSize: '12px' } }, 'Skript hry: ', r.script), ...parts);
+    }).catch((e) => box.replaceChildren(h('div', { class: 'notice bad' }, e.message)));
+    return box;
+  }
   function detailTabs(d, ed) {
     const nIssues = d.issues.filter((x) => !x.ignored).length;
     const needsEditor = new Set(['memory', 'history']);
     const defs0 = [
       ['check', nIssues ? `Kontrola (${nIssues})` : 'Kontrola', () => issuesPane(d)],
       ['proof', 'Korektura', () => proofPane(d)],
+      ...(d.unit === 'string' && d.ref ? [['menu', 'Menu', () => inPane(menuBox(d))]] : []),
       ['scene', 'Scéna', () => h('div', null, inPane(gamePreview(d, ed.ta)), inPane(sceneBox(d)))],
       ['memory', 'Paměť', () => inPane(memoryPanel(d, ed.ta, ed.insert))],
       ['history', 'Historie', () => inPane(historyPanel(d, ed.ta))],
@@ -1423,6 +1590,7 @@ async function viewEntries() {
     ];
     const defs = (COMPANION && !S.compEditor ? defs0.filter(([k]) => !needsEditor.has(k)) : defs0).filter(([k]) => !(film && k === 'scene'));
     let cur = pref('ui.detailTab', nIssues ? 'check' : 'scene');
+    if (d.unit === 'string' && cur === 'scene' && defs.some(([k]) => k === 'menu')) cur = 'menu';       // volba se čte spolu s menu, ne se scénou
     if (!defs.some(([k]) => k === cur)) cur = defs[0][0];
     const bar = h('div', { class: 'dtabs', role: 'tablist' }), pane = h('div', { class: 'dpane' });
     function show(k) {
@@ -1431,6 +1599,13 @@ async function viewEntries() {
       pane.replaceChildren(defs.find(([key]) => key === k)[2]());
     }
     show(cur);
+    if (d.unit !== 'string' && d.ref) {                    // řádek dialogu, který patří k menu (otázka, začátek volby, řádky před ním), má záložku taky
+      menuFor(d.file, d.line).then((r) => {
+        if (!r.available || !bar.isConnected || defs.some(([k]) => k === 'menu')) return;
+        defs.splice(Math.max(0, defs.findIndex(([k]) => k === 'scene')), 0, ['menu', 'Menu', () => inPane(menuBox(d))]);
+        show(cur);
+      });
+    }
     return h('div', { class: 'dtabswrap' }, bar, pane);
   }
   function translationEditor(d) {
@@ -2480,7 +2655,7 @@ async function viewValidation() {
   }
   root.append(h('div', { class: 'filterbar' },
       h('div', { class: 'frow' }, filterGroup('Zobrazit', modeSeg), h('span', { class: 'spacer' }), undoFix, fixAll),
-      h('div', { class: 'frow' }, search, filterGroup('Soubor', fsel), filterGroup('Druh', cat), info),
+      h('div', { class: 'frow' }, search, wordToggle('validation.word', () => { if (pref('validation.q', '')) load(true); }), filterGroup('Soubor', fsel), filterGroup('Druh', cat), info),
       h('div', { class: 'frow' }, pillsBox, h('span', { class: 'spacer' }), counter), chipsBox),
     h('p', { class: 'muted' }, 'Jeden řádek překladu = jedna položka se všemi nálezy pod sebou. Kontrola nic nepřepisuje sama; jen tlačítko ', h('b', null, 'Opravit'), ' u chyby mluvčího / atributů po tvém potvrzení zapíše opravu podle originálu do souboru (se zálohou). ', h('b', null, 'Chyba'), ' = Ren\'Py by pravděpodobně spadl nebo je rozbitá struktura skriptu. ', h('b', null, 'Varování'), ' = podezřelé, ale může být záměr (např. češtině chybí značka, text je výrazně delší). Porovnává se vždy s originálem, ne s pevnými pravidly.'), list);
   S.val.items = [];
@@ -2565,7 +2740,7 @@ async function viewValidation() {
     if (pref('validation.ignored', 'hide') === 'only') return loadIgnored();
     if (reset) { S.val.items = []; list.replaceChildren(loading()); loadLast(); }
     try {
-      const q = { severity: pref('validation.severity', ''), category: pref('validation.category', ''), file: pref('validation.file', ''), q: pref('validation.q', ''), offset: S.val.items.length, limit: 200, group: 'line' };
+      const q = { severity: pref('validation.severity', ''), category: pref('validation.category', ''), file: pref('validation.file', ''), q: pref('validation.q', ''), word: pref('validation.word', false) ? '1' : '', offset: S.val.items.length, limit: 200, group: 'line' };
       const r = await get('validation', q);
       S.val.items.push(...r.items); S.val.total = r.total; S.val.sevCounts = r.sev_counts;
       const nf = r.findings ?? r.total;
@@ -2616,7 +2791,7 @@ async function viewGlossary() {
   root.append(
     h('p', { class: 'muted' }, 'Slovník jmen. Mluvčí v souborech jsou jen zkratky (mc, de, ji…); zde jim přiřadíš celé jméno. ',
       'Zobrazení v aplikaci (Řádky, detail, okolí řádku) přepínáš vpravo: kód / celé jméno / obojí. Jméno se zapisuje automaticky po opuštění pole. Zkratky se hledají v souborech samy – nic se nevymýšlí.'),
-    h('div', { class: 'toolbar filterbar' }, filterGroup('Typ', seg), search, speakerModeSelect(() => toast('Zobrazení mluvčích změněno.', 'ok', 1500)),
+    h('div', { class: 'toolbar filterbar' }, filterGroup('Typ', seg), search, wordToggle('glossary.word', draw), speakerModeSelect(() => toast('Zobrazení mluvčích změněno.', 'ok', 1500)),
       h('button', { class: 'btn', onclick: () => addDialog() }, '+ Přidat položku (termín / jméno)'),
       h('button', { class: 'btn', title: 'Načte jména postav z characters.rpy hry', onclick: () => importDialog() }, 'Importovat z characters.rpy…'), h('span', { class: 'spacer' }), counter), body);
 
@@ -2627,7 +2802,9 @@ async function viewGlossary() {
   const stats = () => `${data.items.length} položek · bez jména: ${data.unnamed}`;
   function draw() {
     const q = (pref('glossary.q', '') || '').toLowerCase(), flt = pref('glossary.filter', 'all');
-    const rows = data.items.filter((i) => (!q || i.code.toLowerCase().includes(q) || i.name.toLowerCase().includes(q) || i.note.toLowerCase().includes(q)) &&
+    const word = pref('glossary.word', false) && q ? new RegExp('(?<![\\p{L}\\p{N}_])' + q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?![\\p{L}\\p{N}_])', 'iu') : null;
+    const has = (text) => (word ? word.test(text) : text.toLowerCase().includes(q));
+    const rows = data.items.filter((i) => (!q || has(i.code) || has(i.name) || has(i.note)) &&
       (flt === 'all' || (flt === 'unnamed' && i.type === 'speaker' && i.in_project && !i.name) || (flt === 'speaker' && i.type === 'speaker') || (flt === 'term' && i.type === 'term')));
     counter.textContent = stats();
     if (!rows.length) return body.replaceChildren(empty('Nic k zobrazení', flt === 'all' ? 'V projektu nebyli nalezeni žádní mluvčí.' : 'Změň filtr nebo hledaný text.'));
@@ -2893,8 +3070,8 @@ const ACTIONS = [
   { id: 'undo', label: 'Vrátit poslední změnu (schválení, korektura, slovník)', keys: ['Ctrl+Z'], run: () => doUndo() },
   { id: 'help', label: 'Ukázat zkratky', keys: ['?'], run: () => helpDialog() },
   ...TABS.map(([k, label], i) => ({ id: 'tab_' + k, label: `Přejít na: ${label}`, keys: [`Alt+${i + 1}`], typing: true, run: () => go(k) })),
-  { id: 'next', label: 'Řádky: další řádek', keys: ['ArrowDown', 'J'], entries: true, run: () => moveSel(1) },
-  { id: 'prev', label: 'Řádky: předchozí řádek', keys: ['ArrowUp', 'K'], entries: true, run: () => moveSel(-1) },
+  { id: 'next', label: 'Řádky: další řádek', keys: ['ArrowDown', 'ArrowRight', 'J'], entries: true, run: () => moveSel(1) },
+  { id: 'prev', label: 'Řádky: předchozí řádek', keys: ['ArrowUp', 'ArrowLeft', 'K'], entries: true, run: () => moveSel(-1) },
   { id: 'pagedown', label: 'Řádky: o stránku dolů', keys: ['PageDown'], entries: true, run: () => moveSel(15) },
   { id: 'pageup', label: 'Řádky: o stránku nahoru', keys: ['PageUp'], entries: true, run: () => moveSel(-15) },
   { id: 'first', label: 'Řádky: první řádek', keys: ['Home'], entries: true, run: () => entriesApi()?.select(0) },

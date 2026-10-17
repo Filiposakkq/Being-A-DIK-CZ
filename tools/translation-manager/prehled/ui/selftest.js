@@ -162,8 +162,14 @@
     ok('hlavní okno sdílí vybraný řádek s doprovodným oknem', (await get('focus')).seq === fo.seq && fo.seq > 0, JSON.stringify(fo));
     const pickLayout = async (label) => { clickText('#view .frow button', 'Rozložení')?.click(); await sleep(80); const it = clickText('#view .menu .menuitem', label); it?.click(); await sleep(700); return !!it; };
     ok('seznam řádků má nabídku rozložení', !!clickText('#view .frow button', 'Rozložení'), 'chybí');
+    { const wt = document.querySelector('#view .wordtoggle'); const before = wt?.getAttribute('aria-pressed'); wt?.click(); const after = wt?.getAttribute('aria-pressed'); wt?.click();
+      ok('vedle hledání je přepínač „Celé slovo“ a přepíná se', !!wt && before === 'false' && after === 'true' && wt.getAttribute('aria-pressed') === 'false', before + '/' + after); }
     ok('rozložení „Detail vpravo“ dá detail vedle seznamu', (await pickLayout('Detail vpravo')) && !!document.querySelector('#view .split.ecols'), 'beze změny');
     ok('rozložení „Scéna a filmový pás“ ukáže pás řádků a skryje tabulku', (await pickLayout('Scéna a filmový pás')) && !!document.querySelector('#view .split.film') && !!(await waitFor(() => document.querySelector('#entryDetail .filmstrip .fcard'), 4000)), 'chybí pás nebo rozložení');
+    { const box = document.querySelector('#search'); if (box) { box.value = 'o'; box.dispatchEvent(new Event('input')); }         // hledání ve filmovém rozložení otevře první nález a ukáže lištu výsledků
+      ok('ve filmovém rozložení je při hledání lišta „Výsledek n z m“', !!(await waitFor(() => document.querySelector('#entryDetail .resbar'), 8000)) && /Výsledek \d+ z \d+/.test(document.querySelector('#entryDetail .resbar')?.textContent || ''), document.querySelector('#entryDetail .resbar')?.textContent || 'chybí lišta');
+      ok('po hledání ve filmovém rozložení se otevře první řádek', !!document.querySelector('#entryDetail .filmstrip .fcard.cur'), 'detail zůstal prázdný');
+      if (box) { box.value = ''; box.dispatchEvent(new Event('input')); await sleep(900); } }
     ok('filmový pás ukazuje aktuální řádek', !!document.querySelector('#entryDetail .filmstrip .fcard.cur'), 'chybí zvýrazněná karta');
     ok('pruh souboru ukazuje zvlášť přeloženo a zkontrolováno', !!(await waitFor(() => /Přeloženo \d+ %/.test(document.querySelector('#entryDetail .filestrip')?.textContent || '') && /Zkontrolováno \d+ %/.test(document.querySelector('#entryDetail .filestrip')?.textContent || ''), 4000)), document.querySelector('#entryDetail .filestrip')?.textContent || 'chybí pruh');
     ok('pruh souboru má skoky na další nepřeložený / nezkontrolovaný / příliš dlouhý', ['Další nepřeložený', 'Další nezkontrolovaný', 'Další, co se nevejde'].every((t) => [...document.querySelectorAll('#entryDetail .filestrip button')].some((b) => b.textContent === t)), 'chybí tlačítka');

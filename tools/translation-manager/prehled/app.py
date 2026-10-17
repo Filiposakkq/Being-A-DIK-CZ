@@ -4,6 +4,7 @@ import os
 import bisect
 import re
 import shutil
+import textwrap
 import threading
 import urllib.parse
 import webbrowser
@@ -11,15 +12,15 @@ from dataclasses import replace
 from datetime import date, datetime
 from pathlib import Path
 
-from . import (__version__, bulk, editor, export, fixes, fontmetrics, gameimages, history as hist, lint, memory, mt, publish as pub, rpy, snapshots,
-               spelling, textedit, texthistory, validator)
+from . import (__version__, bulk, editor, export, fixes, fontmetrics, gameimages, history as hist, lint, memory, menus, missed, mt, publish as pub, rpy,
+               snapshots, spelling, textedit, texthistory, validator)
 from .config import Config, migrate_web_json
 from .lock import ProjectLock, ProjectLocked
 from .project import (DATA_DIR_NAME, STATUS_LABELS, STATUS_ORDER, Project, ProjectUnavailable,
                       check_project_dir, file_status, totals_of)
 from .seasons import ACTIVE_EPISODES, SEASONS
 from .store import EP_STATES, GLOSSARY_TYPES, Store, parse_value, text_hash, valid_assign
-from .util import WriteFailed, norm_ws, write_csv
+from .util import WriteFailed, norm_ws, text_matcher, write_csv
 
 # Files the legacy tool left next to the script; moved into _progress_data on first open.
 LEGACY_FILES = ("web.json", "progress.csv", "historie.csv", "korekce.csv", "epizody.csv",
@@ -372,11 +373,12 @@ class App:
             per_file.setdefault(rel, {"error": 0, "warning": 0, "info": 0})["error"] += 1
         return counts, per_file
 
-    def validation_list(self, severity="", category="", file="", q="", offset=0, limit=200, ignored="hide", group=""):
+    def validation_list(self, severity="", category="", file="", q="", offset=0, limit=200, ignored="hide", group="", word=False):
         """Findings. ignored: "hide" (default) | "only" (just the ignored ones) | "all".
         group="line": one item per line with all its (matching) findings in `issues`; total counts lines."""
         self._need_project()
         out = []
+        match = text_matcher(q, word)
         show_info = self.config.get("validation.show_info", False)
         enabled = self.config.get("validation.enabled", True)
         sev_counts = {"error": 0, "warning": 0, "info": 0}     # for the filter pills: every filter except the severity
@@ -391,7 +393,7 @@ class App:
             for (line, iss, e), is_ign in rows:
                 if category and iss.category != category:
                     continue
-                if q and q.lower() not in (iss.message + " " + rel + " " + (e.target if e else "")).lower():
+                if match and not match(iss.message + " " + rel + " " + (e.target if e else "")):
                     continue
                 sev_counts[iss.severity] += 1
                 if severity and iss.severity != severity:
@@ -521,11 +523,11 @@ class App:
         return status
 
     def entries(self, file="", status="all", kind="", q="", issues="", sort="line", offset=0, limit=200, around=0,
-                unit=""):
+                unit="", word=False):
         """Paged, filtered list of translation units (server side, so 45k lines stay fast)."""
         self._need_project()
         limit = max(1, min(int(limit), PAGE_LIMIT))
-        ql = q.strip().lower()
+        match = text_matcher(q, word)
         files = [file] if file else sorted(self.project.files, key=str.lower)
         if file and file not in self.project.files:
             raise AppError("Neznámý soubor.")
@@ -558,9 +560,8 @@ class App:
                     continue
                 if issues == "overflow" and not any(i.code == "textbox-overflow" for i in iss):
                     continue
-                if ql and ql not in (e.target or "").lower() and ql not in (e.source or "").lower() \
-                        and ql not in e.who.lower() and ql not in rel.lower() \
-                        and ql not in self.store.glossary.get(self.speaker_code(e.who), {}).get("n", "").lower():
+                if match and not (match(e.target) or match(e.source) or match(e.who) or match(rel)
+                                  or match(self.store.glossary.get(self.speaker_code(e.who), {}).get("n", ""))):
                     continue
                 for k, v in member.items():            # counts for the status pills: every filter except the status itself
                     if v:
@@ -1000,6 +1001,134 @@ class App:
             if parent.name.lower() == "game":
                 return parent.parent
         return None
+
+    def entry_menu(self, rel, line):
+        """Menu, do kterého volba (nebo řádek dialogu kolem menu) patří: otázka nebo řádky před menu, všechny volby s překladem a co po volbě
+        následuje (čte se ze skriptu hry). {available: False, reason} když to není součást menu, které umíme přečíst."""
+        self._need_project()
+        if rel not in self.project.files:
+            raise AppError("Neznámý soubor.")
+        ent = next((e for e in self.project.entries(rel) if e.line == line), None)
+        if ent is None:
+            raise AppError("Řádek už v souboru není – obnov soubory.")
+        m = re.match(r"^(game/.+?):(\d+)$", ent.ref or "")
+        base = self._game_root()
+        if not m or base is None:
+            return {"available": False, "reason": "Řádek nemá zaznamenanou pozici ve skriptu hry."}
+        path = (base / m.group(1)).resolve()
+        if base.resolve() not in path.parents or path.suffix.lower() not in (".rpy", ".rpym"):
+            return {"available": False, "reason": "Neplatná cesta ke skriptu."}
+        try:
+            if path.stat().st_size > 8 * 1024 * 1024:
+                return {"available": False, "reason": "Skript je příliš velký."}
+            lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            return {"available": False, "reason": f"Skript {m.group(1)} se nenašel (jsou po ruce jen soubory .rpyc?)."}
+        found = menus.menu_around(lines, int(m.group(2)), ent.source if ent.unit == "string" else None)
+        if found is None:
+            return {"available": False, "reason": "Tento řádek není součástí menu ve skriptu hry."}
+        by_ref, by_text = {}, {}
+        for r, fi in self.project.files.items():
+            for e in fi.parsed.entries:
+                if e.unit == "string":
+                    if e.source is not None:
+                        by_text.setdefault(norm_ws(e.source), (r, e))
+                elif e.ref:
+                    by_ref[e.ref] = (r, e)
+
+        def row(r, e):
+            return {"file": r, "line": e.line, "who": e.who, "source": e.source, "target": e.target, "status": self._entry_row(r, e)}
+
+        def say(n):
+            hit = by_ref.get(f"{m.group(1)}:{n}")
+            return {"n": n, "entry": row(*hit) if hit else None, "script": "" if hit else lines[n - 1].strip(),
+                    "here": n == int(m.group(2)) and ent.unit != "string"}
+
+        opts = []
+        for k, o in enumerate(found["options"]):
+            hit = by_text.get(norm_ws(o["text"]))
+            opts.append({"n": o["n"], "text": o["text"], "cond": o["cond"], "current": k == found["current"],
+                         "entry": row(*hit) if hit else None, "after": [say(n) for n in o["after"]],
+                         "body": [] if o["after"] else textwrap.dedent(chr(10).join(o["body"])).splitlines()})
+        return {"available": True, "script": f"{m.group(1)}:{found['menu_line']}", "question": [say(n) for n in found["question"]],
+                "before": [say(n) for n in found["before"]], "options": opts}
+
+    # ------------------------------------------------------------ texts the generator missed (see missed.py)
+    def _script_folder(self):
+        """Složka se skripty hry (.rpy mimo tl): <game>/ pro překlad v <game>/tl/<jazyk>."""
+        base = self._game_root()
+        game = base / "game" if base is not None else None
+        return game if game is not None and game.is_dir() and missed.has_scripts(game) else None
+
+    def missed_scan(self, level="likely"):
+        """Hledá ve skriptech hry texty, které překlad nemá. Nic nemění. level: 'likely' (výchozí) nebo 'all' (přidá slabší tipy)."""
+        self._need_project()
+        settings = missed.load_settings(self.data_dir)
+        folder = self._script_folder()
+        if folder is None:
+            return {"items": [], "truncated": False, "folder": "", "counts": {"likely": 0, "maybe": 0}, "settings": settings,
+                    "message": "Skripty hry (.rpy) se vedle překladu nenašly. Hru nejdřív rozbal a dekompiluj."}
+        strings, dialogue, places = missed.known_texts(self.project.root)
+        res = missed.find_missed(folder, strings, dialogue, places, limit=2000 if level == "all" else 100000,
+                                 functions=settings["functions"], ignored=settings["ignored"])
+        items = res["items"]
+        counts = {"likely": sum(1 for i in items if i["level"] == "likely"), "maybe": sum(1 for i in items if i["level"] != "likely")}
+        if level != "all":
+            items = [i for i in items if i["level"] == "likely"]
+        return {"items": items, "truncated": res["truncated"], "folder": str(folder), "counts": counts, "settings": settings, "message": ""}
+
+    def missed_functions(self):
+        """Funkce hry volané stále dokola s textem (kandidáti na seznam funkcí, které ukazují text)."""
+        self._need_project()
+        folder = self._script_folder()
+        settings = missed.load_settings(self.data_dir)
+        if folder is None:
+            return {"suggested": [], "settings": settings}
+        strings = missed.known_strings(self.project.root)
+        return {"suggested": missed.suggest_functions(folder, strings, settings["functions"], settings["ignored"]), "settings": settings}
+
+    def _save_missed_settings(self, functions, ignored):
+        try:
+            return missed.save_settings(self.data_dir, functions, ignored)
+        except (WriteFailed, OSError) as e:
+            raise AppError(f"Nastavení hledání se nepodařilo uložit: {getattr(e, 'reason', e)}") from e
+
+    def missed_settings(self, functions):
+        """Nastaví vlastní funkce projektu, které ukazují text (třeba `notify` nebo `ui.popup`); ignorované texty zůstanou."""
+        self._need_project()
+        cur = missed.load_settings(self.data_dir)
+        names = [str(f).strip() for f in (functions or []) if str(f).strip()]
+        return self._save_missed_settings(names, cur["ignored"])
+
+    def missed_ignore(self, texts, clear=False):
+        """Vynechá tyto texty ze seznamu natrvalo (projekt si je pamatuje v missed.json); `clear` zapomene všechny."""
+        self._need_project()
+        cur = missed.load_settings(self.data_dir)
+        if clear:
+            return self._save_missed_settings(cur["functions"], [])
+        new = [str(t) for t in (texts or []) if str(t).strip()]
+        if not new:
+            raise AppError("Nic nebylo vybráno.")
+        return self._save_missed_settings(cur["functions"], list(cur["ignored"]) + new)
+
+    def missed_add(self, items, into_files=False):
+        """Zapíše vybrané texty do <složka překladu>/extra_strings.rpy (nepřeložené, takže se objeví jako řádky k překladu) a načte soubory znovu.
+        `into_files` (experimentální): každý text dá do překladového souboru jeho vlastního skriptu."""
+        self._need_project()
+        chosen = [{"text": str(i.get("text", "")), "file": str(i.get("file", "")), "line": int(i.get("line", 0) or 0)}
+                  for i in (items or []) if isinstance(i, dict) and str(i.get("text", "")).strip()]
+        if not chosen:
+            raise AppError("Nic nebylo vybráno.")
+        with self.lock:
+            self._snapshot("bulk")
+            try:
+                res = missed.write_strings(self.project.root, Path(self.project.root).name, chosen, self.data_dir / "backups", bool(into_files))
+            except WriteFailed as e:
+                raise AppError(f"Soubor s řetězci se nepodařilo zapsat: {e.reason}") from e
+            self.refresh(force=True)
+            n = res["added"]
+            res["message"] = f"Do překladových souborů {'byl přidán' if n == 1 else 'byly přidány'} {n} {'text' if n == 1 else 'texty' if 2 <= n <= 4 else 'textů'}."
+            return res
 
     def entry_context(self, rel, line, radius=6):
         """The original game script around the line this translation unit comes from (read-only)."""
