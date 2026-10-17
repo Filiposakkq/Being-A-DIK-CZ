@@ -125,3 +125,18 @@ def read_rows(path):
     delim = ";" if first.count(";") > first.count(",") else ","
     # parse the whole text (not line by line) so quoted fields may contain line breaks (notes)
     return [r for r in csv.reader(io.StringIO(text, newline=""), delimiter=delim) if r]
+
+
+def text_matcher(query, whole=False):
+    """Funkce text -> bool pro vyhledávací pole: hledaný text kdekoli (na velikosti písmen nezáleží), nebo s `whole` jen jako celé slovo
+    (`Sage` najde „Sage,“ a „Sage's“, ale ne „Massage“). None pro prázdný dotaz."""
+    q = (query or "").strip()
+    if not q:
+        return None
+    if not whole:
+        low = q.lower()
+        return lambda text: low in (text or "").lower()
+    import re
+    rx = re.compile(r"(?<!\w)" + re.escape(q) + r"(?!\w)", re.IGNORECASE)
+    return lambda text: bool(rx.search(text or ""))
+

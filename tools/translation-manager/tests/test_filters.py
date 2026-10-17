@@ -3,6 +3,8 @@ import unittest
 
 from helpers import TempCase, dialog
 
+from prehled import util
+
 
 class GroupedFindingsTests(TempCase):
     def setUp(self):
@@ -76,6 +78,35 @@ class StatusCountsTests(TempCase):
         c = self.app.entries()["counts"]
         self.assertEqual((c["review"], c["proofed"]), (1, 1))
 
+
+
+class WholeWordSearchTests(TempCase):
+    def setUp(self):
+        super().setUp()
+        self.write("script.rpy", dialog("a1", "mc", "Sage, was it?", "Sage, že jo?", 5)
+                   + dialog("a2", "mc", "A relaxing massage.", "Uvolňující masáž.", 9)
+                   + dialog("a3", "mc", "Sage's idea.", "Sageův nápad.", 14))
+        self.app = self.new_app()
+
+    def lines(self, **kw):
+        return [e["line"] for e in self.app.entries(status="all", **kw)["items"]]
+
+    def test_the_search_finds_text_inside_words_unless_whole_words_are_asked_for(self):
+        self.assertEqual(len(self.lines(q="sage")), 3)                      # "massage" matches inside the word
+        self.assertEqual(len(self.lines(q="sage", word=True)), 2)           # not "massage"; "Sage," and "Sage's" are whole words
+        self.assertEqual(len(self.lines(q="MASSAGE", word=True)), 1)        # case does not matter
+
+    def test_the_matcher(self):
+        m = util.text_matcher("sage", True)
+        self.assertTrue(m("Sage, was it?") and m("a sage.") and m("Sage's"))
+        self.assertFalse(m("Massage") or m("sages") or m("sage_x") or m(None))
+        self.assertIsNone(util.text_matcher("  ", True))
+        self.assertTrue(util.text_matcher("a.b", True)("x a.b y"))           # the query is text, not a pattern
+        self.assertFalse(util.text_matcher("a.b", True)("x axb y"))
+        self.assertTrue(util.text_matcher("masáž", True)("Uvolňující masáž."))   # letters with diacritics count as letters
+
+    def test_the_validation_search_has_the_option_too(self):
+        self.assertGreaterEqual(self.app.validation_list(q="sage", word=False)["total"], self.app.validation_list(q="sage", word=True)["total"])
 
 if __name__ == "__main__":
     unittest.main()
